@@ -121,6 +121,10 @@ infosec_scan_tmp/
 .DS_Store
 
 docs/
+# Keep the migration plan while ignoring generated documentation.
+!/docs/
+/docs/*
+!/docs/migracao-go/
 package-lock.json
 .vagrant/
 # `dist` (above) excludes the whole directory, so git won't descend into it and
