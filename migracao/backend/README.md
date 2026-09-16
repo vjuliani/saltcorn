@@ -2,7 +2,7 @@
 
 Módulo Go da migração ([docs/migracao-go/](../../docs/migracao-go/)). Implementa a estrutura definida em [ADR-0001](../../docs/migracao-go/adr/0001-backend-go-cqrs.md): monólito modular com CQRS lógico, três executáveis (`server`, `worker`, `cli`) reutilizando os mesmos serviços internos.
 
-**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008). Ainda sem tabelas de domínio dinâmicas nem API pública completa — metadados/schema (GO-011) e o restante do domínio entram nas tarefas seguintes, sobre esta mesma base.
+**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009). Ainda sem tabelas de domínio dinâmicas nem API pública completa — metadados/schema (GO-011) e o restante do domínio entram nas tarefas seguintes, sobre esta mesma base.
 
 ## Estrutura
 
@@ -10,7 +10,9 @@ Módulo Go da migração ([docs/migracao-go/](../../docs/migracao-go/)). Impleme
 cmd/
   server/   processo HTTP — health/readiness (GO-005) + rota de exemplo com tenancy (GO-007)
             + verificação real de identidade delegada quando configurada (GO-008)
+            + guarda de ownership de escrita na rota de exemplo (GO-009)
   worker/   processo de background — loop periódico (GO-005) + jobs por tenant (GO-007)
+            + guarda de ownership de escrita no job placeholder (GO-009)
   cli/      linha de comando (paridade com o saltcorn-cli atual, gradual)
 internal/
   identity/  hash de senha (bcrypt), papéis, ownership por campo, tokens de
@@ -27,6 +29,9 @@ internal/
                sob reuso de conexão (GO-007); WithTenantAndActor também define
                os GUCs de ator/papel que as políticas de RLS nativa consultam
                (GO-008)
+    cutover/   registro de ownership de escrita por tenant/capacidade e guarda
+               de admissão/drenagem para o corte gradual entre backend
+               legado e Go (GO-009, ADR-0008)
 ```
 
 Dependências externas mínimas e pinadas a versões compatíveis com Go 1.22 (a mais recente de cada uma frequentemente já exige Go 1.24+): `github.com/jackc/pgx/v5` (driver Postgres), `github.com/golang-jwt/jwt/v5` (verificação de assinatura do token de identidade delegada), `golang.org/x/crypto` (bcrypt) e `github.com/pquerna/otp` (TOTP/MFA, RFC 6238). `go.mod` fixa a toolchain em `go 1.22`.
@@ -151,6 +156,35 @@ Tabelas de framework (`_sc_users`, `_sc_api_tokens`) são criadas por `identity.
 `internal/platform/tenancy.Verifier` substitui o `jwt.ParseUnverified` de GO-007 por verificação real de assinatura HS256 (`jwt.ParseWithClaims` + `jwt.WithValidMethods([]string{"HS256"})`, que bloqueia ataques de confusão de algoritmo como `"alg": "none"`) e exige a claim `exp` (`jwt.WithExpirationRequired()`). O segredo vem de `SALTCORN_GO_SERVICE_IDENTITY_SECRET` (ver tabela de configuração acima); sem ele, a rota que depende de tenancy simplesmente não é registrada.
 
 Sessão/cookies do BFF (Node.js, ainda não implementado — GO-017) são **definidos**, não implementados, em [ADR-0007](../../docs/migracao-go/adr/0007-sessao-cookies-bff.md): o backend Go nunca recebe cookie de sessão, só o token de identidade delegada de vida curta descrito acima (ADR-0003).
+
+## Ownership de escrita e corte gradual (GO-009)
+
+`internal/platform/cutover` implementa o registro de ownership de escrita por tenant/capacidade e a guarda de admissão/drenagem que qualquer caminho de escrita do backend Go deve consultar antes de agir — a decisão de design completa (o que é implementado aqui vs. o que é infraestrutura de borda fora de escopo) está em [ADR-0008](../../docs/migracao-go/adr/0008-roteamento-de-corte-e-ownership.md).
+
+- **Registro persistido** (`_sc_capability_ownership`, schema `public` — metadado de controle, não dado de um tenant): `(tenant, capability) → owner ∈ {go, legacy}`. Sem linha registrada, o owner é `legacy` — padrão seguro (ADR-0006): nada é servido por Go sem uma decisão explícita de corte.
+- **`cutover.Guard`**: cache em memória do owner corrente por chave, resetável — diferente de `shutdown.Tracker` (que drena uma única vez, de forma permanente, para encerrar o processo), `Guard` precisa drenar e voltar a aceitar trabalho repetidamente, uma vez por troca de rota.
+- **`cutover.LoadFromRegistry(ctx, db, guard)`**: carrega o registro persistido no cache no boot — chamado por `cmd/server` e `cmd/worker` antes de aceitar requisições/jobs. Sem isso (ou sem a tabela existir ainda), a Guard fica vazia e trata tudo como "não é Go" (aviso, não erro fatal).
+- **`cutover.SwitchOwner(ctx, db, guard, tenant, capability, novoOwner, drainTimeout)`**: a única forma sancionada de trocar ownership — drena trabalho em curso, só então persiste o novo owner, só então libera admissão nova. Usada tanto para cortar uma capacidade para Go quanto para o rollback (voltar para legacy).
+- **`cutover.Acquire(guard, tenant, capability)`**: o ponto de entrada único que qualquer rota HTTP (via `cutover.RequireOwnership`, aplicado depois de `tenancy.Middleware` — nunca lê headers, só o tenant já verificado do contexto) ou job de background deve chamar antes de agir. "Bloquear caminhos alternativos, inclusive jobs" (critério de aceite de GO-009) é a mesma checagem reutilizada nos dois lugares, não duas implementações que podem divergir — ver o wiring em `cmd/server/main.go` e `cmd/worker/main.go`.
+
+Para exercitar a rota de exemplo localmente (`GET /v1/tenants/{tenant}/tables/{table}/records`, que agora também exige ownership), crie a tabela e registre um corte antes de iniciar `cmd/server`:
+
+```bash
+PGPASSWORD=postgres psql -h 127.0.0.1 -p 55556 -U postgres -d saltcorn_test <<'SQL'
+CREATE TABLE IF NOT EXISTS _sc_capability_ownership (
+    tenant text NOT NULL,
+    capability text NOT NULL,
+    owner text NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (tenant, capability)
+);
+INSERT INTO _sc_capability_ownership (tenant, capability, owner)
+VALUES ('acme', 'tables.records', 'go')
+ON CONFLICT (tenant, capability) DO UPDATE SET owner = EXCLUDED.owner;
+SQL
+```
+
+Sem essa linha, a rota responde `409 route_mismatch` mesmo com um token de identidade delegada válido — o comportamento correto, não um bug: nenhuma tenant/capacidade é servida por Go sem registro explícito.
 
 ## Encerramento gracioso
 
