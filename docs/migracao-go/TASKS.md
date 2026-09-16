@@ -112,7 +112,7 @@ Execute a task GO-004 — Prototipar compatibilidade de extensões e expressões
 
 ### GO-005 — Criar fundação Go e pipeline
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — código em [migracao/backend/](../../migracao/backend/); histórico em [execucoes/GO-005.md](execucoes/GO-005.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Plataforma
 - **Depende de:** GO-003
