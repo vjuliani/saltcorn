@@ -1,0 +1,151 @@
+# GO-001 — Matriz de capacidades e aplicações
+
+Relaciona-se à tarefa [GO-001](../TASKS.md#go-001--inventariar-capacidades-e-aplicações) e ao [plano de arquitetura](../README.md). Histórico de execução em [execucoes/GO-001.md](../execucoes/GO-001.md).
+
+**Commit analisado:** `86618696907` (local, branch `task/go-001`; base `master` publicada em `origin/master` no commit `1f84081557795178733a738274aeecbbae570642`).
+**Metodologia:** leitura direta de código-fonte e busca dirigida (grep/leitura de arquivos) por área — rotas/autenticação, modelos/persistência, plugins/expressões/automação/mobile, e views/builder/tema/fixtures. Amostragem estática, sem execução de suíte de testes nesta tarefa (a rotina de baseline comportamental é o escopo de GO-002). Não equivale a auditoria integral de segurança ou desempenho.
+**Limitações e lacunas conhecidas:** a feature de Machine Learning (`models/model.ts`, `model_instance.ts`, rotas `models.ts`) não foi investigada em profundidade — destino "a investigar" abaixo. Autenticação SAML é citada em código (`/auth/callback/saml`) mas não foi detalhada. Volume de dados, SLOs e inventário de plugins de terceiros instalados em produção não existem neste checkout (ver README, premissas de fase 0) — esta matriz cobre apenas as capacidades nativas do monorepo.
+
+## 1. Legenda de destino
+
+| Rótulo | Significado |
+| --- | --- |
+| **Go nativo** | Reimplementação no backend Go é viável sem depender de runtime JavaScript; lógica é dados/algoritmo/DB, não código de usuário arbitrário. |
+| **BFF Node.js** | Capacidade pertence à camada de sessão/composição de tela e permanece no BFF Node.js por decisão de arquitetura (README §"BFF"), não migra para Go. |
+| **Frontend React** | Capacidade é de interface e migra para o novo frontend React + SB Admin 2 (GO-018/019/020/021), consumindo o BFF. |
+| **Bridge Node temporário** | Depende de execução de JavaScript arbitrário (plugins, expressões) e precisa do host JS temporário (GO-022) até paridade ou retirada. |
+| **Bloqueador** | Sem solução native Go conhecida no momento; exige decisão de arquitetura própria (ADR) antes de comprometer prazo. |
+| **A investigar** | Não coberto com profundidade suficiente nesta rodada; requer levantamento adicional antes de classificar. |
+
+## 2. Matriz de capacidades
+
+### 2.1 Identidade, sessão, autorização e tenancy
+
+| Capacidade | Código (evidência) | Aplicação/uso | Fixture disponível | Destino proposto | Observação / bloqueador |
+| --- | --- | --- | --- | --- | --- |
+| Autenticação local (usuário/senha, bcrypt) | `packages/saltcorn-data/models/user.ts:128,137` (`hashPassword`/`checkPassword`); estratégia `passport-custom` em `packages/server/app.js:317-343` | Todas | `db/fixtures.ts:403-416` (3 usuários, roles 1/40/80) | Go nativo | — |
+| Autenticação via token de API (Bearer) | `packages/server/app.js:347-372`; `models/user.ts:513-598` (`_sc_api_tokens`, multi-token) + coluna legada `users.api_token` (`user.ts:393-407`) | API pública, apps móveis | `packages/server/tests` (rotas `api.ts`) | Go nativo | Compatibilidade legada de token único precisa de decisão explícita (manter ou migrar) |
+| TOTP / MFA | `passport-totp` (`app.js:373-380`); setup/QR em `auth/routes.ts` (~2632-2700); segredo em `User._attributes` JSON | Roles com política de 2FA (`roleadmin.ts` setrole2fapolicy) | Não identificada | Go nativo | Estrutura de dados em JSON solto (`_attributes`) — considerar coluna dedicada no schema Go |
+| Login social / OAuth via plugin | `state.auth_methods` (`db/state.ts:1121`); rotas genéricas `GET/POST /auth/login-with/:method`, `/auth/callback/:method` (`auth/routes.ts:1533,1665,1783,1790`) | Depende de plugin instalado (nenhum builtin no monorepo) | Nenhuma | **Bloqueador** | Estratégia Passport arbitrária vem de plugin JS de terceiro — sem inventário de quais plugins de auth estão em uso, não é possível avaliar portabilidade |
+| Handoff de sessão para app móvel (JWT curto) | `jwt.sign/verify`, `auth/routes.ts:1697-1711` | Mobile (Capacitor) | `deploy/playwright_mobile` | Go nativo | — |
+| Sessão HTTP (cookie + store) | Postgres: `connect-pg-simple` (`packages/postgres/postgres.ts:231-244`); SQLite: `connect-sqlite3` (`packages/sqlite/sqlite.ts:546-553`) | Todas (web) | — | **BFF Node.js** | Por decisão de arquitetura (README §BFF), sessão/cookies passam a ser responsabilidade do BFF; backend Go valida identidade delegada, não gerencia cookies de navegador |
+| CSRF | `@dr.pogodin/csurf`, `packages/server/app.js:430-451`; lista de exceções ampla (bearer, mobile `/api/*`, SAML callback, share-handler) | Todas (web) | — | **BFF Node.js** | Mesma decisão acima; Go backend não deve reimplementar CSRF de navegador |
+| Rate limiting de login | `express-rate-limit`, `auth/routes.ts:60,131-155` (limitadores por IP/usuário/pending-2FA) | Login/2FA | Não identificada | Go nativo ou BFF | A decidir em GO-006/GO-008 conforme onde o endpoint de login residir |
+| Resolução de tenant (subdomínio) | `packages/server/routes/utils.ts:245-273` (`get_tenant_from_req`, `validateHostAuthority`) | Multi-tenant | `server/tests/tenant.test.js` | Go nativo | Precisa de mapeamento confiável equivalente na entrada de migração (GO-009), nunca por header arbitrário |
+| Propagação de contexto de tenant/transação | `packages/db-common/multi-tenant.ts:19-20,48-58` (`AsyncLocalStorage`) | Todas as queries/jobs | — | Go nativo | **Sem equivalente direto de `AsyncLocalStorage` em Go** — exige `context.Context` explícito em toda cadeia de chamadas (GO-007); risco de vazamento entre tenants se alguma chamada não propagar o contexto |
+| Defesa contra "tenant drift" (sessão de um tenant usada em outro) | `routes/utils.ts:68-143` (`loggedIn`, `isAdmin`, `rejectTenantDrift`); `app.js:465` | Multi-tenant | `server/tests/tenant.test.js` | Go nativo / BFF | Verificação precisa existir nos dois lados (BFF valida sessão, Go valida identidade delegada) |
+| Autorização por papel (role_id) | `models/role.ts` (tabela `_sc_roles`); checagens espalhadas em `table.ts`, `view.ts:59,72,96`, `page.ts:53,127,187` | Todas | `fixtures.ts` (roles 1/40/80) | Go nativo | Modelo simples (id+nome); enforcement é que está espalhado pelo código — portar como política central, não replicar o espalhamento |
+| Ownership por campo | `table.ts:265-270,752-769` (`ownership_field_id`) | Tabelas com dono | `fixtures.ts` | Go nativo | — |
+| Ownership por fórmula JS | `table.ts:265-270,752-769` (`ownership_formula`, avaliada via `get_expression_function`) | Tabelas com regra custom de dono | `fixtures.ts` | **Bridge Node temporário** | Depende do motor de expressões (ver §2.4); fórmulas incompatíveis bloqueiam RLS nativa (`table.ts` cai para erro) |
+| RLS nativa Postgres (políticas `CREATE POLICY`, GUC por conexão) | `table.ts:576-676,687-744` (`enableOwnershipRLS`, `withRlsUser`, `formulaToRlsUsing`) | Tabelas com `rls_enabled` em Postgres | Não identificada nos fixtures atuais | Go nativo | Alta complexidade: exige mecanismo equivalente de `SET LOCAL`/GUC por conexão dedicada e cuidado para não vazar identidade entre conexões pooled — candidato a task própria antes de GO-011/GO-015 |
+| Filtragem de leitura em JS (fallback SQLite / RLS desabilitada) | `table.ts:1167,1574,1600,1656-1738` | SQLite ou RLS off | `fixtures.ts` | Go nativo | — |
+
+### 2.2 Metadados, schema e persistência
+
+| Capacidade | Código (evidência) | Aplicação/uso | Fixture disponível | Destino proposto | Observação / bloqueador |
+| --- | --- | --- | --- | --- | --- |
+| Tabelas/campos/relações dinâmicos | `models/table.ts` (5321 linhas), `models/field.ts` (1493 linhas) | Todas | `fixtures.ts` (books/publisher, patients/readings) | Go nativo | Núcleo do produto — maior arquivo do domínio, priorizar decomposição em subtarefas ao portar (GO-011) |
+| Constraints de tabela definidas pelo usuário | `models/table_constraints.ts` (209 linhas) | Tabelas com unicidade/fórmula | `fixtures.ts` | Go nativo | — |
+| Config key/value (global e por tenant) | `models/config.ts` (2140 linhas) | Todas | — | Go nativo | Segundo maior arquivo do domínio — mapear schema de config tipado antes de portar |
+| Discovery de tabelas existentes (reverse engineering) | `models/discovery.ts` (388 linhas) | Bancos legados anexados | Não identificada | Go nativo | — |
+| Facade de banco (`db/index.ts`) | `packages/saltcorn-data/db/index.ts:41-99` | Todas | — | Go nativo | Seleção de driver e composição de exports; em Go vira injeção de interface de repositório por dialeto |
+| Adapter Postgres | `packages/postgres/postgres.ts` (pool único, cliente por transação via ALS) | Piloto (Postgres) | `fixtures.ts` roda em Postgres nos testes de CI | Go nativo | Pool de conexões em Go via `database/sql`/`pgx`; funções auxiliares de transação (`afterCommit`, `tryCatchInTransaction`) precisam de equivalente explícito |
+| Adapter SQLite | `packages/sqlite/sqlite.ts` (um arquivo por tenant, sem pool) | Fora do piloto (F5) | — | Go nativo (fase posterior) | Modelo de concorrência muito diferente do Postgres — exige duas implementações de interface, não uma abstração única ingênua |
+| Sanitização de identificadores (`sqlsanitize`/`sqlsanitizeAllowDots`) | `packages/db-common/internal.ts:37-63` | Todas as queries dinâmicas | — | Go nativo | **Crítico para segurança** — deve ser portado byte-a-byte (incl. semântica Unicode `\p{Letter}`) antes de qualquer query dinâmica em Go |
+| DSL de filtros parametrizados (`mkWhere`) | `packages/db-common/internal.ts:661-800+` | Consultas/list/filter | `fixtures.ts` | Go nativo | Operadores: `in`, `ilike`, regex, json path, sub-selects, geo — compilador de consultas de GO-012 depende deste comportamento |
+| Migrations do framework (tabelas `_sc_*`) | `packages/saltcorn-data/migrations/*.js` (83 arquivos, `migrate.ts:108-160`) | Todas | `saltcorn migrate` CLI | Go nativo | Postgres é o dialeto canônico, SQLite/MySQL derivam por tradução de string — decidir se o runner Go mantém esse padrão ou usa SQL por dialeto embutido |
+| Pack (import/export de aplicação) | `packages/saltcorn-admin-models/models/pack.ts` (1139 linhas) | Todas (via `/packs`) | `guitars_backup.zip`, `infosec-scan/targets/projman.zip` (legado) | Go nativo | Sem campo de versão explícito no pack hoje — recomendação: introduzir versionamento formal na reimplementação Go |
+| Loja remota de packs (fetch HTTP) | `pack.ts` (`fetch_available_packs`/`fetch_pack_by_name`, config `packs_store_endpoint`) | Marketplace de apps | — | Go nativo | Dependência de rede externa; sem mudança de contrato esperada |
+| Componentes de biblioteca (snippets reutilizáveis) | `models/library.ts` (216 linhas) | Builder | — | Go nativo | Resolução de slots e proteção contra ciclo de auto-referência devem ser preservadas |
+| Log de eventos / auditoria | `models/eventlog.ts` (203 linhas) | Todas | — | Go nativo | — |
+| Log de erros/crash | `models/crash.ts` (137 linhas) | Todas | — | Go nativo | — |
+| Modelo de ML (`Model`/`ModelInstance`) | `models/model.ts` (213), `model_instance.ts` (171), rota `models.ts` | Apps com plugin de data science | Não identificada | **A investigar** | Possível dependência de bibliotecas Python/JS de ML não mapeada nesta rodada |
+
+### 2.3 Views, páginas, layout e renderização
+
+| Capacidade | Código (evidência) | Aplicação/uso | Fixture disponível | Destino proposto | Observação / bloqueador |
+| --- | --- | --- | --- | --- | --- |
+| Modelo de View (config JSON, execução) | `models/view.ts` (1099 linhas) | Todas | `fixtures.ts`, `guitars_backup.zip` | Go nativo | Metadados e regra de execução migram para Go; a saída passa a ser DTO para o BFF/React, não HTML |
+| Viewtemplates nativos (List/Show/Edit/Feed/Filter/ListShowList/Room/WorkflowRoom) | `packages/saltcorn-base-plugin/viewtemplates/*.ts` (registrados em `base-plugin/index.ts:39-64`) | Todas | `guitars_backup.zip` (List/Show/Edit/Feed); `projman.zip` (Filter, legado) | Go nativo (regras) + Frontend React (renderização) | Regra/validação porta para Go; apresentação porta para componentes React (GO-020) |
+| Árvore de layout (`layout.ts`) | `models/layout.ts` (338 linhas) | Todas | — | Go nativo | Estrutura de nós (`above/besides/contents/…`) deve virar contrato de documento de layout versionado (GO-006) consumido pelo React |
+| Geração de HTML server-side (`@saltcorn/markup`) | `packages/saltcorn-markup` (tags, layout renderer, form renderer, table renderer) | Todas (rendering atual) | — | **Frontend React (substituição)** | Não é "portado" para Go — é aposentado nesta capacidade e substituído pela renderização React (GO-018/020); Go passa a emitir dados/regras, não strings HTML |
+| Tema SB Admin 2 (server-side hoje) | `packages/saltcorn-sbadmin2` (index.js compõe HTML via `@saltcorn/markup`; assets estáticos Bootstrap/jQuery/FontAwesome) | Todas | — | **Frontend React (reaproveita assets)** | Assets (CSS/fontes) reaproveitados pelo novo frontend; a composição server-side atual é candidata a retirada quando GO-018 estiver pronto |
+| Builder de views/páginas (React + Craft.js) | `packages/saltcorn-builder` (React 18, `@craftjs/core`) | Todas (admin) | — | Frontend React | Já é React — precisa desacoplar do POST de formulário clássico (`Builder.js:789-838`) para o cliente tipado do BFF (GO-018/019) |
+| Páginas e grupos de páginas | `models/page.ts` (613), `page_group.ts` (355), `page_group_member.ts` (165) | Sites com landing pages/wizards | `guitars_backup.zip` | Go nativo | — |
+| Formulários (`Form`) | `models/form.ts` (330 linhas); renderização em `@saltcorn/markup/form.ts` | Config admin e views Edit | `fixtures.ts` | Go nativo (dados) + Frontend React (renderização) | — |
+| Arquivos: upload/download/miniaturas | `models/file.ts` (1372), rotas `files.ts` (1105 linhas) | Todas | `fixtures.ts` (upload de imagem) | Go nativo | Autorização por arquivo precisa herdar o mesmo modelo de role/ownership |
+
+### 2.4 Extensões, expressões e automação
+
+| Capacidade | Código (evidência) | Aplicação/uso | Fixture disponível | Destino proposto | Observação / bloqueador |
+| --- | --- | --- | --- | --- | --- |
+| Carregador de plugins (npm install em runtime, `import()` dinâmico) | `packages/plugins-loader/plugin_installer.ts` | Plugins de terceiros e "fixos" (base-plugin, sbadmin2) | — | **Bridge Node temporário** | `npm install` real via `child_process.spawn` em runtime — dependências nativas/postinstall arbitrários; não há equivalente Go direto |
+| Contrato de plugin (types/viewtemplates/actions/fieldviews/auth) | `packages/saltcorn-types/base_types.ts:712-761`; registro em `db/state.ts:1051-1120+` | Todos os plugins | `packages/saltcorn-base-plugin` (fixo) | **Bridge Node temporário** | API pressupõe runtime V8 (objetos/funções JS); plugins de terceiro incompatíveis ficam no host JS (GO-022) até adaptação ou bloqueio de corte |
+| Plugins fixos (base-plugin, sbadmin2) | `packages/saltcorn-base-plugin`, `packages/saltcorn-sbadmin2` (versão `1.7.0-alpha.1` ambos) | Todas | `fixtures.ts` | Go nativo | Diferente de plugin de terceiro: são parte do núcleo do produto e devem ser portados como código Go, não hospedados via bridge |
+| Motor de expressões JS (fórmulas de usuário) | `models/expression.ts` (1321 linhas); `vm2` no servidor (linha 7,30,42-53), `vm.runInNewContext`/`vm-browserify` no bundle mobile (linha 11,51) | Fórmulas calculadas, `ownership_formula`, condições de trigger | `fixtures.ts` (`run_js_code` triggers) | **Bloqueador** | `vm2` é projeto descontinuado com histórico de escape de sandbox — risco de segurança, não só de portabilidade; contexto exposto às fórmulas tem acesso total a `Table`/`File`/`View`/`User`/`db`, não é sandbox de funções puras. Requer ADR dedicado (relaciona-se a GO-004) antes de decidir entre motor JS embutido em Go (ex.: goja) ou redesenho da linguagem de fórmulas |
+| Triggers (Insert/Update/Delete/Weekly/Daily/Hourly/Often/Cron/API call/PageLoad/Login/…) | `models/trigger.ts` (960 linhas); novo `when_trigger: Cron` de `packages/saltcorn-data/models/internal/cron.ts` (commit `1f840815577`, #4349) | Todas | `fixtures.ts` (`run_js_code`, `Multi-step action`, `toast`) | Go nativo | Disparo assíncrono (`setTimeout`) e síncrono (triggers de linha) precisam de semântica equivalente em Go (goroutine + outbox, GO-014) |
+| Ações multi-etapa | `trigger.ts` (`runWithoutRow`, limite `MAX_STEPS=200`) | Automação | `fixtures.ts` | Go nativo | — |
+| Motor de workflow (estado, retomada) | `models/workflow_run.ts` (1059), `workflow_step.ts` (951) | Automações complexas | Não identificada nos fixtures atuais | Go nativo | Status `Pending/Running/Waiting/Finished/Error`; retomada orientada pelo scheduler — portar junto com GO-024/025 |
+| Mutex distribuído entre nós (workflow) | `models/multi_node_mutex.ts` (183 linhas); `pg_advisory_lock(894213, …)` | Deploys multi-nó com Postgres | — | Go nativo | SQLite (mono-nó) usa mutex em processo — Go deve preservar a mesma distinção |
+| Scheduler (tick loop + eleição de líder) | `models/scheduler.ts` (423 linhas); eleição via `pg_try_advisory_lock(11565)` em `packages/server/serve.js:450-494` | Todas (jobs periódicos) | — | Go nativo | Sem Postgres (SQLite), cada nó é sempre "líder" — implica que deploy multi-nó real exige Postgres, restrição a documentar em GO-025 |
+| Ações registradas por plugin (`state.actions`) | `db/state.ts` | Depende do plugin | `fixtures.ts` (ações do base-plugin) | Go nativo (ações do núcleo) / **Bridge** (ações de plugin de terceiro) | Mesma distinção núcleo vs. terceiro do item de plugins fixos |
+
+### 2.5 Mobile e sincronização
+
+| Capacidade | Código (evidência) | Aplicação/uso | Fixture disponível | Destino proposto | Observação / bloqueador |
+| --- | --- | --- | --- | --- | --- |
+| App móvel (shell Capacitor) | `packages/saltcorn-mobile-app` (Android/iOS, `@capacitor/core`) | Apps com build mobile | `deploy/playwright_mobile` | Fora do escopo Go core | Mantém-se JS/Capacitor; sem vantagem identificada em Go/WASM sem experimento dedicado (README §Frontend) |
+| Builder de app móvel nativo | `packages/saltcorn-mobile-builder` | Apps com build mobile | `admin.ts` (`/admin/build-mobile-app`) | Fora do escopo Go core | — |
+| Driver SQLite embarcado no mobile | `packages/sqlite-mobile` (`@capacitor-community/sqlite`) | Apps offline | — | Fora do escopo Go core (fase F5) | — |
+| Protocolo de sincronização (cursor, paginação) | `packages/server/routes/sync.ts:65-188` | Apps offline | `deploy/playwright_mobile` | Go nativo | Protocolo é dados/HTTP, sem dependência de runtime Node específico |
+| Resolução de conflitos (ordenação topológica, last-write-wins por campo) | `packages/saltcorn-cli/src/commands/sync-upload-data.js` (`SyncHelper`, `kahnSort`) | Apps offline | `deploy/playwright_mobile` | Go nativo | Algoritmo portável; validar paridade com corpus de conflitos antes de considerar concluído |
+| Execução de upload de sync como processo CLI separado | `sync.ts:368-392` (`getSafeSaltcornCmd`) | Apps offline | — | Go nativo | Em Go, decidir entre subprocesso equivalente ou goroutine/fila assíncrona no próprio processo |
+| Notificações push (registro de dispositivo) | `sync.ts:499-587` (`/push_subscribe`, `/push_unsubscribe`) | Apps offline | — | Go nativo | — |
+
+### 2.6 Infraestrutura HTTP, segurança e CLI
+
+| Capacidade | Código (evidência) | Aplicação/uso | Fixture disponível | Destino proposto | Observação / bloqueador |
+| --- | --- | --- | --- | --- | --- |
+| Roteamento HTTP builder/admin (39 arquivos em `routes/`) | `packages/server/routes/index.ts:49-85` e arquivos individuais (`tables.ts` 3300L, `admin.ts` 6267L, `actions.ts` 2826L, `entities.ts` 1858L, `plugins.ts` 1738L, etc.) | Admin/builder | — | Frontend React + BFF Node.js (composição) + Go (regras/dados) | Nenhuma rota HTML atual é portada 1:1; contrato HTTP/JSON novo entre BFF e Go substitui as páginas server-rendered (GO-006) |
+| API REST genérica sobre tabelas | `packages/server/routes/api.ts` (1132 linhas) | Integrações externas, apps móveis | `server/tests` | Go nativo | Referência direta para o contrato de API pública versionada do backend Go |
+| API interna de introspecção (`scapi.ts`) | `packages/server/routes/scapi.ts` (411 linhas) | Ferramentas internas/Saltcorn Cloud | — | Go nativo | — |
+| Segurança de cabeçalhos (Helmet/CSP) | `packages/server/app.js:121-149` | Todas | — | **BFF Node.js** (borda web) | CSP atual permite `unsafe-inline`/`unsafe-eval` (necessário para builder) — revisar ao desacoplar builder do DOM compartilhado (GO-018) |
+| CORS | `packages/server/app.js:51-169` | API/mobile | — | Go nativo (API pública) / BFF (web) | Origens credenciadas hoje hardcoded para o app mobile |
+| Mitigação de poluição de protótipo | `app.js:544` | Todas | — | N/A (específico de Node) | Não se aplica a Go; documentar como risco eliminado pela migração, não portado |
+| CLI (`saltcorn`, oclif) | `packages/saltcorn-cli/src/commands/*.js` (serve, migrate, fixtures, tenant/user CRUD, backup/restore, run-trigger, scheduler, config get/set, mobile build) | Operação/dev | — | Go nativo | Lista mínima de paridade para `go/cmd/cli` (GO-005): `serve`, `migrate`, `fixtures`, CRUD de tenant/usuário, `backup`/`restore`, `run-trigger`/`list-triggers`, `get-cfg`/`set-cfg` |
+
+## 3. Escopo do piloto
+
+Critérios do piloto (README §4): aplicação Postgres, dois tenants, usuários com papéis diferentes, tabela com relação, listagem/filtro, formulário e uma automação.
+
+**Aplicação piloto recomendada: pack `guitars`** (`deploy/playwright_mobile/backups/guitars_backup.zip`, `pack.json` com `saltcorn_version: 1.7.0-alpha.0`, atualizado em 2026-09-10).
+
+- É o único candidato empacotado (pack/backup portátil), não código de teste embutido — pode ser restaurado de forma independente em dois schemas Postgres para satisfazer o requisito de dois tenants.
+- Relação real: `guitars` → `process_type`/`status`, tabela de junção/histórico `processed`.
+- Papéis diferenciados nas views: `min_role=1` (admin, `upload_photo`) e `min_role=80` (usuário) — cobre "usuários com papéis diferentes".
+- Views: `create_guitar`/`edit_guitar_process`/`add_process_type` (Edit/formulário), `guitar_list` (List), `guitar_feed` (Feed), `show_guitar` (Show), `list_processed` (List).
+- Automação: trigger `receive_share_trigger` (`run_js_code`, `when_trigger: ReceiveMobileShareData`).
+- **Lacuna identificada:** não há view do tipo Filter explícita — trivial de adicionar ao preparar o ambiente do piloto (GO-002/GO-011).
+- Já é exercitado por testes end-to-end existentes (`deploy/playwright_mobile/tests/*.spec.js`), o que ajuda a validar paridade comportamental.
+
+**Referência secundária para regressão: fixtures `books`/`patients`/`rooms` (`packages/saltcorn-data/db/fixtures.ts`)** — não é um pack portátil, mas tem a maior cobertura de viewtemplates, papéis (1/40/80), relações (1:N, N:N via `discusses_books`/`blog_in_topic`) e tipos de trigger (`run_js_code`, `Multi-step action`, `toast`, evento/API), sendo usada por praticamente toda a suíte de testes atual (`view.test.ts`, `page.test.ts`, `filter.test.ts`, testes de servidor). Deve ser o oráculo de correção ao validar o motor de renderização/consultas em Go, independentemente do pack escolhido como piloto operacional.
+
+**Referência terciária (não recomendada para piloto):** `infosec-scan/targets/projman.zip` — único fixture com view `Filter` explícita e views de gráfico (`ProportionsVis`), mas desatualizado desde 2021, com schema de pack pré-1.0 (sem chaves `roles`/`triggers`/`page_groups`). Útil apenas como referência pontual de comportamento de viewtemplates de plugin.
+
+## 4. Escopo final e bloqueadores que exigem decisão antes do corte
+
+Capacidades classificadas acima como **Bloqueador** ou que dependem de **Bridge Node temporário** condicionam a "conclusão da migração" (README §5) e devem ser endereçadas por tarefas próprias antes da retirada do host JS:
+
+1. **Motor de expressões JS (`vm2`)** — risco de segurança (sandbox descontinuado) somado a acesso irrestrito a modelos/DB a partir de fórmulas de usuário. Relaciona-se a GO-004 (prototipagem) e GO-023 (portar tipos/expressões prioritárias); decisão de arquitetura (embutir motor JS em Go vs. redesenhar linguagem de fórmulas) deve virar ADR em GO-003.
+2. **Carregador de plugins com `npm install` em runtime e contrato de plugin JS** — sem inventário de quais plugins de terceiros estão em produção (não existe neste checkout), o escopo de bloqueio por plugin não pode ser fechado nesta tarefa; GO-004 deve amostrar plugins reais quando o inventário de produção existir.
+3. **Login social/OAuth via plugin arbitrário** — mesma limitação de inventário do item anterior.
+4. **RLS nativa Postgres com troca de identidade por conexão (GUC)** — viável em Go, mas de alta complexidade; recomenda-se tratar como subtarefa dedicada dentro de GO-011/GO-015, não como item incidental.
+5. **Modelo de ML (`Model`/`ModelInstance`)** — marcado "a investigar"; antes de comprometer GO-027 (packs/biblioteca) ou qualquer fase F4/F5 que toque nessa capacidade, é necessário um levantamento específico.
+
+Nenhuma capacidade P0 do piloto proposto (§3) depende de um bloqueador acima sem alternativa: a automação do piloto (`run_js_code`) usa o motor de expressões, então o piloto **herda o risco do item 1** e deve ser tratado como validação inicial desse bloqueador, não como prova de que ele já está resolvido.
+
+## 5. Hipóteses assumidas nesta rodada
+
+- Todos os pacotes internos do monorepo estão em lockstep de versão (`1.7.0-alpha.1`) — confirmado por amostragem (`saltcorn-base-plugin`, `saltcorn-sbadmin2`); assumido válido para os demais pacotes internos não verificados individualmente.
+- "Plugins por versão" desta matriz refere-se aos pacotes bundled do monorepo (plugins fixos e módulos de suporte); inventário de plugins de terceiros instalados por aplicações reais em produção **não existe neste checkout** e permanece como premissa em aberto do README (fase 0).
+- A separação Go nativo vs. Bridge para "ações de plugin" e "plugins fixos" assume que o núcleo do produto (base-plugin, sbadmin2) será reescrito em Go, enquanto plugins de terceiro passam pelo host JS — coerente com README §3, item 6, mas ainda não validado por prototipagem (GO-004).
