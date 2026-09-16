@@ -150,7 +150,7 @@ Execute a task GO-006 — Definir contratos e fixtures HTTP, de docs/migracao-go
 
 ### GO-007 — Implementar tenancy e contexto transacional
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_PROGRESS — histórico em [execucoes/GO-007.md](execucoes/GO-007.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-005
