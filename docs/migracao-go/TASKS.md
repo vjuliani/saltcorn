@@ -55,7 +55,7 @@ Execute a task GO-001 — Inventariar capacidades e aplicações, de docs/migrac
 
 ### GO-002 — Criar baseline de comportamento e desempenho
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — PR [#4](https://github.com/vjuliani/saltcorn/pull/4); baseline em [baseline/GO-002-baseline.md](baseline/GO-002-baseline.md); histórico em [execucoes/GO-002.md](execucoes/GO-002.md)
 - **Fase:** F0 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** QA
 - **Depende de:** GO-001
