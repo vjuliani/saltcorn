@@ -36,7 +36,7 @@ A branch prevista é `task/go-NNN`. Na primeira execução, descobrir e registra
 
 ### GO-001 — Inventariar capacidades e aplicações
 
-- [ ] **Status:** IN_REVIEW — PR [#1](https://github.com/vjuliani/saltcorn/pull/1); matriz em [inventario/GO-001-matriz-capacidades.md](inventario/GO-001-matriz-capacidades.md); histórico em [execucoes/GO-001.md](execucoes/GO-001.md)
+- [x] **Status:** DONE — integrada via PR [#1](https://github.com/vjuliani/saltcorn/pull/1) (merge `6557f7624104bb7d688b40a33f88ccbe2df5d153`); matriz em [inventario/GO-001-matriz-capacidades.md](inventario/GO-001-matriz-capacidades.md); histórico em [execucoes/GO-001.md](execucoes/GO-001.md)
 - **Fase:** F0 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Arquitetura
 - **Depende de:** Nenhuma
@@ -345,7 +345,7 @@ Execute a task GO-016 — Medir necessidade de projeções CQRS, de docs/migraca
 - **Responsável sugerido:** BFF / Node.js
 - **Depende de:** GO-006, GO-008, GO-012, GO-013
 - **Branch:** `task/go-017`
-- **Escopo:** Criar packages/bff em Node.js/TypeScript com build, CI, health e shutdown; compor bootstrap, metadados e dados via cliente HTTP tipado Go; implementar sessão/CSRF, autenticação entre serviços, timeouts, cancelamento e idempotência.
+- **Escopo:** Criar migracao/packages/bff em Node.js/TypeScript com build, CI, health e shutdown; compor bootstrap, metadados e dados via cliente HTTP tipado Go; implementar sessão/CSRF, autenticação entre serviços, timeouts, cancelamento e idempotência.
 - **Aceite:** Contratos React–BFF–Go passam integração; BFF não acessa banco de domínio nem executa suas regras; identidade forjada é rejeitada; falhas/timeouts Go geram erros controlados e retries não duplicam comandos.
 - **Rotina de validação:** Validar autenticação entre serviços, identidade delegada, CSRF e falhas BFF–Go; provar que retry de comando não duplica escrita e que o BFF não acessa o banco de domínio.
 - **Regra de retomada:** Conferir versões do frontend, BFF, Go e layouts; preservar alterações locais e retomar com fixture identificada; repetir o fluxo afetado após integrar.
@@ -354,7 +354,7 @@ Execute a task GO-016 — Medir necessidade de projeções CQRS, de docs/migraca
 **Comando de execução para o agente:**
 
 ```text
-Execute a task GO-017 — Implementar BFF web em Node.js, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-017 a partir da base registrada. Escopo: Criar packages/bff em Node.js/TypeScript com build, CI, health e shutdown; compor bootstrap, metadados e dados via cliente HTTP tipado Go; implementar sessão/CSRF, autenticação entre serviços, timeouts, cancelamento e idempotência. Valide: Validar autenticação entre serviços, identidade delegada, CSRF e falhas BFF–Go; provar que retry de comando não duplica escrita e que o BFF não acessa o banco de domínio. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+Execute a task GO-017 — Implementar BFF web em Node.js, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-017 a partir da base registrada. Escopo: Criar migracao/packages/bff em Node.js/TypeScript com build, CI, health e shutdown; compor bootstrap, metadados e dados via cliente HTTP tipado Go; implementar sessão/CSRF, autenticação entre serviços, timeouts, cancelamento e idempotência. Valide: Validar autenticação entre serviços, identidade delegada, CSRF e falhas BFF–Go; provar que retry de comando não duplica escrita e que o BFF não acessa o banco de domínio. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
 ```
 
 ### GO-018 — Integrar React + SB Admin 2 e desacoplar builder

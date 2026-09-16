@@ -64,7 +64,9 @@ Banco compartilhado somente durante a transição, com proprietário único de e
 
 Módulos: identidade/tenancy; metadados/schema; registros/consultas; views/pages/layouts; arquivos; automações; extensões; configuração/packs; sincronização. Interfaces de aplicação independentes de HTTP e SQL. CLI e worker reutilizam os mesmos serviços.
 
-Estrutura sugerida, ainda não criada: `go/cmd/{server,worker,cli}`, `go/internal/{identity,metadata,records,views,automation,extensions,files,sync}`, `go/internal/platform/{database,http,telemetry}` e `contracts/`; `packages/bff/` para Node.js/TypeScript e `packages/frontend/` para React + SB Admin 2. Os pacotes atuais de builder e tema serão reaproveitados por adapters. Cada domínio pode ter `commands`, `queries` e adapters sem um framework genérico obrigatório.
+**Convenção obrigatória de diretórios:** todo código novo criado pela migração (backend Go, BFF Node.js, frontend React) é criado dentro do diretório `migracao/` na raiz do repositório, nunca solto na raiz do monorepo atual.
+
+Estrutura sugerida, ainda não criada: `migracao/backend/cmd/{server,worker,cli}`, `migracao/backend/internal/{identity,metadata,records,views,automation,extensions,files,sync}`, `migracao/backend/internal/platform/{database,http,telemetry}` e `migracao/contracts/`; `migracao/packages/bff/` para Node.js/TypeScript e `migracao/packages/frontend/` para React + SB Admin 2. Os pacotes atuais de builder e tema (fora de `migracao/`, no monorepo existente) serão reaproveitados por adapters. Cada domínio pode ter `commands`, `queries` e adapters sem um framework genérico obrigatório.
 
 Começar com `net/http`, contratos HTTP/JSON e OpenAPI; selecionar versão Go suportada e drivers na implementação. Usar SQL explícito para metadados estáveis e compilador de consultas para tabelas dinâmicas. ORM ou geração estática de código não cobrem sozinhos schemas definidos pelos usuários. Identificadores SQL devem ser resolvidos por metadados confiáveis e escapados pelo adapter; valores sempre parametrizados. Preservar decimal, datas, timezone, NULL, JSON, referências e chaves compostas conforme a matriz de compatibilidade.
 
