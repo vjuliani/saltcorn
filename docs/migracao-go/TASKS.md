@@ -169,7 +169,7 @@ Execute a task GO-007 — Implementar tenancy e contexto transacional, de docs/m
 
 ### GO-008 — Migrar identidade e autorização
 
-- [ ] **Status:** IN_REVIEW — PR [#11](https://github.com/vjuliani/saltcorn/pull/11) aberto; histórico em [execucoes/GO-008.md](execucoes/GO-008.md)
+- [x] **Status:** DONE — PR [#11](https://github.com/vjuliani/saltcorn/pull/11) mergeado; histórico em [execucoes/GO-008.md](execucoes/GO-008.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-006, GO-007
@@ -188,7 +188,7 @@ Execute a task GO-008 — Migrar identidade e autorização, de docs/migracao-go
 
 ### GO-009 — Criar entrada de migração e ownership de escrita
 
-- [ ] **Status:** IN_REVIEW — PR [#12](https://github.com/vjuliani/saltcorn/pull/12) aberto; histórico em [execucoes/GO-009.md](execucoes/GO-009.md)
+- [x] **Status:** DONE — PR [#12](https://github.com/vjuliani/saltcorn/pull/12) mergeado; histórico em [execucoes/GO-009.md](execucoes/GO-009.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Backend + Plataforma
 - **Depende de:** GO-006, GO-008
@@ -207,7 +207,7 @@ Execute a task GO-009 — Criar entrada de migração e ownership de escrita, de
 
 ### GO-010 — Instrumentar observabilidade
 
-- [ ] **Status:** IN_REVIEW — PR [#13](https://github.com/vjuliani/saltcorn/pull/13) aberto; histórico em [execucoes/GO-010.md](execucoes/GO-010.md)
+- [x] **Status:** DONE — PR [#13](https://github.com/vjuliani/saltcorn/pull/13) mergeado; histórico em [execucoes/GO-010.md](execucoes/GO-010.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Plataforma
 - **Depende de:** GO-005
@@ -226,7 +226,7 @@ Execute a task GO-010 — Instrumentar observabilidade, de docs/migracao-go/TASK
 
 ### GO-011 — Portar catálogo e evolução de schema
 
-- [ ] **Status:** IN_REVIEW — PR [#14](https://github.com/vjuliani/saltcorn/pull/14) aberto; histórico em [execucoes/GO-011.md](execucoes/GO-011.md)
+- [x] **Status:** DONE — PR [#14](https://github.com/vjuliani/saltcorn/pull/14) mergeado; histórico em [execucoes/GO-011.md](execucoes/GO-011.md)
 - **Fase:** F2 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-007, GO-008
@@ -245,7 +245,7 @@ Execute a task GO-011 — Portar catálogo e evolução de schema, de docs/migra
 
 ### GO-012 — Implementar compilador de consultas dinâmicas
 
-- [ ] **Status:** IN_REVIEW — PR [#15](https://github.com/vjuliani/saltcorn/pull/15) aberto; histórico em [execucoes/GO-012.md](execucoes/GO-012.md)
+- [x] **Status:** DONE — PR [#15](https://github.com/vjuliani/saltcorn/pull/15) mergeado; histórico em [execucoes/GO-012.md](execucoes/GO-012.md)
 - **Fase:** F2 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-011
@@ -264,7 +264,7 @@ Execute a task GO-012 — Implementar compilador de consultas dinâmicas, de doc
 
 ### GO-013 — Implementar comandos de registros
 
-- [ ] **Status:** IN_REVIEW — PR [#16](https://github.com/vjuliani/saltcorn/pull/16) aberto; histórico em [execucoes/GO-013.md](execucoes/GO-013.md)
+- [x] **Status:** DONE — PR [#16](https://github.com/vjuliani/saltcorn/pull/16) mergeado; histórico em [execucoes/GO-013.md](execucoes/GO-013.md)
 - **Fase:** F2 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-011, GO-012
@@ -283,7 +283,7 @@ Execute a task GO-013 — Implementar comandos de registros, de docs/migracao-go
 
 ### GO-014 — Adicionar idempotência e outbox
 
-- [ ] **Status:** IN_REVIEW — PR [#17](https://github.com/vjuliani/saltcorn/pull/17) aberto; histórico em [execucoes/GO-014.md](execucoes/GO-014.md)
+- [x] **Status:** DONE — PR [#17](https://github.com/vjuliani/saltcorn/pull/17) mergeado; histórico em [execucoes/GO-014.md](execucoes/GO-014.md)
 - **Fase:** F2 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-013
