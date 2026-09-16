@@ -321,7 +321,7 @@ Execute a task GO-015 — Integrar políticas em todos os caminhos de leitura, d
 
 ### GO-016 — Medir necessidade de projeções CQRS
 
-- [ ] **Status:** IN_REVIEW — ADR-0010 (adiar projeções) registrada, benchmark reproduzido, PR a abrir; histórico em [execucoes/GO-016.md](execucoes/GO-016.md)
+- [ ] **Status:** IN_REVIEW — PR [#19](https://github.com/vjuliani/saltcorn/pull/19) aberto; histórico em [execucoes/GO-016.md](execucoes/GO-016.md)
 - **Fase:** F2 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-002, GO-010, GO-014, GO-015
