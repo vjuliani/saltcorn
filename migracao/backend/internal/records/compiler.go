@@ -71,6 +71,14 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 		if err != nil {
 			return "", nil, err
 		}
+		// GO-015: um join não pode ser uma porta lateral para dados de uma
+		// tabela que o ator não tem papel para ler diretamente — a mesma
+		// checagem da tabela principal (linha acima) se aplica a toda tabela
+		// referenciada, senão um ator com acesso só à tabela pública "books"
+		// poderia trazer colunas de "salaries" (admin-only) via join.
+		if !identity.CanRead(actorRole, refTable.MinRoleRead) {
+			return "", nil, ErrNotAuthorized
+		}
 		refFields, err := metadata.ListFields(ctx, tx, refTable.ID)
 		if err != nil {
 			return "", nil, err
@@ -91,7 +99,7 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 	}
 
 	for _, agg := range q.Aggregations {
-		aggSQL, err := compileAggregation(ctx, tx, agg)
+		aggSQL, err := compileAggregation(ctx, tx, actorRole, agg)
 		if err != nil {
 			return "", nil, err
 		}
@@ -141,13 +149,20 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 	return sb.String(), c.args, nil
 }
 
-func compileAggregation(ctx context.Context, tx pgx.Tx, agg Aggregation) (string, error) {
+func compileAggregation(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, agg Aggregation) (string, error) {
 	childTable, err := metadata.GetTable(ctx, tx, agg.ChildTable)
 	if err != nil {
 		if isTableNotFound(err) {
 			return "", fmt.Errorf("%w: %q", ErrUnknownTable, agg.ChildTable)
 		}
 		return "", err
+	}
+	// GO-015: um agregado (incl. Count, que é a "contagem" do critério de
+	// aceite) sobre uma tabela filha admin-only não pode vazar o total de
+	// linhas nem qualquer soma/média/min/max dela para um ator sem papel de
+	// leitura nessa tabela, mesmo que a tabela PAI seja de leitura pública.
+	if !identity.CanRead(actorRole, childTable.MinRoleRead) {
+		return "", ErrNotAuthorized
 	}
 	childFields, err := metadata.ListFields(ctx, tx, childTable.ID)
 	if err != nil {
