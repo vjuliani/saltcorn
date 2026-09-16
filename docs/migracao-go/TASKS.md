@@ -169,7 +169,7 @@ Execute a task GO-007 — Implementar tenancy e contexto transacional, de docs/m
 
 ### GO-008 — Migrar identidade e autorização
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_PROGRESS — histórico em [execucoes/GO-008.md](execucoes/GO-008.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-006, GO-007
