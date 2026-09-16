@@ -12,7 +12,11 @@
 // checagem duplicada por processo, é a mesma checagem reutilizada. GO-010
 // acrescenta log estruturado, métricas de job e um trace novo por execução
 // (internal/platform/telemetry) — cada job é uma operação correlacionável
-// como uma requisição HTTP seria, com seu próprio trace_id.
+// como uma requisição HTTP seria, com seu próprio trace_id. GO-014
+// acrescenta um segundo job por tenant, de processamento de outbox
+// (internal/platform/outbox.ProcessPending) — o worker real que drena os
+// eventos gravados por escritas idempotentes (internal/records + GO-013),
+// com retries e falhas inspecionáveis via _sc_outbox.
 package main
 
 import (
@@ -29,6 +33,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/telemetry"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
@@ -42,6 +47,18 @@ const jobInterval = 5 * time.Second
 // (GO-009), a capacidade servida pelo job placeholder — um nome de
 // exemplo, não um catálogo formal de capacidades (isso é trabalho futuro).
 const placeholderJobCapability = "worker.placeholder_job"
+
+// outboxJobCapability identifica, para o registro de ownership (GO-009), a
+// capacidade servida pelo job de processamento de outbox (GO-014) — mesma
+// convenção do placeholder acima.
+const outboxJobCapability = "worker.outbox_processor"
+
+// outboxBatchLimit e outboxMaxAttempts são fixos nesta fundação, como
+// jobInterval — configuráveis quando houver operação real (GO-025).
+const (
+	outboxBatchLimit  = 20
+	outboxMaxAttempts = 5
+)
 
 func main() {
 	cfg, err := config.Load()
@@ -123,6 +140,7 @@ func runCycle(ctx context.Context, tenants []string, db *database.DB, guard *cut
 	}
 	for _, t := range tenants {
 		runPlaceholderJob(ctx, t, db, guard, metrics)
+		runOutboxJob(ctx, t, db, guard, metrics)
 	}
 }
 
@@ -177,5 +195,59 @@ func runPlaceholderJob(ctx context.Context, tenant string, db *database.DB, guar
 		return
 	}
 	logger.Debug("job concluído", "result", "ok")
+	metrics.Observe(elapsed, "ok")
+}
+
+// runOutboxJob drena até outboxBatchLimit eventos pendentes de
+// _sc_outbox por ciclo (GO-014), reaproveitando a mesma guarda de
+// ownership (GO-009) e telemetria (GO-010) do job placeholder — a
+// automação real (GO-024/025) reusará este mesmo padrão para os handlers
+// de evento que ainda não existem; o handler aqui só loga o evento
+// (nenhum consumidor real existe ainda, mesmo espírito do metadata.Cache
+// sem consumidor real de GO-011 e dos Hooks sem automação real de GO-013).
+func runOutboxJob(ctx context.Context, tenant string, db *database.DB, guard *cutover.Guard, metrics *telemetry.JobMetrics) {
+	if db == nil || tenant == "" {
+		return
+	}
+
+	jobCtx := telemetry.WithTraceID(ctx, telemetry.NewTraceID())
+	jobCtx = telemetry.WithSpanID(jobCtx, telemetry.NewSpanID())
+	jobCtx = tenancy.WithTenant(jobCtx, tenancy.Tenant(tenant))
+	logger := telemetry.LoggerFor(jobCtx)
+	start := time.Now()
+
+	end, err := cutover.Acquire(guard, tenancy.Tenant(tenant), outboxJobCapability)
+	if err != nil {
+		result := "skipped_error"
+		switch {
+		case errors.Is(err, cutover.ErrNotOwner):
+			result = "skipped_not_owner"
+		case errors.Is(err, cutover.ErrRouteDraining):
+			result = "skipped_draining"
+		}
+		logger.Info("job de outbox pulado", "result", result)
+		metrics.Observe(time.Since(start), result)
+		return
+	}
+	defer end()
+
+	var processed, failed int
+	err = db.WithTenant(jobCtx, tenancy.Tenant(tenant), func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		processed, failed, err = outbox.ProcessPending(ctx, tx, outboxBatchLimit, outboxMaxAttempts,
+			func(ctx context.Context, tx pgx.Tx, ev outbox.OutboxEvent) error {
+				telemetry.LoggerFor(ctx).Info("evento de outbox processado (demonstração, sem consumidor real)",
+					"event_type", ev.Type, "attempts", ev.Attempts)
+				return nil
+			})
+		return err
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		logger.Warn("job de outbox falhou", "result", "error")
+		metrics.Observe(elapsed, "error")
+		return
+	}
+	logger.Debug("job de outbox concluído", "result", "ok", "processed", processed, "failed", failed)
 	metrics.Observe(elapsed, "ok")
 }

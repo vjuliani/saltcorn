@@ -283,7 +283,7 @@ Execute a task GO-013 — Implementar comandos de registros, de docs/migracao-go
 
 ### GO-014 — Adicionar idempotência e outbox
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — PR [#17](https://github.com/vjuliani/saltcorn/pull/17) aberto; histórico em [execucoes/GO-014.md](execucoes/GO-014.md)
 - **Fase:** F2 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-013

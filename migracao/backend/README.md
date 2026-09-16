@@ -2,7 +2,7 @@
 
 Módulo Go da migração ([docs/migracao-go/](../../docs/migracao-go/)). Implementa a estrutura definida em [ADR-0001](../../docs/migracao-go/adr/0001-backend-go-cqrs.md): monólito modular com CQRS lógico, três executáveis (`server`, `worker`, `cli`) reutilizando os mesmos serviços internos.
 
-**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009) + logs estruturados, métricas e correlação de trace (GO-010) + catálogo de tabelas/campos/relações dinâmicos e evolução de schema (GO-011) + compilador de consultas dinâmicas (GO-012) + comandos de registro (insert/update/delete) com controle de concorrência (GO-013). Ainda sem API pública completa — o restante do domínio entra nas tarefas seguintes, sobre esta mesma base.
+**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009) + logs estruturados, métricas e correlação de trace (GO-010) + catálogo de tabelas/campos/relações dinâmicos e evolução de schema (GO-011) + compilador de consultas dinâmicas (GO-012) + comandos de registro (insert/update/delete) com controle de concorrência (GO-013) + idempotência e outbox transacional (GO-014). Ainda sem API pública completa — o restante do domínio entra nas tarefas seguintes, sobre esta mesma base.
 
 ## Estrutura
 
@@ -15,6 +15,7 @@ cmd/
   worker/   processo de background — loop periódico (GO-005) + jobs por tenant (GO-007)
             + guarda de ownership de escrita no job placeholder (GO-009)
             + logs estruturados, métricas de job e trace por execução (GO-010)
+            + job de processamento de outbox por tenant (GO-014)
   cli/      linha de comando (paridade com o saltcorn-cli atual, gradual)
 internal/
   identity/  hash de senha (bcrypt), papéis, ownership por campo, tokens de
@@ -48,6 +49,10 @@ internal/
     telemetry/ logs estruturados com redação automática, métricas em formato
                Prometheus e correlação de trace via W3C Trace Context
                (GO-010, ADR-0009)
+    outbox/    idempotência de escrita e padrão outbox transacional — chave/
+               payload/resultado e eventos gravados na mesma transação do
+               efeito; worker com savepoint por evento, retries com corte e
+               `FOR UPDATE SKIP LOCKED` entre workers concorrentes (GO-014)
 ```
 
 Dependências externas mínimas e pinadas a versões compatíveis com Go 1.22 (a mais recente de cada uma frequentemente já exige Go 1.24+): `github.com/jackc/pgx/v5` (driver Postgres), `github.com/golang-jwt/jwt/v5` (verificação de assinatura do token de identidade delegada), `golang.org/x/crypto` (bcrypt) e `github.com/pquerna/otp` (TOTP/MFA, RFC 6238). `go.mod` fixa a toolchain em `go 1.22`.
@@ -123,7 +128,7 @@ SALTCORN_GO_TEST_DATABASE_URL_RLS="postgres://app_user:app_user@127.0.0.1:55556/
   go test -race -count=1 ./internal/platform/database/... ./internal/identity/...
 ```
 
-`internal/metadata` (GO-011) e `internal/records` (GO-012) só precisam de `SALTCORN_GO_TEST_DATABASE_URL` — nenhum fixture adicional: cada teste cria seu próprio schema de tenant isolado, como `internal/identity`.
+`internal/metadata` (GO-011), `internal/records` (GO-012/013) e `internal/platform/outbox` (GO-014) só precisam de `SALTCORN_GO_TEST_DATABASE_URL` — nenhum fixture adicional: cada teste cria seu próprio schema de tenant isolado, como `internal/identity`.
 
 Rodar cada processo:
 
@@ -242,6 +247,20 @@ Deliberadamente fora de escopo (documentado, não fabricado — ver `docs/migrac
 - **Validações:** nome de campo desconhecido (`ErrUnknownField`), tipo incompatível (`ErrTypeMismatch`), campo obrigatório ausente (`ErrRequiredField`) — checados em Go antes de qualquer SQL rodar.
 - **Classificação de erros do driver:** violação de unicidade → `ErrDuplicateValue`; violação de chave estrangeira → `ErrInvalidReference`; violação `NOT NULL` → `ErrRequiredField` — nunca a mensagem crua do driver Postgres, que pode ecoar de volta um valor de linha (ex.: `Key (email)=(x@y.com) already exists`).
 - **Autorização:** só em nível de tabela (`identity.CanWrite(actorRole, table.MinRoleWrite)`) — autorização por ownership de linha (`identity.IsOwnerByField`, GO-008) fica de fora: exigiria o catálogo saber qual campo é o "campo de ownership" de uma tabela, o que GO-011 não modela hoje.
+
+## Idempotência e outbox (GO-014)
+
+`internal/platform/outbox` implementa `Do`, que executa uma operação e grava sua chave de idempotência e os eventos que ela produz na MESMA transação Postgres do efeito em si — nunca como uma escrita separada. Isso dá as duas metades do critério de aceite de graça, pela própria atomicidade do Postgres:
+
+- **Crash antes do commit:** se a transação não commitar (a operação falha, o chamador aborta, o processo cai antes do commit), NADA persiste — nem o efeito, nem a chave, nem o evento. Nada foi "confirmado", então nada é "perdido": uma nova tentativa com a mesma chave/payload encontra o catálogo limpo e tenta de novo.
+- **Crash depois do commit / confirmação perdida:** se a transação commitar, efeito + chave + evento ficam gravados juntos. Uma queda do processo chamador depois do commit (ou uma resposta perdida na rede) não perde o evento — ele já está no Postgres; uma nova chamada com a mesma chave/payload encontra o resultado já gravado e o devolve sem rodar o efeito de novo (`replayed=true`).
+- **Mesma chave, payload diferente:** rejeitada com `ErrKeyConflict`, sem rodar a operação.
+- **Concorrência real:** `pg_advisory_xact_lock` escopado a (tenant, chave) serializa tentativas concorrentes com a MESMA chave (mesma técnica de `internal/metadata.lockCatalog`, GO-011) — sem isso, duas chamadas concorrentes poderiam ambas ver "não existe" e rodar o efeito duas vezes.
+- **Sem estado "failed" na própria chave:** se a operação falhar, `Do` não grava nada para aquela tentativa — a transação externa aborta (mesma disciplina de GO-013), e uma nova tentativa encontra o catálogo limpo. Mais simples e mais correto do que tentar persistir um "failed" durável dentro de uma transação que o próprio chamador vai reverter.
+
+O worker (`ListPending`/`ProcessPending`) drena `_sc_outbox` com `FOR UPDATE SKIP LOCKED` — o mecanismo que garante que dois workers concorrentes nunca peguem o mesmo evento — processando cada evento numa savepoint própria (`tx.Begin()` sobre uma `pgx.Tx` já aberta simula uma transação aninhada via `SAVEPOINT`): se o handler de um evento falha, só o efeito DELE é desfeito, os demais eventos do lote continuam. Retries têm corte: `maxAttempts` esgotado marca o evento como `failed` (terminal, inspecionável via `ListFailed`/consulta direta a `_sc_outbox`), nunca fica pendente para sempre.
+
+`cmd/worker` roda um job de outbox por tenant (mesma guarda de ownership de GO-009, mesma telemetria de GO-010) — hoje o handler só loga o evento (nenhuma automação real o consome ainda, GO-024/GO-025 não existem); é o ponto de plugue testável, mesmo espírito dos `Hooks` sem consumidor real de GO-013.
 
 ## Observabilidade (GO-010)
 
