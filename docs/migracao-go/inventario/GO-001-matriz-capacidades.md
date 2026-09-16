@@ -112,7 +112,7 @@ Relaciona-se à tarefa [GO-001](../TASKS.md#go-001--inventariar-capacidades-e-ap
 | Segurança de cabeçalhos (Helmet/CSP) | `packages/server/app.js:121-149` | Todas | — | **BFF Node.js** (borda web) | CSP atual permite `unsafe-inline`/`unsafe-eval` (necessário para builder) — revisar ao desacoplar builder do DOM compartilhado (GO-018) |
 | CORS | `packages/server/app.js:51-169` | API/mobile | — | Go nativo (API pública) / BFF (web) | Origens credenciadas hoje hardcoded para o app mobile |
 | Mitigação de poluição de protótipo | `app.js:544` | Todas | — | N/A (específico de Node) | Não se aplica a Go; documentar como risco eliminado pela migração, não portado |
-| CLI (`saltcorn`, oclif) | `packages/saltcorn-cli/src/commands/*.js` (serve, migrate, fixtures, tenant/user CRUD, backup/restore, run-trigger, scheduler, config get/set, mobile build) | Operação/dev | — | Go nativo | Lista mínima de paridade para `go/cmd/cli` (GO-005): `serve`, `migrate`, `fixtures`, CRUD de tenant/usuário, `backup`/`restore`, `run-trigger`/`list-triggers`, `get-cfg`/`set-cfg` |
+| CLI (`saltcorn`, oclif) | `packages/saltcorn-cli/src/commands/*.js` (serve, migrate, fixtures, tenant/user CRUD, backup/restore, run-trigger, scheduler, config get/set, mobile build) | Operação/dev | — | Go nativo | Lista mínima de paridade para `migracao/backend/cmd/cli` (GO-005): `serve`, `migrate`, `fixtures`, CRUD de tenant/usuário, `backup`/`restore`, `run-trigger`/`list-triggers`, `get-cfg`/`set-cfg` |
 
 ## 3. Escopo do piloto
 
