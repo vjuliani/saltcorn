@@ -42,7 +42,13 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 
 	c := &compiler{fields: fieldsByName}
 
-	cols := []string{`t."id"`}
+	// _version (xmin::text) acompanha toda leitura desde GO-013: é o token
+	// de controle de concorrência otimista que CreateRecord/UpdateRecord/
+	// DeleteRecord exigem para uma escrita subsequente saber se a linha
+	// mudou entre a leitura e a escrita — nunca uma coluna de schema
+	// própria (evita alterar o DDL já testado de GO-011), sempre a coluna
+	// de sistema que o Postgres já mantém.
+	cols := []string{`t."id"`, `t.xmin::text AS "_version"`}
 	names := make([]string, 0, len(fields))
 	for _, f := range fields {
 		names = append(names, f.Name)

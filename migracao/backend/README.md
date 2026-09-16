@@ -2,7 +2,7 @@
 
 Módulo Go da migração ([docs/migracao-go/](../../docs/migracao-go/)). Implementa a estrutura definida em [ADR-0001](../../docs/migracao-go/adr/0001-backend-go-cqrs.md): monólito modular com CQRS lógico, três executáveis (`server`, `worker`, `cli`) reutilizando os mesmos serviços internos.
 
-**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009) + logs estruturados, métricas e correlação de trace (GO-010) + catálogo de tabelas/campos/relações dinâmicos e evolução de schema (GO-011) + compilador de consultas dinâmicas (GO-012). Ainda sem comandos de escrita de registros nem API pública completa — GO-013 e o restante do domínio entram nas tarefas seguintes, sobre esta mesma base.
+**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009) + logs estruturados, métricas e correlação de trace (GO-010) + catálogo de tabelas/campos/relações dinâmicos e evolução de schema (GO-011) + compilador de consultas dinâmicas (GO-012) + comandos de registro (insert/update/delete) com controle de concorrência (GO-013). Ainda sem API pública completa — o restante do domínio entra nas tarefas seguintes, sobre esta mesma base.
 
 ## Estrutura
 
@@ -26,9 +26,11 @@ internal/
              invalidação (GO-011)
   records/   compilador de consultas dinâmicas — DSL de filtros, joins de
              1 nível, agregações escalares, ordenação e paginação, tudo
-             resolvido contra o catálogo e parametrizado (GO-012);
-             comandos de escrita entram em GO-013 no mesmo pacote
-             ("registros/consultas" é um módulo só em ADR-0001)
+             resolvido contra o catálogo e parametrizado (GO-012); e
+             comandos de registro — insert/update/delete com controle de
+             concorrência via xmin e pontos de extensão de trigger
+             (GO-013) — no mesmo pacote ("registros/consultas" é um
+             módulo só em ADR-0001)
   platform/
     config/    carregamento de configuração por variável de ambiente
     health/    handlers de liveness/readiness reutilizáveis
@@ -230,6 +232,16 @@ Tipos de campo suportados nesta tarefa: `text`, `integer`, `boolean`, `float`, `
 - **Autorização:** `identity.CanRead(actorRole, table.MinRoleRead)` é checado antes de compilar qualquer SQL — reaproveitado de GO-008, não uma checagem nova.
 
 Deliberadamente fora de escopo (documentado, não fabricado — ver `docs/migracao-go/execucoes/GO-012.md`): busca full-text, consultas de JSON path (GO-011 não tem tipo de campo JSON), sub-selects, slugify, operador de regex e geo — nenhum tem o tipo de campo ou a infraestrutura correspondente ainda.
+
+## Comandos de registro (GO-013)
+
+`internal/records` também implementa `CreateRecord`/`UpdateRecord`/`DeleteRecord` — insert/update/delete de registros dinâmicos, reaproveitando a mesma resolução de catálogo e `validateValue` de GO-012 (nenhuma checagem nova reinventada).
+
+- **Controle de concorrência via `xmin`:** em vez de uma coluna `version` própria (que exigiria alterar o DDL já testado de GO-011), o token de versão é a coluna de sistema `xmin` do Postgres — o identificador de transação que gravou a versão atual da linha. `Compile` (GO-012) passa a incluir `_version` (`xmin::text`) em todo resultado de leitura; `UpdateRecord`/`DeleteRecord` exigem esse token (`expectedVersion`) e falham com `ErrVersionConflict` — o "erro definido" do critério de aceite — se a linha mudou desde a leitura. `ErrRecordNotFound` distingue "não existe" de "existe, mas mudou".
+- **Pontos de extensão de trigger:** um `*Hooks` opcional com callbacks `Before{Insert,Update,Delete}`/`After{Insert,Update,Delete}`, chamados dentro da MESMA transação do comando — um hook que falha desfaz a operação inteira, não só o efeito do hook. Nenhuma automação real usa isto ainda (GO-024/GO-025 não existem); é o ponto de plugue testável, mesmo espírito do `metadata.Cache` sem consumidor real (GO-011).
+- **Validações:** nome de campo desconhecido (`ErrUnknownField`), tipo incompatível (`ErrTypeMismatch`), campo obrigatório ausente (`ErrRequiredField`) — checados em Go antes de qualquer SQL rodar.
+- **Classificação de erros do driver:** violação de unicidade → `ErrDuplicateValue`; violação de chave estrangeira → `ErrInvalidReference`; violação `NOT NULL` → `ErrRequiredField` — nunca a mensagem crua do driver Postgres, que pode ecoar de volta um valor de linha (ex.: `Key (email)=(x@y.com) already exists`).
+- **Autorização:** só em nível de tabela (`identity.CanWrite(actorRole, table.MinRoleWrite)`) — autorização por ownership de linha (`identity.IsOwnerByField`, GO-008) fica de fora: exigiria o catálogo saber qual campo é o "campo de ownership" de uma tabela, o que GO-011 não modela hoje.
 
 ## Observabilidade (GO-010)
 
