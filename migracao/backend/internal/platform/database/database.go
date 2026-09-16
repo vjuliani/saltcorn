@@ -2,27 +2,47 @@
 // sob reuso de conexão pooled — o requisito central de GO-007. GO-008
 // estende isso com identidade de ator/papel na mesma transação, para que
 // políticas RLS nativas (`current_setting('app.current_user_id')`) tenham o
-// que ler. Nenhuma tabela de domínio de usuário é criada aqui (isso é
-// GO-011); este pacote só resolve "em qual schema, como qual ator" uma
-// transação roda, de forma que nunca vaze entre tenants/atores quando o pool
-// devolve a mesma conexão física para uma chamada diferente.
+// que ler. GO-010 acrescenta log estruturado e métricas por transação
+// (resultado classificado e duração, nunca texto de SQL ou parâmetros).
+// Nenhuma tabela de domínio de usuário é criada aqui (isso é GO-011); este
+// pacote só resolve "em qual schema, como qual ator" uma transação roda, de
+// forma que nunca vaze entre tenants/atores quando o pool devolve a mesma
+// conexão física para uma chamada diferente.
 package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/telemetry"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 )
 
 // DB envolve um pool de conexões Postgres.
 type DB struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	metrics *telemetry.SQLMetrics
 }
+
+// SetMetrics associa m a esta instância — chamado uma vez, na inicialização
+// do processo (cmd/server, cmd/worker), depois de criar o
+// *telemetry.Registry compartilhado (GO-010). Sem chamar SetMetrics, as
+// transações continuam sendo logadas normalmente, só não geram métricas
+// (m == nil é seguro, ver telemetry.SQLMetrics.Observe).
+func (db *DB) SetMetrics(m *telemetry.SQLMetrics) { db.metrics = m }
+
+// Stat expõe estatísticas do pool subjacente (conexões adquiridas, ociosas,
+// totais, máximas) — usado por cmd/server para publicar gauges de
+// saturação (GO-010): quantas conexões estão em uso vs. disponíveis é o
+// sinal mais direto de saturação de banco que este pacote pode oferecer
+// sem instrumentar cada query individualmente.
+func (db *DB) Stat() *pgxpool.Stat { return db.pool.Stat() }
 
 // Open cria o pool a partir de uma DSN (`postgres://...`). O pool em si não
 // fixa nenhum schema — isso é decidido por transação em WithTenant.
@@ -95,9 +115,15 @@ func (db *DB) WithTenantAndActor(ctx context.Context, t tenancy.Tenant, actorID 
 // WithTenantAndActor: begin, SET LOCAL search_path, executar fn, e
 // commit/rollback conforme o resultado.
 func (db *DB) withTenantTx(ctx context.Context, t tenancy.Tenant, fn func(ctx context.Context, tx pgx.Tx) error) (err error) {
+	start := time.Now()
+	defer func() {
+		db.instrument(ctx, t, time.Since(start), err)
+	}()
+
 	tx, err := db.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("database: iniciar transação: %w", err)
+		err = fmt.Errorf("database: iniciar transação: %w", err)
+		return err
 	}
 
 	defer func() {
@@ -124,4 +150,34 @@ func (db *DB) withTenantTx(ctx context.Context, t tenancy.Tenant, fn func(ctx co
 		return err
 	}
 	return nil
+}
+
+// instrument loga e mede uma transação concluída (GO-010) — nunca inclui
+// texto de SQL, parâmetros ou a mensagem crua do erro do driver: uma
+// mensagem de erro do Postgres pode ecoar de volta um valor de linha (ex.:
+// violação de constraint única mostrando o valor duplicado), então só o
+// resultado CLASSIFICADO (um conjunto fixo e pequeno de rótulos) é
+// registrado, tanto no log quanto na métrica.
+func (db *DB) instrument(ctx context.Context, t tenancy.Tenant, elapsed time.Duration, err error) {
+	result := classifyResult(err)
+	logger := telemetry.LoggerFor(ctx).With("schema", string(t), "duration_ms", elapsed.Milliseconds(), "result", result)
+	if err != nil {
+		logger.Warn("transação SQL concluída com erro")
+	} else {
+		logger.Debug("transação SQL concluída")
+	}
+	db.metrics.Observe(elapsed, result)
+}
+
+func classifyResult(err error) string {
+	switch {
+	case err == nil:
+		return "ok"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "deadline_exceeded"
+	default:
+		return "error"
+	}
 }

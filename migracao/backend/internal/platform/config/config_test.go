@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"reflect"
 	"testing"
 	"time"
@@ -25,6 +26,27 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if len(cfg.WorkerTenants) != 0 {
 		t.Errorf("WorkerTenants = %v, esperado vazio por padrão", cfg.WorkerTenants)
+	}
+	if cfg.LogLevel != defaultLogLevel {
+		t.Errorf("LogLevel = %v, esperado %v", cfg.LogLevel, defaultLogLevel)
+	}
+}
+
+func TestLoad_LogLevel(t *testing.T) {
+	t.Setenv(envLogLevel, "debug")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() erro inesperado: %v", err)
+	}
+	if cfg.LogLevel != slog.LevelDebug {
+		t.Errorf("LogLevel = %v, esperado DEBUG", cfg.LogLevel)
+	}
+}
+
+func TestLoad_InvalidLogLevel(t *testing.T) {
+	t.Setenv(envLogLevel, "não-é-um-nível")
+	if _, err := Load(); err == nil {
+		t.Error("esperava erro para nível de log inválido, obteve nil")
 	}
 }
 

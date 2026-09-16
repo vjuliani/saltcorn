@@ -6,14 +6,20 @@
 // nenhuma tabela de domínio real (isso é GO-011). GO-009 acrescenta a
 // guarda de ownership de escrita (internal/platform/cutover): a rota de
 // exemplo só responde se este backend for o proprietário registrado para
-// a capacidade, nunca por presunção.
+// a capacidade, nunca por presunção. GO-010 acrescenta log estruturado
+// (com redação automática de dados sensíveis), métricas em GET /metrics e
+// correlação de trace (internal/platform/telemetry) — /healthz e /readyz
+// não são instrumentadas de propósito (probes de alta frequência, baixo
+// valor de log/métrica, ruído que atrapalha mais do que ajuda).
 package main
 
 import (
 	"context"
 	"errors"
-	"log"
+	"log/slog"
+	"net"
 	"net/http"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -24,6 +30,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/health"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/telemetry"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 )
 
@@ -32,14 +39,23 @@ import (
 // catálogo formal de capacidades (isso é trabalho futuro de GO-011+).
 const exampleCapability = "tables.records"
 
+// exampleRoute é o nome lógico e de baixa cardinalidade da rota de exemplo
+// para fins de métrica (GO-010) — nunca o path bruto, que contém o tenant.
+const exampleRoute = "tenant_records"
+
 func main() {
 	cfg, err := config.Load()
+	logger := slog.New(telemetry.NewHandler(os.Stdout, cfg.LogLevel))
+	slog.SetDefault(logger)
 	if err != nil {
-		log.Fatalf("configuração inválida: %v", err)
+		logger.Error("configuração inválida", "error", err.Error())
+		os.Exit(1)
 	}
 
 	checker := &health.Checker{}
 	tracker := shutdown.NewTracker()
+	registry := telemetry.NewRegistry()
+	httpMetrics := telemetry.NewHTTPMetrics(registry)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -48,18 +64,22 @@ func main() {
 	if cfg.DatabaseURL != "" {
 		db, err = database.Open(ctx, cfg.DatabaseURL)
 		if err != nil {
-			log.Fatalf("conectar ao banco: %v", err)
+			logger.Error("conectar ao banco", "error", err.Error())
+			os.Exit(1)
 		}
 		defer db.Close()
-		log.Printf("conectado ao banco (isolamento de tenant via internal/platform/database)")
+		db.SetMetrics(telemetry.NewSQLMetrics(registry))
+		registerPoolGauges(registry, db)
+		logger.Info("conectado ao banco (isolamento de tenant via internal/platform/database)")
 	} else {
-		log.Printf("SALTCORN_GO_DATABASE_URL não configurada — rotas que dependem de banco responderão 503")
+		logger.Warn("SALTCORN_GO_DATABASE_URL não configurada — rotas que dependem de banco responderão 503")
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", checker.LivenessHandler())
 	mux.HandleFunc("/readyz", checker.ReadinessHandler())
-	mux.HandleFunc("/", placeholderHandler(tracker))
+	mux.Handle("/metrics", registry.Handler())
+	mux.Handle("/", telemetry.Middleware("root", httpMetrics, placeholderHandler(tracker)))
 
 	// A rota de exemplo protegida por identidade delegada só é registrada
 	// se houver um segredo válido para verificar assinatura (GO-008) — sem
@@ -67,11 +87,12 @@ func main() {
 	// preferimos 404 (rota não existe) a registrar algo que aceitaria
 	// qualquer token ou que entraria em pânico com um Verifier nulo.
 	if cfg.ServiceIdentitySecret == "" {
-		log.Printf("SALTCORN_GO_SERVICE_IDENTITY_SECRET não configurada — rota /v1/tenants/{tenant}/... não registrada")
+		logger.Warn("SALTCORN_GO_SERVICE_IDENTITY_SECRET não configurada — rota /v1/tenants/{tenant}/... não registrada")
 	} else {
 		verifier, err := tenancy.NewVerifier([]byte(cfg.ServiceIdentitySecret))
 		if err != nil {
-			log.Fatalf("segredo de identidade delegada inválido: %v", err)
+			logger.Error("segredo de identidade delegada inválido", "error", err.Error())
+			os.Exit(1)
 		}
 
 		// Guard/registro de ownership de escrita (GO-009): carrega o estado
@@ -83,20 +104,29 @@ func main() {
 		guard := cutover.NewGuard()
 		if db != nil {
 			if err := cutover.LoadFromRegistry(ctx, db, guard); err != nil {
-				log.Printf("aviso: não foi possível carregar o registro de ownership de corte (%v) — nenhuma tenant/capacidade será tratada como proprietária de Go até o registro existir e ser recarregado", err)
+				logger.Warn("não foi possível carregar o registro de ownership de corte — nenhuma tenant/capacidade será tratada como proprietária de Go até o registro existir e ser recarregado",
+					"error", err.Error())
 			}
 		}
 
+		// telemetry.Middleware envolve tenancy.Middleware e
+		// cutover.RequireOwnership (não o contrário) para que o tenant/ator
+		// já verificado esteja disponível ao logar a conclusão da
+		// requisição, e para que rejeições de identidade/ownership também
+		// entrem nas métricas — não só o caminho de sucesso.
 		mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records",
-			tenancy.Middleware(verifier, cutover.RequireOwnership(guard, exampleCapability, tenantProbeHandler(tracker, db))))
+			tenancy.Middleware(verifier, telemetry.Middleware(exampleRoute, httpMetrics,
+				cutover.RequireOwnership(guard, exampleCapability, tenantProbeHandler(tracker, db)))))
 	}
 
-	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux}
+	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux, BaseContext: func(net.Listener) context.Context {
+		return telemetry.WithLogger(context.Background(), logger)
+	}}
 
 	serveErr := make(chan error, 1)
 	go func() {
 		checker.SetReady(true)
-		log.Printf("saltcorn-go server (ambiente=%s) ouvindo em %s", cfg.Environment, cfg.HTTPAddr)
+		logger.Info("saltcorn-go server iniciado", "ambiente", cfg.Environment, "addr", cfg.HTTPAddr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- err
 			return
@@ -108,14 +138,15 @@ func main() {
 	case <-ctx.Done():
 	case err := <-serveErr:
 		if err != nil {
-			log.Fatalf("erro no servidor HTTP: %v", err)
+			logger.Error("erro no servidor HTTP", "error", err.Error())
+			os.Exit(1)
 		}
 		return
 	}
 
 	stop() // para de reagir a um segundo sinal enquanto já estamos encerrando
 	checker.SetReady(false)
-	log.Printf("sinal de encerramento recebido, drenando (timeout %s)...", cfg.ShutdownTimeout)
+	logger.Info("sinal de encerramento recebido, drenando", "timeout", cfg.ShutdownTimeout.String())
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
@@ -124,12 +155,28 @@ func main() {
 	// em curso terminarem. tracker.Drain espera qualquer trabalho registrado
 	// explicitamente que sobreviva além da resposta HTTP.
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("aviso: srv.Shutdown não concluiu a tempo: %v", err)
+		logger.Warn("srv.Shutdown não concluiu a tempo", "error", err.Error())
 	}
 	if err := tracker.Drain(shutdownCtx); err != nil {
-		log.Printf("aviso: trabalho em curso não terminou dentro do timeout de shutdown: %v", err)
+		logger.Warn("trabalho em curso não terminou dentro do timeout de shutdown", "error", err.Error())
 	}
-	log.Printf("encerrado")
+	logger.Info("encerrado")
+}
+
+// registerPoolGauges publica o estado do pool de conexões como gauges
+// (GO-010) — o sinal mais direto de saturação de banco que
+// internal/platform/database pode oferecer sem instrumentar cada query
+// individualmente: quantas conexões estão em uso vs. disponíveis no limite
+// configurado.
+func registerPoolGauges(registry *telemetry.Registry, db *database.DB) {
+	registry.RegisterGaugeFunc(telemetry.NewGaugeFunc("sql_pool_acquired_connections",
+		"Conexões do pool atualmente em uso.", func() float64 { return float64(db.Stat().AcquiredConns()) }))
+	registry.RegisterGaugeFunc(telemetry.NewGaugeFunc("sql_pool_idle_connections",
+		"Conexões do pool atualmente ociosas.", func() float64 { return float64(db.Stat().IdleConns()) }))
+	registry.RegisterGaugeFunc(telemetry.NewGaugeFunc("sql_pool_total_connections",
+		"Total de conexões do pool (adquiridas + ociosas + em construção).", func() float64 { return float64(db.Stat().TotalConns()) }))
+	registry.RegisterGaugeFunc(telemetry.NewGaugeFunc("sql_pool_max_connections",
+		"Tamanho máximo configurado do pool.", func() float64 { return float64(db.Stat().MaxConns()) }))
 }
 
 // placeholderHandler demonstra o padrão que toda rota segue: registrar a
