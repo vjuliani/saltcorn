@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -18,6 +19,35 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.Environment != defaultEnvironment {
 		t.Errorf("Environment = %q, esperado %q", cfg.Environment, defaultEnvironment)
+	}
+	if cfg.DatabaseURL != "" {
+		t.Errorf("DatabaseURL = %q, esperado vazio por padrão", cfg.DatabaseURL)
+	}
+	if len(cfg.WorkerTenants) != 0 {
+		t.Errorf("WorkerTenants = %v, esperado vazio por padrão", cfg.WorkerTenants)
+	}
+}
+
+func TestLoad_WorkerTenants(t *testing.T) {
+	t.Setenv(envWorkerTenants, "acme, beta ,, gamma")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() erro inesperado: %v", err)
+	}
+	want := []string{"acme", "beta", "gamma"}
+	if !reflect.DeepEqual(cfg.WorkerTenants, want) {
+		t.Errorf("WorkerTenants = %v, esperado %v (espaços aparados, entradas vazias descartadas)", cfg.WorkerTenants, want)
+	}
+}
+
+func TestLoad_DatabaseURL(t *testing.T) {
+	t.Setenv(envDatabaseURL, "postgres://user:pass@localhost/db")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() erro inesperado: %v", err)
+	}
+	if cfg.DatabaseURL != "postgres://user:pass@localhost/db" {
+		t.Errorf("DatabaseURL = %q, não refletiu a variável de ambiente", cfg.DatabaseURL)
 	}
 }
 

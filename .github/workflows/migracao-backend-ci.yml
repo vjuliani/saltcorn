@@ -17,12 +17,45 @@ jobs:
     defaults:
       run:
         working-directory: migracao/backend
+    # Serviço de Postgres isolado do job de CI (não é o banco de nenhum
+    # ambiente real) — usado pelos testes de internal/platform/database
+    # (GO-007), que exigem Postgres de verdade para provar isolamento de
+    # schema sob reuso de conexão. Sem esta variável, esses testes fazem
+    # t.Skip() silenciosamente (ver database_test.go) — o serviço abaixo
+    # existe para que a CI não deixe essa cobertura de fora.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: saltcorn_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d saltcorn_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      SALTCORN_GO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/saltcorn_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
           cache-dependency-path: migracao/backend/go.mod
+      - name: preparar schemas de teste (acme/beta) para os testes de tenancy
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d saltcorn_test -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE SCHEMA IF NOT EXISTS acme;
+          CREATE SCHEMA IF NOT EXISTS beta;
+          CREATE TABLE IF NOT EXISTS acme.probe (id serial primary key, marker text not null);
+          CREATE TABLE IF NOT EXISTS beta.probe (id serial primary key, marker text not null);
+          TRUNCATE acme.probe, beta.probe;
+          INSERT INTO acme.probe (marker) VALUES ('acme-secret');
+          INSERT INTO beta.probe (marker) VALUES ('beta-secret');
+          SQL
       - name: gofmt
         run: |
           fmt_out="$(gofmt -l .)"
