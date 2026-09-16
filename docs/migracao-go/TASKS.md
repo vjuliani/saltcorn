@@ -150,7 +150,7 @@ Execute a task GO-006 — Definir contratos e fixtures HTTP, de docs/migracao-go
 
 ### GO-007 — Implementar tenancy e contexto transacional
 
-- [ ] **Status:** IN_REVIEW — código em [migracao/backend/internal/platform/{tenancy,database}](../../migracao/backend/internal/platform/); histórico em [execucoes/GO-007.md](execucoes/GO-007.md)
+- [ ] **Status:** IN_REVIEW — PR [#10](https://github.com/vjuliani/saltcorn/pull/10); código em [migracao/backend/internal/platform/{tenancy,database}](../../migracao/backend/internal/platform/); histórico em [execucoes/GO-007.md](execucoes/GO-007.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-005
