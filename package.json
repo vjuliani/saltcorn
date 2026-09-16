@@ -120,5 +120,8 @@
   ],
   "dependencies": {
     "mobile-drag-drop": "^3.0.0-rc.0"
+  },
+  "allowScripts": {
+    "sqlite3": true
   }
 }
