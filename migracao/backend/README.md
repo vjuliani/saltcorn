@@ -2,7 +2,7 @@
 
 Módulo Go da migração ([docs/migracao-go/](../../docs/migracao-go/)). Implementa a estrutura definida em [ADR-0001](../../docs/migracao-go/adr/0001-backend-go-cqrs.md): monólito modular com CQRS lógico, três executáveis (`server`, `worker`, `cli`) reutilizando os mesmos serviços internos.
 
-**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009) + logs estruturados, métricas e correlação de trace (GO-010) + catálogo de tabelas/campos/relações dinâmicos e evolução de schema (GO-011). Ainda sem compilador de consultas dinâmicas nem API pública completa — GO-012/GO-013 e o restante do domínio entram nas tarefas seguintes, sobre esta mesma base.
+**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009) + logs estruturados, métricas e correlação de trace (GO-010) + catálogo de tabelas/campos/relações dinâmicos e evolução de schema (GO-011) + compilador de consultas dinâmicas (GO-012). Ainda sem comandos de escrita de registros nem API pública completa — GO-013 e o restante do domínio entram nas tarefas seguintes, sobre esta mesma base.
 
 ## Estrutura
 
@@ -24,6 +24,11 @@ internal/
              evolução de schema — catálogo e DDL na mesma transação, lock
              de advisory por tenant, versão de metadados e cache com
              invalidação (GO-011)
+  records/   compilador de consultas dinâmicas — DSL de filtros, joins de
+             1 nível, agregações escalares, ordenação e paginação, tudo
+             resolvido contra o catálogo e parametrizado (GO-012);
+             comandos de escrita entram em GO-013 no mesmo pacote
+             ("registros/consultas" é um módulo só em ADR-0001)
   platform/
     config/    carregamento de configuração por variável de ambiente
     health/    handlers de liveness/readiness reutilizáveis
@@ -116,7 +121,7 @@ SALTCORN_GO_TEST_DATABASE_URL_RLS="postgres://app_user:app_user@127.0.0.1:55556/
   go test -race -count=1 ./internal/platform/database/... ./internal/identity/...
 ```
 
-`internal/metadata` (GO-011) só precisa de `SALTCORN_GO_TEST_DATABASE_URL` — nenhum fixture adicional: cada teste cria seu próprio schema de tenant isolado, como `internal/identity`.
+`internal/metadata` (GO-011) e `internal/records` (GO-012) só precisam de `SALTCORN_GO_TEST_DATABASE_URL` — nenhum fixture adicional: cada teste cria seu próprio schema de tenant isolado, como `internal/identity`.
 
 Rodar cada processo:
 
@@ -211,6 +216,20 @@ Sem essa linha, a rota responde `409 route_mismatch` mesmo com um token de ident
 - **Autorização:** só `identity.RoleAdmin` pode mutar o catálogo (`identity.CanWrite` reaproveitado, GO-008) — um ator sem esse papel é recusado antes de qualquer DDL rodar.
 
 Tipos de campo suportados nesta tarefa: `text`, `integer`, `boolean`, `float`, `date`, `key` (relação). Deliberadamente fora de escopo: campos de arquivo (GO-026 não existe), tipos definidos por plugin, e constraints por fórmula JS (dependem do motor de expressões, bloqueado por ADR-0005/GO-004) — só constraint de unicidade por campo é suportada.
+
+## Compilador de consultas dinâmicas (GO-012)
+
+`internal/records` implementa o DSL de filtros/joins/agregações/ordenação/paginação sobre o catálogo de `internal/metadata` (matriz GO-001 §2.2, `packages/db-common/internal.ts`, `mkWhere`/`whereClause`) — a versão tipada em Go do DSL legado, não uma tradução literal do mapa flexível de chave-como-operador do JavaScript.
+
+- **`Where`** é uma interface implementada por `Eq`, `In`, `NotIn`, `Like` (substring, `ILIKE`), `Gt`/`Gte`/`Lt`/`Lte`, `Between`, `And`, `Or`, `Not` — cada operador é um tipo próprio, montado em Go, não uma string livre. "Chaves compostas" do critério de aceite: várias condições combinadas com `And` (o catálogo de GO-011 só tem PK simples, `id serial`, então não existe PK composta a portar — isto é o equivalente prático).
+- **Resolução pelo catálogo:** todo nome de tabela/campo em `Query` é resolvido contra `metadata.GetTable`/`ListFields` ANTES de qualquer SQL ser montado — um nome não catalogado é rejeitado (`ErrUnknownTable`/`ErrUnknownField`), nunca sanitizado-e-aceito. Mais estrito que o legado, que só sanitiza o nome sem validar contra um catálogo.
+- **Sem injeção de SQL:** todo valor de filtro é parametrizado (`$1, $2, ...`) via `pgx`, nunca interpolado; identificadores resolvidos ainda passam por `pgx.Identifier.Sanitize()` na montagem da SQL (defesa em profundidade). Um teste dedicado confirma que um valor com sintaxe SQL (`"x'; DROP TABLE books; --"`) só falha em encontrar correspondência, nunca corrompe a consulta.
+- **Tipos e `NULL`:** `Value == nil` sempre compila para `IS NULL` (nunca `= NULL`); todo valor passa por `validateValue`, que rejeita um tipo Go incompatível com o tipo de campo do catálogo (`ErrTypeMismatch`) antes de chegar ao Postgres.
+- **Joins:** um nível de `LEFT JOIN` através de um campo `metadata.FieldKey`, trazendo colunas da tabela referenciada sob a chave `"<campo>__<coluna>"`.
+- **Agregações:** subquery escalar (`COUNT`/`SUM`/`AVG`/`MIN`/`MAX`) sobre uma tabela filha que referencia a tabela consultada via campo `key` — o padrão "quantos registros relacionados" do Saltcorn legado.
+- **Autorização:** `identity.CanRead(actorRole, table.MinRoleRead)` é checado antes de compilar qualquer SQL — reaproveitado de GO-008, não uma checagem nova.
+
+Deliberadamente fora de escopo (documentado, não fabricado — ver `docs/migracao-go/execucoes/GO-012.md`): busca full-text, consultas de JSON path (GO-011 não tem tipo de campo JSON), sub-selects, slugify, operador de regex e geo — nenhum tem o tipo de campo ou a infraestrutura correspondente ainda.
 
 ## Observabilidade (GO-010)
 

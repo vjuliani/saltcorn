@@ -245,7 +245,7 @@ Execute a task GO-011 — Portar catálogo e evolução de schema, de docs/migra
 
 ### GO-012 — Implementar compilador de consultas dinâmicas
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — PR [#15](https://github.com/vjuliani/saltcorn/pull/15) aberto; histórico em [execucoes/GO-012.md](execucoes/GO-012.md)
 - **Fase:** F2 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-011
