@@ -188,7 +188,7 @@ Execute a task GO-008 — Migrar identidade e autorização, de docs/migracao-go
 
 ### GO-009 — Criar entrada de migração e ownership de escrita
 
-- [ ] **Status:** IN_REVIEW — implementação e testes concluídos, PR a abrir; histórico em [execucoes/GO-009.md](execucoes/GO-009.md)
+- [ ] **Status:** IN_REVIEW — PR [#12](https://github.com/vjuliani/saltcorn/pull/12) aberto; histórico em [execucoes/GO-009.md](execucoes/GO-009.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Backend + Plataforma
 - **Depende de:** GO-006, GO-008
