@@ -1,14 +1,17 @@
 // Package database dá acesso ao Postgres com isolamento de tenant seguro
-// sob reuso de conexão pooled — o requisito central de GO-007. Nenhuma
-// tabela de domínio é criada aqui (isso é GO-011); este pacote só resolve
-// "em qual schema esta transação roda" de forma que nunca vaze entre
-// tenants quando o pool devolve a mesma conexão física para uma chamada
-// diferente.
+// sob reuso de conexão pooled — o requisito central de GO-007. GO-008
+// estende isso com identidade de ator/papel na mesma transação, para que
+// políticas RLS nativas (`current_setting('app.current_user_id')`) tenham o
+// que ler. Nenhuma tabela de domínio de usuário é criada aqui (isso é
+// GO-011); este pacote só resolve "em qual schema, como qual ator" uma
+// transação roda, de forma que nunca vaze entre tenants/atores quando o pool
+// devolve a mesma conexão física para uma chamada diferente.
 package database
 
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -46,23 +49,52 @@ func (db *DB) Close() { db.pool.Close() }
 
 // Pool expõe o pool subjacente para casos que genuinamente precisam dele
 // (ex.: métricas, health check de conectividade). Código de domínio deve
-// usar WithTenant, não este método, para qualquer operação que leia ou
-// escreva dados de tenant.
+// usar WithTenant/WithTenantAndActor, não este método, para qualquer
+// operação que leia ou escreva dados de tenant.
 func (db *DB) Pool() *pgxpool.Pool { return db.pool }
 
 // WithTenant adquire uma conexão do pool, abre uma transação, escopa essa
 // transação ao schema do tenant via `SET LOCAL search_path` — nunca `SET`
 // sem `LOCAL`, que persistiria na conexão física depois que ela voltasse ao
 // pool e vazaria para a próxima chamada, de qualquer tenant, que reusasse
-// essa mesma conexão (a classe de bug que GO-001 e o critério de aceite
-// desta tarefa apontam) — executa fn, e commita ou desfaz conforme o
-// resultado. `SET LOCAL` reverte sozinho ao fim da transação (commit ou
-// rollback), então a conexão sempre volta ao pool sem search_path residual.
+// essa mesma conexão (a classe de bug que GO-001 e o critério de aceite de
+// GO-007 apontam) — executa fn, e commita ou desfaz conforme o resultado.
+// `SET LOCAL` reverte sozinho ao fim da transação (commit ou rollback),
+// então a conexão sempre volta ao pool sem search_path residual.
 //
 // Cancelamento de ctx durante fn propaga para a query em andamento (pgx
 // cancela a query no servidor) e o defer garante rollback — a conexão não
 // fica em transação pendurada nem com estado inconsistente.
-func (db *DB) WithTenant(ctx context.Context, t tenancy.Tenant, fn func(ctx context.Context, tx pgx.Tx) error) (err error) {
+func (db *DB) WithTenant(ctx context.Context, t tenancy.Tenant, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	return db.withTenantTx(ctx, t, fn)
+}
+
+// WithTenantAndActor faz tudo que WithTenant faz, e também define, na mesma
+// transação, as GUCs `app.current_user_id` e `app.current_user_role`
+// (GO-008) — os nomes que uma política RLS nativa consulta via
+// `current_setting(...)`, replicando o mecanismo de
+// `table.ts`/`enableOwnershipRLS` da produção Node (matriz GO-001 §2.1).
+// Usa `set_config(..., true)` (o terceiro argumento `true` = escopo local à
+// transação, equivalente a `SET LOCAL`) em vez de montar SQL com o valor
+// interpolado: `set_config` é uma função normal, então o valor do ator (que
+// vem de uma claim de token, não é um identificador de schema) é sempre
+// parametrizado, nunca concatenado.
+func (db *DB) WithTenantAndActor(ctx context.Context, t tenancy.Tenant, actorID string, roleID int, fn func(ctx context.Context, tx pgx.Tx) error) error {
+	return db.withTenantTx(ctx, t, func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "SELECT set_config('app.current_user_id', $1, true)", actorID); err != nil {
+			return fmt.Errorf("database: definir app.current_user_id: %w", err)
+		}
+		if _, err := tx.Exec(ctx, "SELECT set_config('app.current_user_role', $1, true)", strconv.Itoa(roleID)); err != nil {
+			return fmt.Errorf("database: definir app.current_user_role: %w", err)
+		}
+		return fn(ctx, tx)
+	})
+}
+
+// withTenantTx concentra o ciclo de vida de transação comum a WithTenant e
+// WithTenantAndActor: begin, SET LOCAL search_path, executar fn, e
+// commit/rollback conforme o resultado.
+func (db *DB) withTenantTx(ctx context.Context, t tenancy.Tenant, fn func(ctx context.Context, tx pgx.Tx) error) (err error) {
 	tx, err := db.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("database: iniciar transação: %w", err)

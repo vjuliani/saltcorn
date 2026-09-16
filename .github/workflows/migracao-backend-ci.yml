@@ -20,9 +20,11 @@ jobs:
     # Serviço de Postgres isolado do job de CI (não é o banco de nenhum
     # ambiente real) — usado pelos testes de internal/platform/database
     # (GO-007), que exigem Postgres de verdade para provar isolamento de
-    # schema sob reuso de conexão. Sem esta variável, esses testes fazem
-    # t.Skip() silenciosamente (ver database_test.go) — o serviço abaixo
-    # existe para que a CI não deixe essa cobertura de fora.
+    # schema sob reuso de conexão, pelos testes de RLS nativa (GO-008,
+    # rls_test.go) e pelos testes de internal/identity que persistem
+    # usuários/tokens de verdade. Sem as variáveis abaixo, esses testes
+    # fazem t.Skip() silenciosamente — o serviço e a preparação abaixo
+    # existem para que a CI não deixe essa cobertura de fora.
     services:
       postgres:
         image: postgres:16
@@ -39,6 +41,12 @@ jobs:
           --health-retries 5
     env:
       SALTCORN_GO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/saltcorn_test
+      # DSN não-superusuário para os testes de RLS (GO-008) — superusuários
+      # sempre ignoram Row-Level Security no Postgres, então os testes de
+      # internal/platform/database/rls_test.go exigem uma conexão separada
+      # que não seja o "postgres" acima, ou fariam t.Skip() e essa cobertura
+      # ficaria de fora da CI silenciosamente.
+      SALTCORN_GO_TEST_DATABASE_URL_RLS: postgres://app_user:app_user@localhost:5432/saltcorn_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -55,6 +63,38 @@ jobs:
           TRUNCATE acme.probe, beta.probe;
           INSERT INTO acme.probe (marker) VALUES ('acme-secret');
           INSERT INTO beta.probe (marker) VALUES ('beta-secret');
+          SQL
+      - name: preparar role não-superusuário e rls_probe para os testes de RLS (GO-008)
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d saltcorn_test -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
+              CREATE ROLE app_user LOGIN PASSWORD 'app_user' NOSUPERUSER NOBYPASSRLS;
+            END IF;
+          END
+          $$;
+          GRANT USAGE ON SCHEMA acme TO app_user;
+
+          CREATE TABLE IF NOT EXISTS acme.rls_probe (
+              id serial PRIMARY KEY,
+              owner_id text NOT NULL,
+              min_role_read int NOT NULL DEFAULT 100
+          );
+          ALTER TABLE acme.rls_probe ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE acme.rls_probe FORCE ROW LEVEL SECURITY;
+
+          DROP POLICY IF EXISTS sc_rls_owner ON acme.rls_probe;
+          CREATE POLICY sc_rls_owner ON acme.rls_probe
+              USING (owner_id = current_setting('app.current_user_id', true));
+          DROP POLICY IF EXISTS sc_rls_elevated ON acme.rls_probe;
+          CREATE POLICY sc_rls_elevated ON acme.rls_probe
+              USING (current_setting('app.current_user_role', true)::int <= min_role_read);
+
+          GRANT SELECT, INSERT, UPDATE, DELETE ON acme.rls_probe TO app_user;
+
+          TRUNCATE acme.rls_probe;
+          INSERT INTO acme.rls_probe (owner_id, min_role_read) VALUES ('user-1', 1), ('user-2', 1);
           SQL
       - name: gofmt
         run: |

@@ -34,14 +34,21 @@ type Config struct {
 	// GO-024/GO-025 substituem isso por descoberta real de tenants e fila
 	// de jobs, não uma lista fixa em configuração.
 	WorkerTenants []string
+	// ServiceIdentitySecret é o segredo compartilhado (HMAC-SHA256) usado
+	// para verificar a assinatura do token de identidade delegada entre BFF
+	// e backend Go (GO-008, ADR-0003). Vazio significa "não configurado" —
+	// cmd/server decide se isso impede subir (rotas que exigem identidade
+	// delegada não podem existir sem um segredo válido).
+	ServiceIdentitySecret string
 }
 
 const (
-	envHTTPAddr        = "SALTCORN_GO_HTTP_ADDR"
-	envShutdownTimeout = "SALTCORN_GO_SHUTDOWN_TIMEOUT_SECONDS"
-	envEnvironment     = "SALTCORN_GO_ENV"
-	envDatabaseURL     = "SALTCORN_GO_DATABASE_URL"
-	envWorkerTenants   = "SALTCORN_GO_WORKER_TENANTS"
+	envHTTPAddr              = "SALTCORN_GO_HTTP_ADDR"
+	envShutdownTimeout       = "SALTCORN_GO_SHUTDOWN_TIMEOUT_SECONDS"
+	envEnvironment           = "SALTCORN_GO_ENV"
+	envDatabaseURL           = "SALTCORN_GO_DATABASE_URL"
+	envWorkerTenants         = "SALTCORN_GO_WORKER_TENANTS"
+	envServiceIdentitySecret = "SALTCORN_GO_SERVICE_IDENTITY_SECRET"
 
 	defaultHTTPAddr        = ":8090"
 	defaultShutdownTimeout = 15 * time.Second
@@ -53,10 +60,11 @@ const (
 // definida tem valor inválido — nunca falha por ausência de configuração.
 func Load() (Config, error) {
 	cfg := Config{
-		HTTPAddr:        getEnv(envHTTPAddr, defaultHTTPAddr),
-		ShutdownTimeout: defaultShutdownTimeout,
-		Environment:     getEnv(envEnvironment, defaultEnvironment),
-		DatabaseURL:     getEnv(envDatabaseURL, ""),
+		HTTPAddr:              getEnv(envHTTPAddr, defaultHTTPAddr),
+		ShutdownTimeout:       defaultShutdownTimeout,
+		Environment:           getEnv(envEnvironment, defaultEnvironment),
+		DatabaseURL:           getEnv(envDatabaseURL, ""),
+		ServiceIdentitySecret: getEnv(envServiceIdentitySecret, ""),
 	}
 
 	if v, ok := os.LookupEnv(envShutdownTimeout); ok && v != "" {
