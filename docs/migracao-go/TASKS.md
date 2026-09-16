@@ -55,7 +55,7 @@ Execute a task GO-001 — Inventariar capacidades e aplicações, de docs/migrac
 
 ### GO-002 — Criar baseline de comportamento e desempenho
 
-- [ ] **Status:** IN_REVIEW — PR [#4](https://github.com/vjuliani/saltcorn/pull/4); baseline em [baseline/GO-002-baseline.md](baseline/GO-002-baseline.md); histórico em [execucoes/GO-002.md](execucoes/GO-002.md)
+- [x] **Status:** DONE — integrada via PR [#4](https://github.com/vjuliani/saltcorn/pull/4) (merge `5745f5225ac4b69ac41af89798c96866066e78aa`); baseline em [baseline/GO-002-baseline.md](baseline/GO-002-baseline.md); histórico em [execucoes/GO-002.md](execucoes/GO-002.md)
 - **Fase:** F0 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** QA
 - **Depende de:** GO-001
@@ -74,7 +74,7 @@ Execute a task GO-002 — Criar baseline de comportamento e desempenho, de docs/
 
 ### GO-003 — Registrar decisões de arquitetura
 
-- [ ] **Status:** IN_REVIEW — PR [#5](https://github.com/vjuliani/saltcorn/pull/5); ADRs em [adr/](adr/README.md); histórico em [execucoes/GO-003.md](execucoes/GO-003.md)
+- [x] **Status:** DONE — integrada via PR [#5](https://github.com/vjuliani/saltcorn/pull/5) (merge `6f027146d0c9b4220488dd4a8205c945f085c3c6`); ADRs em [adr/](adr/README.md); histórico em [execucoes/GO-003.md](execucoes/GO-003.md)
 - **Fase:** F0 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Arquitetura
 - **Depende de:** GO-001
