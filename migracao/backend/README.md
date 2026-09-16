@@ -2,7 +2,7 @@
 
 Módulo Go da migração ([docs/migracao-go/](../../docs/migracao-go/)). Implementa a estrutura definida em [ADR-0001](../../docs/migracao-go/adr/0001-backend-go-cqrs.md): monólito modular com CQRS lógico, três executáveis (`server`, `worker`, `cli`) reutilizando os mesmos serviços internos.
 
-**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009) + logs estruturados, métricas e correlação de trace (GO-010). Ainda sem tabelas de domínio dinâmicas nem API pública completa — metadados/schema (GO-011) e o restante do domínio entram nas tarefas seguintes, sobre esta mesma base.
+**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009) + logs estruturados, métricas e correlação de trace (GO-010) + catálogo de tabelas/campos/relações dinâmicos e evolução de schema (GO-011). Ainda sem compilador de consultas dinâmicas nem API pública completa — GO-012/GO-013 e o restante do domínio entram nas tarefas seguintes, sobre esta mesma base.
 
 ## Estrutura
 
@@ -20,6 +20,10 @@ internal/
   identity/  hash de senha (bcrypt), papéis, ownership por campo, tokens de
              API (gerados/só o hash é persistido), TOTP/MFA, guarda contra
              estratégias de autenticação não suportadas (GO-008)
+  metadata/  catálogo de tabelas/campos/relações dinâmicos e executor de
+             evolução de schema — catálogo e DDL na mesma transação, lock
+             de advisory por tenant, versão de metadados e cache com
+             invalidação (GO-011)
   platform/
     config/    carregamento de configuração por variável de ambiente
     health/    handlers de liveness/readiness reutilizáveis
@@ -112,6 +116,8 @@ SALTCORN_GO_TEST_DATABASE_URL_RLS="postgres://app_user:app_user@127.0.0.1:55556/
   go test -race -count=1 ./internal/platform/database/... ./internal/identity/...
 ```
 
+`internal/metadata` (GO-011) só precisa de `SALTCORN_GO_TEST_DATABASE_URL` — nenhum fixture adicional: cada teste cria seu próprio schema de tenant isolado, como `internal/identity`.
+
 Rodar cada processo:
 
 ```bash
@@ -191,6 +197,20 @@ SQL
 ```
 
 Sem essa linha, a rota responde `409 route_mismatch` mesmo com um token de identidade delegada válido — o comportamento correto, não um bug: nenhuma tenant/capacidade é servida por Go sem registro explícito.
+
+## Catálogo de metadados e evolução de schema (GO-011)
+
+`internal/metadata` implementa o núcleo do produto (matriz GO-001 §2.2, `models/table.ts`/`field.ts`): o catálogo de tabelas/campos/relações dinâmicos e o executor que aplica essas mudanças como DDL Postgres de verdade — tabelas de framework `_sc_tables`, `_sc_fields`, `_sc_metadata_version` (schema por tenant, como `internal/identity`).
+
+- **Catálogo e DDL na mesma transação:** `CreateTable`/`AddField`/`DropField`/`DropTable` gravam o metadado E executam a DDL correspondente dentro da mesma `db.WithTenant` — se qualquer etapa falhar, a transação inteira desfaz (Postgres trata DDL como transacional), nunca deixando um catálogo que descreve uma coluna inexistente ou uma coluna física sem registro.
+- **Nomes maliciosos:** `SQLSanitize`/`SQLSanitizeAllowDots` portam byte-a-byte a semântica de `packages/db-common/internal.ts` (incl. `\p{Letter}` Unicode) — todo nome definido pelo usuário final passa por aqui antes de virar identificador SQL, e ainda é citado via `pgx.Identifier.Sanitize()` na DDL (defesa em profundidade).
+- **Concorrência:** toda mutação adquire `pg_advisory_xact_lock` escopado ao tenant atual (libera sozinho no commit/rollback) — o "executor único de migrations" de ADR-0001, por tenant. Tentativas concorrentes de criar a mesma tabela serializam e só uma faz a criação real (as demais recebem a tabela já existente, idempotente).
+- **Idempotência:** `CreateTable`/`AddField` com uma definição idêntica a uma já existente são um no-op bem-sucedido (retornam o registro existente, não incrementam a versão); `DropField`/`DropTable` de algo que não existe também são no-op (mesma convenção de `identity.RevokeAPIToken`).
+- **Relações:** um campo `FieldKey` é uma FOREIGN KEY real do Postgres para outra tabela do catálogo — não um ponteiro solto em metadado.
+- **Versão do catálogo e cache:** toda mutação incrementa `_sc_metadata_version` na mesma transação — a base de "invalidação de cache". `metadata.Cache` é o consumidor mínimo e testável dessa versão (nenhum código de produção o usa ainda; GO-012, o compilador de consultas, é quem consumiria isto de verdade).
+- **Autorização:** só `identity.RoleAdmin` pode mutar o catálogo (`identity.CanWrite` reaproveitado, GO-008) — um ator sem esse papel é recusado antes de qualquer DDL rodar.
+
+Tipos de campo suportados nesta tarefa: `text`, `integer`, `boolean`, `float`, `date`, `key` (relação). Deliberadamente fora de escopo: campos de arquivo (GO-026 não existe), tipos definidos por plugin, e constraints por fórmula JS (dependem do motor de expressões, bloqueado por ADR-0005/GO-004) — só constraint de unicidade por campo é suportada.
 
 ## Observabilidade (GO-010)
 
