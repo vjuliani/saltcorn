@@ -207,7 +207,7 @@ Execute a task GO-009 — Criar entrada de migração e ownership de escrita, de
 
 ### GO-010 — Instrumentar observabilidade
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — implementação e testes concluídos, PR a abrir; histórico em [execucoes/GO-010.md](execucoes/GO-010.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Plataforma
 - **Depende de:** GO-005

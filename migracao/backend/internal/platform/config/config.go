@@ -6,6 +6,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -40,6 +41,9 @@ type Config struct {
 	// cmd/server decide se isso impede subir (rotas que exigem identidade
 	// delegada não podem existir sem um segredo válido).
 	ServiceIdentitySecret string
+	// LogLevel controla o nível mínimo de log estruturado (GO-010) —
+	// "DEBUG", "INFO", "WARN" ou "ERROR" (case-insensitive). Padrão INFO.
+	LogLevel slog.Level
 }
 
 const (
@@ -49,10 +53,12 @@ const (
 	envDatabaseURL           = "SALTCORN_GO_DATABASE_URL"
 	envWorkerTenants         = "SALTCORN_GO_WORKER_TENANTS"
 	envServiceIdentitySecret = "SALTCORN_GO_SERVICE_IDENTITY_SECRET"
+	envLogLevel              = "SALTCORN_GO_LOG_LEVEL"
 
 	defaultHTTPAddr        = ":8090"
 	defaultShutdownTimeout = 15 * time.Second
 	defaultEnvironment     = "development"
+	defaultLogLevel        = slog.LevelInfo
 )
 
 // Load lê a configuração do ambiente, aplicando padrões razoáveis quando uma
@@ -65,6 +71,7 @@ func Load() (Config, error) {
 		Environment:           getEnv(envEnvironment, defaultEnvironment),
 		DatabaseURL:           getEnv(envDatabaseURL, ""),
 		ServiceIdentitySecret: getEnv(envServiceIdentitySecret, ""),
+		LogLevel:              defaultLogLevel,
 	}
 
 	if v, ok := os.LookupEnv(envShutdownTimeout); ok && v != "" {
@@ -85,6 +92,14 @@ func Load() (Config, error) {
 				cfg.WorkerTenants = append(cfg.WorkerTenants, t)
 			}
 		}
+	}
+
+	if v, ok := os.LookupEnv(envLogLevel); ok && v != "" {
+		var lvl slog.Level
+		if err := lvl.UnmarshalText([]byte(v)); err != nil {
+			return Config{}, fmt.Errorf("%s inválido (%q): %w", envLogLevel, v, err)
+		}
+		cfg.LogLevel = lvl
 	}
 
 	return cfg, nil

@@ -2,7 +2,7 @@
 
 Módulo Go da migração ([docs/migracao-go/](../../docs/migracao-go/)). Implementa a estrutura definida em [ADR-0001](../../docs/migracao-go/adr/0001-backend-go-cqrs.md): monólito modular com CQRS lógico, três executáveis (`server`, `worker`, `cli`) reutilizando os mesmos serviços internos.
 
-**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009). Ainda sem tabelas de domínio dinâmicas nem API pública completa — metadados/schema (GO-011) e o restante do domínio entram nas tarefas seguintes, sobre esta mesma base.
+**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009) + logs estruturados, métricas e correlação de trace (GO-010). Ainda sem tabelas de domínio dinâmicas nem API pública completa — metadados/schema (GO-011) e o restante do domínio entram nas tarefas seguintes, sobre esta mesma base.
 
 ## Estrutura
 
@@ -11,8 +11,10 @@ cmd/
   server/   processo HTTP — health/readiness (GO-005) + rota de exemplo com tenancy (GO-007)
             + verificação real de identidade delegada quando configurada (GO-008)
             + guarda de ownership de escrita na rota de exemplo (GO-009)
+            + logs estruturados, GET /metrics e trace por requisição (GO-010)
   worker/   processo de background — loop periódico (GO-005) + jobs por tenant (GO-007)
             + guarda de ownership de escrita no job placeholder (GO-009)
+            + logs estruturados, métricas de job e trace por execução (GO-010)
   cli/      linha de comando (paridade com o saltcorn-cli atual, gradual)
 internal/
   identity/  hash de senha (bcrypt), papéis, ownership por campo, tokens de
@@ -28,10 +30,13 @@ internal/
     database/  pool Postgres (pgx) com isolamento de schema por tenant, seguro
                sob reuso de conexão (GO-007); WithTenantAndActor também define
                os GUCs de ator/papel que as políticas de RLS nativa consultam
-               (GO-008)
+               (GO-008); log/métrica por transação (GO-010)
     cutover/   registro de ownership de escrita por tenant/capacidade e guarda
                de admissão/drenagem para o corte gradual entre backend
                legado e Go (GO-009, ADR-0008)
+    telemetry/ logs estruturados com redação automática, métricas em formato
+               Prometheus e correlação de trace via W3C Trace Context
+               (GO-010, ADR-0009)
 ```
 
 Dependências externas mínimas e pinadas a versões compatíveis com Go 1.22 (a mais recente de cada uma frequentemente já exige Go 1.24+): `github.com/jackc/pgx/v5` (driver Postgres), `github.com/golang-jwt/jwt/v5` (verificação de assinatura do token de identidade delegada), `golang.org/x/crypto` (bcrypt) e `github.com/pquerna/otp` (TOTP/MFA, RFC 6238). `go.mod` fixa a toolchain em `go 1.22`.
@@ -130,6 +135,7 @@ Variáveis de ambiente lidas por `internal/platform/config` (compartilhado pelos
 | `SALTCORN_GO_DATABASE_URL` | (vazio) | DSN do Postgres (`postgres://user:pass@host/db`). Vazio = sem banco configurado; rotas/jobs que dependem dele respondem 503/pulam, em vez de falhar ao iniciar |
 | `SALTCORN_GO_WORKER_TENANTS` | (vazio) | Lista de tenants, separados por vírgula, que `cmd/worker` processa a cada ciclo — fundação temporária até GO-024/GO-025 trazerem descoberta real de tenants e fila de jobs |
 | `SALTCORN_GO_SERVICE_IDENTITY_SECRET` | (vazio) | Segredo HMAC (mínimo 32 bytes) usado para verificar a assinatura do token de identidade delegada (GO-008). Vazio = a rota que exige tenancy não é registrada (404), em vez de aceitar tokens sem verificação de assinatura — falha fechada, não insegura por omissão. Deve ser o mesmo segredo usado por quem assina o token (o futuro BFF, GO-017) |
+| `SALTCORN_GO_LOG_LEVEL` | `INFO` | Nível mínimo de log estruturado (GO-010): `DEBUG`, `INFO`, `WARN` ou `ERROR` (case-insensitive). `DEBUG` inclui a conclusão de toda transação SQL bem-sucedida; `INFO` só as de requisição HTTP/job e erros |
 
 ## Tenancy e contexto transacional (GO-007)
 
@@ -185,6 +191,22 @@ SQL
 ```
 
 Sem essa linha, a rota responde `409 route_mismatch` mesmo com um token de identidade delegada válido — o comportamento correto, não um bug: nenhuma tenant/capacidade é servida por Go sem registro explícito.
+
+## Observabilidade (GO-010)
+
+`internal/platform/telemetry` implementa logs estruturados, métricas e correlação de trace sem SDK externo — a decisão de design completa (por que não OpenTelemetry/cliente Prometheus, redação por nome de atributo, controle de cardinalidade por desenho) está em [ADR-0009](../../docs/migracao-go/adr/0009-observabilidade-sem-sdk-externo.md).
+
+- **Trace/correlação:** cada requisição HTTP e cada execução de job ganha um `trace_id`/`span_id` (padrão [W3C Trace Context](https://www.w3.org/TR/trace-context/)) — `telemetry.Middleware` reaproveita o `trace_id` de um header `traceparent` de entrada (se válido) e sempre devolve um `traceparent` na resposta, para que um chamador (o futuro BFF, GO-017) e o backend Go correlacionem a mesma operação. `telemetry.LoggerFor(ctx)` anexa `trace_id`/`span_id`/`tenant`/`ator` (quando presentes) a toda linha de log.
+- **Logs estruturados:** JSON via `log/slog`, com `telemetry.NewHandler` redigindo automaticamente (`"REDACTED"`) qualquer atributo cujo NOME contenha `token`, `password`/`senha`, `secret`, `authorization`, `cookie` ou `totp_secret` — não depende de quem escreve cada `logger.Info(...)` lembrar de omitir o campo certo. `internal/platform/database` nunca loga texto de SQL, parâmetros ou a mensagem crua do driver — só um resultado classificado (`ok`/`error`/`canceled`/`deadline_exceeded`) e a duração.
+- **Métricas:** `GET /metrics` expõe `http_requests_total{method,route,status_class}`, `http_request_duration_seconds{method,route}`, `sql_transactions_total{result}`, `sql_transaction_duration_seconds`, `sql_pool_{acquired,idle,total,max}_connections` (saturação do pool) e `job_runs_total{result}`/`job_duration_seconds`, no formato de exposição de texto do Prometheus. Toda label é um conjunto fixo e pequeno declarado na criação da métrica — nunca tenant, ator ou path bruto (controle de cardinalidade); essa granularidade fica nos logs, que não sofrem o mesmo problema de explosão de séries temporais.
+- `/healthz` e `/readyz` são deliberadamente **não** instrumentadas (probes de alta frequência não devem virar ruído de log/métrica).
+
+Exemplo local (com o servidor rodando e uma requisição feita):
+
+```bash
+curl -s http://localhost:8090/metrics | grep http_requests_total
+# http_requests_total{method="GET",route="tenant_records",status_class="2xx"} 1
+```
 
 ## Encerramento gracioso
 
