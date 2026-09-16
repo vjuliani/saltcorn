@@ -302,7 +302,7 @@ Execute a task GO-014 — Adicionar idempotência e outbox, de docs/migracao-go/
 
 ### GO-015 — Integrar políticas em todos os caminhos de leitura
 
-- [ ] **Status:** IN_REVIEW — implementação e testes concluídos, PR a abrir; histórico em [execucoes/GO-015.md](execucoes/GO-015.md)
+- [ ] **Status:** IN_REVIEW — PR [#18](https://github.com/vjuliani/saltcorn/pull/18) aberto; histórico em [execucoes/GO-015.md](execucoes/GO-015.md)
 - **Fase:** F2 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Backend + QA
 - **Depende de:** GO-008, GO-012
