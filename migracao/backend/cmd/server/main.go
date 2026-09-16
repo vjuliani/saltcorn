@@ -51,7 +51,22 @@ func main() {
 	mux.HandleFunc("/healthz", checker.LivenessHandler())
 	mux.HandleFunc("/readyz", checker.ReadinessHandler())
 	mux.HandleFunc("/", placeholderHandler(tracker))
-	mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records", tenancy.Middleware(tenantProbeHandler(tracker, db)))
+
+	// A rota de exemplo protegida por identidade delegada só é registrada
+	// se houver um segredo válido para verificar assinatura (GO-008) — sem
+	// isso, tenancy.Middleware não tem como funcionar com segurança, então
+	// preferimos 404 (rota não existe) a registrar algo que aceitaria
+	// qualquer token ou que entraria em pânico com um Verifier nulo.
+	if cfg.ServiceIdentitySecret == "" {
+		log.Printf("SALTCORN_GO_SERVICE_IDENTITY_SECRET não configurada — rota /v1/tenants/{tenant}/... não registrada")
+	} else {
+		verifier, err := tenancy.NewVerifier([]byte(cfg.ServiceIdentitySecret))
+		if err != nil {
+			log.Fatalf("segredo de identidade delegada inválido: %v", err)
+		}
+		mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records",
+			tenancy.Middleware(verifier, tenantProbeHandler(tracker, db)))
+	}
 
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux}
 
