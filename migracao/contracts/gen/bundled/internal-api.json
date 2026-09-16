@@ -44,6 +44,41 @@
         }
       }
     },
+    "/v1/tenants/{tenant}/actor": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getActor",
+        "summary": "Query: papel atual do ator da identidade delegada",
+        "description": "Adicionado por GO-017 para o BFF resolver papel/permissões atuais a cada requisição (ADR-0007) em vez de confiar num valor cacheado na sessão de navegador — uma mudança de papel ou revogação de acesso vale a partir desta consulta, nunca de um valor antigo guardado alhures. `id`/`role_id` são resolvidos do `sub` do token, não de parâmetro algum — não é possível consultar o ator de outra pessoa.\n",
+        "responses": {
+          "200": {
+            "description": "papel atual do ator autenticado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Actor"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/v1/tenants/{tenant}/tables/{table}/records": {
       "parameters": [
         {
@@ -312,6 +347,22 @@
       }
     },
     "schemas": {
+      "Actor": {
+        "type": "object",
+        "required": [
+          "id",
+          "role_id"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "role_id": {
+            "type": "integer",
+            "description": "Papel atual do ator (identity.RoleID) — nunca cacheado pelo chamador, sempre resolvido nesta consulta."
+          }
+        }
+      },
       "RecordInput": {
         "type": "object",
         "additionalProperties": true,
@@ -346,36 +397,10 @@
         "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
         "description": "Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL.\n"
       },
-      "Page": {
-        "type": "object",
-        "required": [
-          "items",
-          "next_cursor"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {}
-          },
-          "next_cursor": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Cursor para a próxima página, ou `null` se não houver mais páginas."
-          }
-        }
-      },
       "Id": {
         "type": "integer",
         "format": "int64",
         "description": "Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.\n"
-      },
-      "DateTime": {
-        "type": "string",
-        "format": "date-time",
-        "description": "Sempre UTC explícito (sufixo Z), nunca hora local implícita. Mitiga a classe de bug encontrada em GO-002 (2 falsos positivos de teste causados pelo timezone do host não ser UTC) — ver docs/migracao-go/baseline/GO-002-baseline.md §2.\n",
-        "example": "2026-01-15T00:00:00Z"
       },
       "Error": {
         "type": "object",
@@ -406,39 +431,32 @@
             }
           }
         }
-      }
-    },
-    "parameters": {
-      "Cursor": {
-        "name": "cursor",
-        "in": "query",
-        "required": false,
-        "description": "Cursor opaco da página anterior. Omitir para a primeira página.",
-        "schema": {
-          "type": "string"
+      },
+      "Page": {
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {}
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cursor para a próxima página, ou `null` se não houver mais páginas."
+          }
         }
       },
-      "Limit": {
-        "name": "limit",
-        "in": "query",
-        "required": false,
-        "schema": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 200,
-          "default": 50
-        }
-      },
-      "IdempotencyKey": {
-        "name": "Idempotency-Key",
-        "in": "header",
-        "required": true,
-        "description": "Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).\n",
-        "schema": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 255
-        }
+      "DateTime": {
+        "type": "string",
+        "format": "date-time",
+        "description": "Sempre UTC explícito (sufixo Z), nunca hora local implícita. Mitiga a classe de bug encontrada em GO-002 (2 falsos positivos de teste causados pelo timezone do host não ser UTC) — ver docs/migracao-go/baseline/GO-002-baseline.md §2.\n",
+        "example": "2026-01-15T00:00:00Z"
       }
     },
     "responses": {
@@ -503,6 +521,39 @@
               }
             }
           }
+        }
+      }
+    },
+    "parameters": {
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "description": "Cursor opaco da página anterior. Omitir para a primeira página.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).\n",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
         }
       }
     }

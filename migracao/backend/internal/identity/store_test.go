@@ -107,6 +107,44 @@ func TestCreateUser_FindUserByEmail(t *testing.T) {
 	}
 }
 
+// TestFindUserByID cobre o caminho que GO-017 usa para resolver o papel
+// atual do ator a partir do `sub` (ID do usuário) de uma ServiceIdentity —
+// nunca confiar num papel vindo de fora, sempre reconsultar (ADR-0007).
+func TestFindUserByID(t *testing.T) {
+	db := testDB(t)
+	tenant := testTenant(t, db, "main")
+	ctx := context.Background()
+
+	hash, _ := HashPassword("hunter2")
+	var userID int
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		userID, err = CreateUser(ctx, tx, "ada@example.com", hash, 80)
+		return err
+	}); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	var found *User
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		found, err = FindUserByID(ctx, tx, userID)
+		return err
+	}); err != nil {
+		t.Fatalf("FindUserByID: %v", err)
+	}
+	if found.ID != userID || found.Email != "ada@example.com" || found.RoleID != 80 {
+		t.Errorf("found = %+v, esperado id=%d email=ada@example.com role=80", found, userID)
+	}
+
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := FindUserByID(ctx, tx, userID+999)
+		return err
+	}); !errors.Is(err, ErrUserNotFound) {
+		t.Errorf("FindUserByID(id inexistente) = %v, esperado ErrUserNotFound", err)
+	}
+}
+
 // TestAuthenticate_PositiveAndNegative cobre a linha "APIs" da matriz de
 // autorização no caminho de senha: credenciais corretas autenticam,
 // qualquer uma errada (senha errada, e-mail inexistente) é recusada com o

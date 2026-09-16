@@ -38,6 +38,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant}/actor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Query: papel atual do ator da identidade delegada
+         * @description Adicionado por GO-017 para o BFF resolver papel/permissões atuais a cada requisição (ADR-0007) em vez de confiar num valor cacheado na sessão de navegador — uma mudança de papel ou revogação de acesso vale a partir desta consulta, nunca de um valor antigo guardado alhures. `id`/`role_id` são resolvidos do `sub` do token, não de parâmetro algum — não é possível consultar o ator de outra pessoa.
+         */
+        get: operations["getActor"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant}/tables/{table}/records": {
         parameters: {
             query?: never;
@@ -96,6 +118,11 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Actor: {
+            id: components["schemas"]["Id"];
+            /** @description Papel atual do ator (identity.RoleID) — nunca cacheado pelo chamador, sempre resolvido nesta consulta. */
+            role_id: number;
+        };
         /** @description Campos do registro conforme o schema dinâmico da tabela (GO-011). Este contrato não pode enumerar campos fixos — validação de schema acontece no backend, não aqui. */
         RecordInput: {
             [key: string]: unknown;
@@ -111,22 +138,11 @@ export interface components {
         };
         /** @description Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL. */
         Tenant: string;
-        Page: {
-            items: unknown[];
-            /** @description Cursor para a próxima página, ou `null` se não houver mais páginas. */
-            next_cursor: string | null;
-        };
         /**
          * Format: int64
          * @description Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
          */
         Id: number;
-        /**
-         * Format: date-time
-         * @description Sempre UTC explícito (sufixo Z), nunca hora local implícita. Mitiga a classe de bug encontrada em GO-002 (2 falsos positivos de teste causados pelo timezone do host não ser UTC) — ver docs/migracao-go/baseline/GO-002-baseline.md §2.
-         * @example 2026-01-15T00:00:00Z
-         */
-        DateTime: string;
         Error: {
             error: {
                 /** @description Código estável para tratamento programático (ex.: "invalid_identity_token"). */
@@ -139,6 +155,17 @@ export interface components {
                 };
             };
         };
+        Page: {
+            items: unknown[];
+            /** @description Cursor para a próxima página, ou `null` se não houver mais páginas. */
+            next_cursor: string | null;
+        };
+        /**
+         * Format: date-time
+         * @description Sempre UTC explícito (sufixo Z), nunca hora local implícita. Mitiga a classe de bug encontrada em GO-002 (2 falsos positivos de teste causados pelo timezone do host não ser UTC) — ver docs/migracao-go/baseline/GO-002-baseline.md §2.
+         * @example 2026-01-15T00:00:00Z
+         */
+        DateTime: string;
     };
     responses: {
         /** @description Identidade ausente, expirada ou com assinatura inválida. */
@@ -223,6 +250,30 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    getActor: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description papel atual do ator autenticado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Actor"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listRecords: {

@@ -23,8 +23,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
@@ -34,14 +32,20 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 )
 
-// exampleCapability identifica, para o registro de ownership (GO-009), a
-// capacidade servida pela rota de exemplo — um nome de exemplo, não um
-// catálogo formal de capacidades (isso é trabalho futuro de GO-011+).
-const exampleCapability = "tables.records"
+// recordsCapability identifica, para o registro de ownership (GO-009), a
+// capacidade servida pelas rotas de registros — não um catálogo formal de
+// capacidades (isso é trabalho futuro de GO-011+), mas o nome já usado em
+// produção desde a rota de exemplo original (GO-009), agora servindo
+// dados reais (GO-017).
+const recordsCapability = "tables.records"
 
-// exampleRoute é o nome lógico e de baixa cardinalidade da rota de exemplo
-// para fins de métrica (GO-010) — nunca o path bruto, que contém o tenant.
-const exampleRoute = "tenant_records"
+// recordsRoute é o nome lógico e de baixa cardinalidade das rotas de
+// registros para fins de métrica (GO-010) — nunca o path bruto, que
+// contém o tenant.
+const recordsRoute = "tenant_records"
+
+// actorRoute é o nome lógico da rota GET .../actor (GO-017) para métrica.
+const actorRoute = "tenant_actor"
 
 func main() {
 	cfg, err := config.Load()
@@ -114,9 +118,26 @@ func main() {
 		// já verificado esteja disponível ao logar a conclusão da
 		// requisição, e para que rejeições de identidade/ownership também
 		// entrem nas métricas — não só o caminho de sucesso.
+		//
+		// GO-017 substitui a rota de exemplo/placeholder pelas rotas reais
+		// de internal-api.yaml que bff-api.yaml de fato consome
+		// (listRecords/createRecord/getActor) — ver nota de escopo em
+		// docs/migracao-go/execucoes/GO-017.md sobre por que get/update/
+		// delete por ID não são wireados aqui ainda.
 		mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records",
-			tenancy.Middleware(verifier, telemetry.Middleware(exampleRoute, httpMetrics,
-				cutover.RequireOwnership(guard, exampleCapability, tenantProbeHandler(tracker, db)))))
+			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, recordsCapability, listRecordsHandler(tracker, db)))))
+		mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/records",
+			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, recordsCapability, createRecordHandler(tracker, db)))))
+
+		// getActor não passa por cutover.RequireOwnership: resolução de
+		// identidade não é uma capacidade de domínio sujeita a corte
+		// Node/Go, é infraestrutura que já vive inteiramente em Go desde
+		// GO-008 — só precisa de tenancy.Middleware (identidade+tenant
+		// verificados).
+		mux.Handle("GET /v1/tenants/{tenant}/actor",
+			tenancy.Middleware(verifier, telemetry.Middleware(actorRoute, httpMetrics, getActorHandler(tracker, db))))
 	}
 
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux, BaseContext: func(net.Listener) context.Context {
@@ -195,39 +216,8 @@ func placeholderHandler(tracker *shutdown.Tracker) http.HandlerFunc {
 	}
 }
 
-// tenantProbeHandler prova, de ponta a ponta, que uma requisição HTTP chega
-// com tenant+ator resolvidos (tenancy.Middleware) e que uma operação de
-// banco roda isolada no schema correto (database.WithTenant) — sem nenhuma
-// tabela de domínio real, que é escopo de GO-011. Sem banco configurado,
-// responde 503 em vez de fingir sucesso.
-func tenantProbeHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		end, err := tracker.Begin()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusServiceUnavailable)
-			return
-		}
-		defer end()
-
-		tenant, _ := tenancy.TenantFromContext(r.Context())
-		actor, _ := tenancy.ActorFromContext(r.Context())
-
-		if db == nil {
-			http.Error(w, "banco não configurado nesta instância", http.StatusServiceUnavailable)
-			return
-		}
-
-		var now string
-		err = db.WithTenant(r.Context(), tenant, func(ctx context.Context, tx pgx.Tx) error {
-			return tx.QueryRow(ctx, "SELECT now()::text").Scan(&now)
-		})
-		if err != nil {
-			http.Error(w, "erro ao consultar o banco: "+err.Error(), http.StatusBadGateway)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"tenant":"` + string(tenant) + `","actor":"` + actor + `","db_time":"` + now + `"}`))
-	}
-}
+// tenantProbeHandler (a prova de ponta a ponta de que tenant+ator chegam
+// resolvidos e uma operação de banco roda isolada no schema correto) foi
+// substituído por rotas de domínio reais em GO-017 (records.go) — a
+// pergunta que ele respondia já é respondida, com mais rigor, pelos testes
+// de listRecords/createRecord/getActor contra Postgres real.

@@ -1,0 +1,25 @@
+{
+  "name": "saltcorn-go-bff",
+  "private": true,
+  "version": "0.1.0",
+  "description": "BFF web em Node.js/TypeScript (GO-017) — sessão/cookies, CSRF, composição de bootstrap/dados via cliente HTTP tipado para o backend Go. Nunca acessa banco de domínio (ADR-0003).",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "npm run build",
+    "test": "node --test dist/test/**/*.test.js",
+    "dev": "node --experimental-strip-types src/server.ts"
+  },
+  "dependencies": {
+    "jsonwebtoken": "9.0.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "9.0.10",
+    "@types/node": "22.10.5",
+    "typescript": "5.9.2"
+  }
+}

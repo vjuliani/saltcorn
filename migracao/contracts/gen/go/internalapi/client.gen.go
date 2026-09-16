@@ -17,6 +17,15 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Actor defines model for Actor.
+type Actor struct {
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id Id `json:"id"`
+
+	// RoleId Papel atual do ator (identity.RoleID) — nunca cacheado pelo chamador, sempre resolvido nesta consulta.
+	RoleId int `json:"role_id"`
+}
+
 // DateTime Sempre UTC explícito (sufixo Z), nunca hora local implícita. Mitiga a classe de bug encontrada em GO-002 (2 falsos positivos de teste causados pelo timezone do host não ser UTC) — ver docs/migracao-go/baseline/GO-002-baseline.md §2.
 type DateTime = time.Time
 
@@ -310,6 +319,13 @@ type ClientInterface interface {
 	// Corresponds with GET /readyz (the `GetReadiness` operationId).
 	GetReadiness(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetActor Query: papel atual do ator da identidade delegada
+	//
+	// Adicionado por GO-017 para o BFF resolver papel/permissões atuais a cada requisição (ADR-0007) em vez de confiar num valor cacheado na sessão de navegador — uma mudança de papel ou revogação de acesso vale a partir desta consulta, nunca de um valor antigo guardado alhures. `id`/`role_id` são resolvidos do `sub` do token, não de parâmetro algum — não é possível consultar o ator de outra pessoa.
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
+	GetActor(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListRecords Query: lista registros de uma tabela dinâmica
 	//
 	// Aplica as mesmas políticas de visibilidade (papel, ownership, RLS) que os comandos de escrita — ADR-0001. Não executa ações de negócio.
@@ -384,6 +400,23 @@ func (c *Client) GetLiveness(ctx context.Context, reqEditors ...RequestEditorFn)
 // Corresponds with GET /readyz (the `GetReadiness` operationId).
 func (c *Client) GetReadiness(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetReadinessRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetActor Query: papel atual do ator da identidade delegada
+//
+// Adicionado por GO-017 para o BFF resolver papel/permissões atuais a cada requisição (ADR-0007) em vez de confiar num valor cacheado na sessão de navegador — uma mudança de papel ou revogação de acesso vale a partir desta consulta, nunca de um valor antigo guardado alhures. `id`/`role_id` são resolvidos do `sub` do token, não de parâmetro algum — não é possível consultar o ator de outra pessoa.
+//
+// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
+func (c *Client) GetActor(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetActorRequest(c.Server, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -554,6 +587,40 @@ func NewGetReadinessRequest(server string) (*http.Request, error) {
 	}
 
 	operationPath := fmt.Sprintf("/readyz")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetActorRequest constructs an http.Request for the GetActor method
+func NewGetActorRequest(server string, tenant Tenant) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/actor", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -959,6 +1026,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /readyz (the `GetReadiness` operationId).
 	GetReadinessWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetReadinessResponse, error)
 
+	// GetActorWithResponse Query: papel atual do ator da identidade delegada
+	//
+	// Adicionado por GO-017 para o BFF resolver papel/permissões atuais a cada requisição (ADR-0007) em vez de confiar num valor cacheado na sessão de navegador — uma mudança de papel ou revogação de acesso vale a partir desta consulta, nunca de um valor antigo guardado alhures. `id`/`role_id` são resolvidos do `sub` do token, não de parâmetro algum — não é possível consultar o ator de outra pessoa.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
+	GetActorWithResponse(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*GetActorResponse, error)
+
 	// ListRecordsWithResponse Query: lista registros de uma tabela dinâmica
 	//
 	// Aplica as mesmas políticas de visibilidade (papel, ownership, RLS) que os comandos de escrita — ADR-0001. Não executa ações de negócio.
@@ -1081,6 +1157,61 @@ func (r GetReadinessResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetReadinessResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetActorResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Actor
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetActorResponse) GetJSON200() *Actor {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetActorResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetActorResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r GetActorResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetActorResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetActorResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetActorResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -1412,6 +1543,21 @@ func (c *ClientWithResponses) GetReadinessWithResponse(ctx context.Context, reqE
 	return ParseGetReadinessResponse(rsp)
 }
 
+// GetActorWithResponse Query: papel atual do ator da identidade delegada
+//
+// Adicionado por GO-017 para o BFF resolver papel/permissões atuais a cada requisição (ADR-0007) em vez de confiar num valor cacheado na sessão de navegador — uma mudança de papel ou revogação de acesso vale a partir desta consulta, nunca de um valor antigo guardado alhures. `id`/`role_id` são resolvidos do `sub` do token, não de parâmetro algum — não é possível consultar o ator de outra pessoa.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
+func (c *ClientWithResponses) GetActorWithResponse(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*GetActorResponse, error) {
+	rsp, err := c.GetActor(ctx, tenant, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetActorResponse(rsp)
+}
+
 // ListRecordsWithResponse Query: lista registros de uma tabela dinâmica
 //
 // Aplica as mesmas políticas de visibilidade (papel, ownership, RLS) que os comandos de escrita — ADR-0001. Não executa ações de negócio.
@@ -1540,6 +1686,46 @@ func ParseGetReadinessResponse(rsp *http.Response) (*GetReadinessResponse, error
 	response := &GetReadinessResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseGetActorResponse parses an HTTP response from a GetActorWithResponse call
+func ParseGetActorResponse(rsp *http.Response) (*GetActorResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetActorResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Actor
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
 	}
 
 	return response, nil

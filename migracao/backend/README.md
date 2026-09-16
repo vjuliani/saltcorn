@@ -2,16 +2,18 @@
 
 Módulo Go da migração ([docs/migracao-go/](../../docs/migracao-go/)). Implementa a estrutura definida em [ADR-0001](../../docs/migracao-go/adr/0001-backend-go-cqrs.md): monólito modular com CQRS lógico, três executáveis (`server`, `worker`, `cli`) reutilizando os mesmos serviços internos.
 
-**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009) + logs estruturados, métricas e correlação de trace (GO-010) + catálogo de tabelas/campos/relações dinâmicos e evolução de schema (GO-011) + compilador de consultas dinâmicas (GO-012) + comandos de registro (insert/update/delete) com controle de concorrência (GO-013) + idempotência e outbox transacional (GO-014) + autorização em joins/agregações de leitura (GO-015) + avaliação com benchmark de projeções CQRS, adiada (GO-016, ADR-0010). Ainda sem API pública completa — o restante do domínio entra nas tarefas seguintes, sobre esta mesma base.
+**Estado atual:** fundação (GO-005) + tenancy e contexto transacional (GO-007) + identidade, hashes, roles, ownership, RLS, tokens de API e MFA (GO-008) + registro de ownership de escrita e guarda de drenagem para o corte gradual (GO-009) + logs estruturados, métricas e correlação de trace (GO-010) + catálogo de tabelas/campos/relações dinâmicos e evolução de schema (GO-011) + compilador de consultas dinâmicas (GO-012) + comandos de registro (insert/update/delete) com controle de concorrência (GO-013) + idempotência e outbox transacional (GO-014) + autorização em joins/agregações de leitura (GO-015) + avaliação com benchmark de projeções CQRS, adiada (GO-016, ADR-0010) + rotas HTTP reais de registros/ator e BFF Node.js consumindo-as (GO-017). Ainda sem API pública completa — o restante do domínio entra nas tarefas seguintes, sobre esta mesma base.
 
 ## Estrutura
 
 ```
 cmd/
-  server/   processo HTTP — health/readiness (GO-005) + rota de exemplo com tenancy (GO-007)
+  server/   processo HTTP — health/readiness (GO-005) + tenancy (GO-007)
             + verificação real de identidade delegada quando configurada (GO-008)
-            + guarda de ownership de escrita na rota de exemplo (GO-009)
+            + guarda de ownership de escrita nas rotas de registros (GO-009)
             + logs estruturados, GET /metrics e trace por requisição (GO-010)
+            + rotas reais de internal-api.yaml — listRecords/createRecord/
+            getActor — substituindo a rota de exemplo/placeholder (GO-017)
   worker/   processo de background — loop periódico (GO-005) + jobs por tenant (GO-007)
             + guarda de ownership de escrita no job placeholder (GO-009)
             + logs estruturados, métricas de job e trace por execução (GO-010)
@@ -20,7 +22,9 @@ cmd/
 internal/
   identity/  hash de senha (bcrypt), papéis, ownership por campo, tokens de
              API (gerados/só o hash é persistido), TOTP/MFA, guarda contra
-             estratégias de autenticação não suportadas (GO-008)
+             estratégias de autenticação não suportadas (GO-008);
+             FindUserByID resolve o papel atual a partir do `sub` da
+             identidade delegada, nunca confiado de fora (GO-017)
   metadata/  catálogo de tabelas/campos/relações dinâmicos e executor de
              evolução de schema — catálogo e DDL na mesma transação, lock
              de advisory por tenant, versão de metadados e cache com
@@ -139,7 +143,7 @@ go run ./cmd/cli version
 go run ./cmd/cli healthcheck   # consulta /healthz do server, se estiver rodando
 ```
 
-Com `SALTCORN_GO_DATABASE_URL` e `SALTCORN_GO_SERVICE_IDENTITY_SECRET` configuradas (apontando para o Postgres de teste acima ou outro), `cmd/server` expõe `GET /v1/tenants/{tenant}/tables/{table}/records` (rota de exemplo — sem tabela de domínio real ainda, só prova a fronteira tenancy+banco+identidade delegada verificada) e `cmd/worker` processa um job por tenant listado em `SALTCORN_GO_WORKER_TENANTS`.
+Com `SALTCORN_GO_DATABASE_URL` e `SALTCORN_GO_SERVICE_IDENTITY_SECRET` configuradas (apontando para o Postgres de teste acima ou outro), `cmd/server` expõe as rotas reais de registros/ator (GO-017: `GET`/`POST .../records`, `GET .../actor`) e `cmd/worker` processa um job por tenant listado em `SALTCORN_GO_WORKER_TENANTS`. As rotas de registros exigem, além do registro de ownership (`_sc_capability_ownership`, ver "Ownership de escrita" abaixo), que os schemas de `internal/identity`/`internal/metadata`/`internal/platform/outbox` já tenham sido aplicados ao schema do tenant (`EnsureSchema` de cada pacote) e que exista um usuário e uma tabela dinâmica — aplicação desses schemas ainda é manual/externa ao binário, mesmo padrão de `_sc_capability_ownership`.
 
 ## Configuração
 
@@ -292,6 +296,18 @@ Exemplo local (com o servidor rodando e uma requisição feita):
 curl -s http://localhost:8090/metrics | grep http_requests_total
 # http_requests_total{method="GET",route="tenant_records",status_class="2xx"} 1
 ```
+
+## Rotas HTTP reais de registros e BFF Node.js (GO-017)
+
+Até esta tarefa, `cmd/server` só tinha a rota de exemplo/placeholder de GO-009 (um `SELECT now()`, sem tabela de domínio real) — `internal-api.yaml` (GO-006) nunca tinha sido implementado, apesar de `internal/records` (GO-012/013) já ter toda a lógica de domínio pronta. GO-017 fecha essa lacuna, mas de forma minimalista: implementa em `cmd/server/records.go` só os três caminhos que o BFF (`migracao/packages/bff/`, também desta tarefa) de fato consome —
+
+- **`GET /v1/tenants/{tenant}/actor`** — extensão nova de GO-017 a `internal-api.yaml`: resolve o papel atual do ator (`identity.FindUserByID` a partir do `sub` da identidade delegada) a cada requisição, nunca cacheado — o mecanismo que ADR-0007 exige para o bootstrap do BFF.
+- **`GET .../tables/{table}/records`** — `records.Rows` com paginação por cursor opaco (implementado como offset codificado em base64 — decisão de implementação, não parte do contrato).
+- **`POST .../tables/{table}/records`** — `records.CreateRecord` dentro de `outbox.Do` (GO-014): a mesma `Idempotency-Key` com o mesmo corpo retorna o registro já criado sem rodar `CreateRecord` de novo; corpo diferente com a mesma chave falha com 409.
+
+`GET`/`PATCH`/`DELETE` por ID de `internal-api.yaml` **não são implementados**: `bff-api.yaml` (o contrato que o BFF realmente precisa satisfazer) não os expõe ao React ainda, e `records.UpdateRecord`/`DeleteRecord` exigem um `expectedVersion` que o contrato HTTP hoje não tem como veicular em `DELETE` (sem corpo) — fica para quando um consumidor real de edição existir (provavelmente GO-019).
+
+O BFF Node.js/TypeScript (`migracao/packages/bff/`, [README próprio](../packages/bff/README.md)) é o primeiro consumidor real dessas rotas: sessão/cookies (ADR-0007), CSRF, cliente HTTP tipado (reaproveitando `migracao/contracts/gen/ts`), timeout/`AbortController`, e a mesma `Idempotency-Key` determinística reaproveitada em retry do navegador — nunca acessa banco de domínio, cada leitura/escrita chama a API interna do Go acima.
 
 ## Encerramento gracioso
 
