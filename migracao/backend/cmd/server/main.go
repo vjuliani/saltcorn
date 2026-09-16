@@ -3,7 +3,10 @@
 // resolução/propagação de tenant+ator (internal/platform/tenancy) e, quando
 // SALTCORN_GO_DATABASE_URL está configurada, uma conexão a Postgres com
 // isolamento de schema por tenant (internal/platform/database) — ainda sem
-// nenhuma tabela de domínio real (isso é GO-011).
+// nenhuma tabela de domínio real (isso é GO-011). GO-009 acrescenta a
+// guarda de ownership de escrita (internal/platform/cutover): a rota de
+// exemplo só responde se este backend for o proprietário registrado para
+// a capacidade, nunca por presunção.
 package main
 
 import (
@@ -17,11 +20,17 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/health"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 )
+
+// exampleCapability identifica, para o registro de ownership (GO-009), a
+// capacidade servida pela rota de exemplo — um nome de exemplo, não um
+// catálogo formal de capacidades (isso é trabalho futuro de GO-011+).
+const exampleCapability = "tables.records"
 
 func main() {
 	cfg, err := config.Load()
@@ -64,8 +73,22 @@ func main() {
 		if err != nil {
 			log.Fatalf("segredo de identidade delegada inválido: %v", err)
 		}
+
+		// Guard/registro de ownership de escrita (GO-009): carrega o estado
+		// persistido antes de aceitar qualquer requisição — sem banco
+		// configurado, ou se a tabela ainda não existir (schema ainda não
+		// aplicado, GO-011), a Guard fica vazia e trata toda
+		// tenant/capacidade como "não é Go" (padrão seguro, nunca aceita
+		// escrita por engano); registrar isso como aviso, não erro fatal.
+		guard := cutover.NewGuard()
+		if db != nil {
+			if err := cutover.LoadFromRegistry(ctx, db, guard); err != nil {
+				log.Printf("aviso: não foi possível carregar o registro de ownership de corte (%v) — nenhuma tenant/capacidade será tratada como proprietária de Go até o registro existir e ser recarregado", err)
+			}
+		}
+
 		mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records",
-			tenancy.Middleware(verifier, tenantProbeHandler(tracker, db)))
+			tenancy.Middleware(verifier, cutover.RequireOwnership(guard, exampleCapability, tenantProbeHandler(tracker, db))))
 	}
 
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux}
