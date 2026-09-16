@@ -340,7 +340,7 @@ Execute a task GO-016 — Medir necessidade de projeções CQRS, de docs/migraca
 
 ### GO-017 — Implementar BFF web em Node.js
 
-- [ ] **Status:** IN_REVIEW — implementação e testes concluídos, PR a abrir; histórico em [execucoes/GO-017.md](execucoes/GO-017.md)
+- [ ] **Status:** IN_REVIEW — PR [#20](https://github.com/vjuliani/saltcorn/pull/20) aberto; histórico em [execucoes/GO-017.md](execucoes/GO-017.md)
 - **Fase:** F3 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** BFF / Node.js
 - **Depende de:** GO-006, GO-008, GO-012, GO-013
