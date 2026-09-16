@@ -10,6 +10,10 @@ Relaciona-se à tarefa [GO-003](../TASKS.md#go-003--registrar-decisões-de-arqui
 4. [ADR-0004 — Estratégia de bancos: Postgres primeiro; SQLite e mobile em etapa posterior](0004-estrategia-de-bancos.md)
 5. [ADR-0005 — Política de extensões: classificação de plugins e host JS temporário](0005-politica-de-extensoes.md)
 6. [ADR-0006 — Critérios de retirada do backend legado Node e do host de plugins](0006-retirada-do-legado.md)
+7. [ADR-0007 — Sessão/cookies do BFF](0007-sessao-cookies-bff.md)
+8. [ADR-0008 — Roteamento de corte e ownership de escrita](0008-roteamento-de-corte-e-ownership.md)
+9. [ADR-0009 — Observabilidade com padrões abertos, sem SDK externo](0009-observabilidade-sem-sdk-externo.md)
+10. [ADR-0010 — Adiar projeções CQRS assíncronas](0010-projecoes-cqrs.md)
 
 ## Matriz de limites entre as três camadas
 
