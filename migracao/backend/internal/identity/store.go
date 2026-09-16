@@ -59,6 +59,34 @@ func FindUserByEmail(ctx context.Context, tx pgx.Tx, email string) (*User, error
 	return u, nil
 }
 
+// FindUserByID busca um usuário pelo ID — o `sub` da identidade delegada
+// (ServiceIdentity, GO-008/ADR-0007) é o ID do usuário como string, nunca
+// seu papel: o backend Go resolve o papel atual aqui, a cada requisição,
+// em vez de confiar num valor potencialmente desatualizado vindo de fora
+// (mesmo motivo de ADR-0007 nunca gravar role_id na sessão do BFF). Mesmo
+// tratamento de erro de FindUserByEmail: ErrUserNotFound, nunca o erro cru
+// do driver.
+func FindUserByID(ctx context.Context, tx pgx.Tx, id int) (*User, error) {
+	u := &User{}
+	var roleID int
+	var totpSecret *string
+	err := tx.QueryRow(ctx,
+		"SELECT id, email, password_hash, role_id, totp_secret, totp_enabled FROM _sc_users WHERE id = $1",
+		id,
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &roleID, &totpSecret, &u.TOTPEnabled)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, err
+	}
+	u.RoleID = RoleID(roleID)
+	if totpSecret != nil {
+		u.TOTPSecret = *totpSecret
+	}
+	return u, nil
+}
+
 // Authenticate combina busca por e-mail e verificação de senha, sem
 // distinguir "usuário não existe" de "senha errada" no erro retornado —
 // distinguir os dois no lado do cliente é um vetor de enumeração de contas.

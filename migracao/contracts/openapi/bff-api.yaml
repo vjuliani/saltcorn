@@ -107,11 +107,16 @@ components:
     SessionCookie:
       type: apiKey
       in: cookie
-      name: connect.sid
+      name: sc_session
       description: >
         Sessão de navegador, emitida e validada pelo BFF Node.js (ADR-0003).
-        Nunca chega ao backend Go — o BFF troca a sessão por um token de
-        ServiceIdentity (ver internal-api.yaml) antes de chamar o domínio.
+        Nome e atributos do cookie fixados em ADR-0007 (HttpOnly, Secure,
+        SameSite=Lax, 24h com renovação deslizante) — corrigido aqui de um
+        nome de placeholder (`connect.sid`, padrão genérico de
+        `express-session`) para o nome realmente decidido, GO-017 implementa
+        exatamente este contrato. Nunca chega ao backend Go — o BFF troca a
+        sessão por um token de ServiceIdentity (ver internal-api.yaml) antes
+        de chamar o domínio.
     CsrfToken:
       type: apiKey
       in: header

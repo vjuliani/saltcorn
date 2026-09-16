@@ -36,6 +36,35 @@ paths:
         "503":
           description: ainda não pronto
 
+  /v1/tenants/{tenant}/actor:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+    get:
+      operationId: getActor
+      summary: "Query: papel atual do ator da identidade delegada"
+      description: >
+        Adicionado por GO-017 para o BFF resolver papel/permissões atuais a
+        cada requisição (ADR-0007) em vez de confiar num valor cacheado na
+        sessão de navegador — uma mudança de papel ou revogação de acesso
+        vale a partir desta consulta, nunca de um valor antigo guardado
+        alhures. `id`/`role_id` são resolvidos do `sub` do token, não de
+        parâmetro algum — não é possível consultar o ator de outra pessoa.
+      responses:
+        "200":
+          description: papel atual do ator autenticado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Actor"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+
   /v1/tenants/{tenant}/tables/{table}/records:
     parameters:
       - name: tenant
@@ -217,6 +246,16 @@ components:
         negativos) em ../fixtures/identidade-delegada.md.
 
   schemas:
+    Actor:
+      type: object
+      required: [id, role_id]
+      properties:
+        id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        role_id:
+          type: integer
+          description: Papel atual do ator (identity.RoleID) — nunca cacheado pelo chamador, sempre resolvido nesta consulta.
+
     RecordInput:
       type: object
       additionalProperties: true
