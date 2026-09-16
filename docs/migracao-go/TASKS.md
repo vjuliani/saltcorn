@@ -74,7 +74,7 @@ Execute a task GO-002 — Criar baseline de comportamento e desempenho, de docs/
 
 ### GO-003 — Registrar decisões de arquitetura
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — ADRs em [adr/](adr/README.md); histórico em [execucoes/GO-003.md](execucoes/GO-003.md)
 - **Fase:** F0 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Arquitetura
 - **Depende de:** GO-001
