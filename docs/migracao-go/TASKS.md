@@ -93,7 +93,7 @@ Execute a task GO-003 — Registrar decisões de arquitetura, de docs/migracao-g
 
 ### GO-004 — Prototipar compatibilidade de extensões e expressões
 
-- [ ] **Status:** IN_REVIEW — relatório em [prototipos/GO-004-relatorio-fronteira-rpc.md](prototipos/GO-004-relatorio-fronteira-rpc.md); histórico em [execucoes/GO-004.md](execucoes/GO-004.md)
+- [ ] **Status:** IN_REVIEW — PR [#7](https://github.com/vjuliani/saltcorn/pull/7); relatório em [prototipos/GO-004-relatorio-fronteira-rpc.md](prototipos/GO-004-relatorio-fronteira-rpc.md); histórico em [execucoes/GO-004.md](execucoes/GO-004.md)
 - **Fase:** F0 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-001
