@@ -1,0 +1,117 @@
+{
+  "benchmark_db_callback": {
+    "avg_ms": 3.216,
+    "max_ms": 12.785,
+    "min_ms": 2.49,
+    "n": 200,
+    "overhead_over_pure_ms": 0.5710000000000002
+  },
+  "benchmark_pure": {
+    "avg_ms": 2.645,
+    "max_ms": 9.229,
+    "min_ms": 2.122,
+    "n": 200
+  },
+  "cases": [
+    {
+      "id": 1,
+      "description": "aritmética pura (row.price * row.qty)",
+      "kind": "expr",
+      "ok": true,
+      "result": "59.699999999999996",
+      "round_trip_ms": 176.391,
+      "eval_ms": 17.498099
+    },
+    {
+      "id": 2,
+      "description": "concatenação de string (row.first_name + row.last_name)",
+      "kind": "expr",
+      "ok": true,
+      "result": "\"Ada Lovelace\"",
+      "round_trip_ms": 4.124,
+      "eval_ms": 3.85567
+    },
+    {
+      "id": 3,
+      "description": "condicional sobre user.role_id",
+      "kind": "expr",
+      "ok": true,
+      "result": "\"admin\"",
+      "round_trip_ms": 4.652,
+      "eval_ms": 4.40764
+    },
+    {
+      "id": 4,
+      "description": "Date como resultado (round-trip JSON vira string)",
+      "kind": "expr",
+      "ok": true,
+      "result": "\"2026-01-15T00:00:00.000Z\"",
+      "round_trip_ms": 4.043,
+      "eval_ms": 3.449261
+    },
+    {
+      "id": 5,
+      "description": "getFullYear sobre string de data",
+      "kind": "expr",
+      "ok": true,
+      "result": "2024",
+      "round_trip_ms": 4.139,
+      "eval_ms": 3.928177
+    },
+    {
+      "id": 6,
+      "description": "singleton Table indisponível por padrão nesta sandbox mínima",
+      "kind": "expr",
+      "ok": true,
+      "result": "\"undefined\"",
+      "round_trip_ms": 3.929,
+      "eval_ms": 3.718019
+    },
+    {
+      "id": 7,
+      "description": "callback nomeado: ação de plugin (toast)",
+      "kind": "call",
+      "ok": true,
+      "result": "{\"toast\":true,\"message\":\"Toast: ola\"}",
+      "round_trip_ms": 1.271,
+      "eval_ms": 0.200855
+    },
+    {
+      "id": 8,
+      "description": "callback nomeado: tipo customizado (currency read)",
+      "kind": "call",
+      "ok": true,
+      "result": "\"USD 10.50\"",
+      "round_trip_ms": 0.564,
+      "eval_ms": 0.415084
+    },
+    {
+      "id": 9,
+      "description": "caso negativo: função com closure de variável externa nunca enviada",
+      "kind": "raw_fn_attempt",
+      "ok": false,
+      "error": "outerCounter is not defined",
+      "round_trip_ms": 2.605,
+      "eval_ms": 2.380528
+    },
+    {
+      "id": 10,
+      "description": "expressão dependente de banco via callback (Table.findOne, registro existente)",
+      "kind": "db",
+      "ok": true,
+      "result": "{\"brand\":\"Fender\",\"id\":1,\"name\":\"guitars\"}",
+      "round_trip_ms": 5.474,
+      "eval_ms": 4.918173
+    },
+    {
+      "id": 11,
+      "description": "expressão dependente de banco via callback (registro inexistente)",
+      "kind": "db",
+      "ok": false,
+      "error": "not found",
+      "round_trip_ms": 5.455,
+      "eval_ms": 5.293977
+    }
+  ],
+  "warmup_calls_discarded": 30
+}
