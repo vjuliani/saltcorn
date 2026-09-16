@@ -1,0 +1,165 @@
+openapi: 3.1.0
+info:
+  title: Saltcorn Go — API do BFF (React → BFF)
+  version: "0.1.0"
+  description: >
+    Contrato consumido pelo frontend React (ADR-0002) através do BFF
+    Node.js (ADR-0003). O BFF compõe estes recursos chamando internal-api.yaml
+    do lado de trás; nunca acessa banco de domínio nem concentra regras de
+    negócio. Mesmo recorte representativo de internal-api.yaml (registros
+    dinâmicos) — ver nota de escopo em docs/migracao-go/execucoes/GO-006.md.
+servers:
+  - url: http://localhost:3100
+    description: BFF Node.js local (a criar em GO-017)
+security:
+  - SessionCookie: []
+    CsrfToken: []
+
+paths:
+  /api/bff/bootstrap:
+    get:
+      operationId: getBootstrap
+      summary: Bootstrap do editor — metadados e permissões de interface (ADR-0003)
+      security:
+        - SessionCookie: []
+      responses:
+        "200":
+          description: dados de bootstrap para a sessão atual
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bootstrap"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+
+  /api/bff/tables/{table}/records:
+    parameters:
+      - name: table
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: listRecords
+      summary: Lista registros (a UI não distingue papel/ownership — o backend Go já filtrou)
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "./common.yaml#/components/parameters/Cursor"
+        - $ref: "./common.yaml#/components/parameters/Limit"
+      responses:
+        "200":
+          description: página de registros, mesmo formato de internal-api.yaml `Page`
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Page"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+    post:
+      operationId: createRecord
+      summary: Cria um registro
+      description: >
+        O BFF gera e propaga a Idempotency-Key para a chamada interna
+        correspondente; um retry do navegador (ex.: timeout percebido pelo
+        usuário) reaproveita a mesma chave, não gera uma nova (ADR-0003:
+        "retries de comandos exigem a mesma chave de idempotência").
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "201":
+          description: registro criado
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          description: "Negativo: token CSRF ausente ou inválido"
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+              examples:
+                csrf_invalido:
+                  summary: "Negativo: CSRF ausente/inválido"
+                  value:
+                    error:
+                      code: csrf_invalid
+                      message: "token CSRF ausente ou inválido"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+components:
+  securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: connect.sid
+      description: >
+        Sessão de navegador, emitida e validada pelo BFF Node.js (ADR-0003).
+        Nunca chega ao backend Go — o BFF troca a sessão por um token de
+        ServiceIdentity (ver internal-api.yaml) antes de chamar o domínio.
+    CsrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: Exigido em toda requisição de mutação (POST/PATCH/DELETE) autenticada por sessão de navegador.
+
+  responses:
+    SessionRequired:
+      description: Sem sessão de navegador válida.
+      content:
+        application/json:
+          schema:
+            $ref: "./common.yaml#/components/schemas/Error"
+          examples:
+            sem_sessao:
+              summary: "Negativo: sessão ausente/expirada"
+              value:
+                error:
+                  code: session_required
+                  message: "sessão de navegador ausente ou expirada"
+    DomainUnavailable:
+      description: >
+        O backend Go não respondeu dentro do timeout, ou respondeu com erro
+        de infraestrutura — a indisponibilidade do Go deve produzir um erro
+        controlado na UI (ADR-0003), nunca travar a requisição indefinidamente.
+      content:
+        application/json:
+          schema:
+            $ref: "./common.yaml#/components/schemas/Error"
+          examples:
+            timeout:
+              summary: "Negativo: backend Go indisponível/timeout"
+              value:
+                error:
+                  code: domain_unavailable
+                  message: "não foi possível completar a operação — tente novamente"
+
+  schemas:
+    Bootstrap:
+      type: object
+      required: [actor, tenant]
+      properties:
+        actor:
+          type: object
+          properties:
+            id:
+              $ref: "./common.yaml#/components/schemas/Id"
+            role_id:
+              type: integer
+        tenant:
+          $ref: "./common.yaml#/components/schemas/Tenant"

@@ -112,7 +112,7 @@ Execute a task GO-004 — Prototipar compatibilidade de extensões e expressões
 
 ### GO-005 — Criar fundação Go e pipeline
 
-- [ ] **Status:** IN_REVIEW — PR [#8](https://github.com/vjuliani/saltcorn/pull/8); código em [migracao/backend/](../../migracao/backend/); histórico em [execucoes/GO-005.md](execucoes/GO-005.md)
+- [x] **Status:** DONE — integrada via PR [#8](https://github.com/vjuliani/saltcorn/pull/8) (merge `dffc38df342759bc4f00d064200b187141dfe5a5`); código em [migracao/backend/](../../migracao/backend/); histórico em [execucoes/GO-005.md](execucoes/GO-005.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Plataforma
 - **Depende de:** GO-003
@@ -131,7 +131,7 @@ Execute a task GO-005 — Criar fundação Go e pipeline, de docs/migracao-go/TA
 
 ### GO-006 — Definir contratos e fixtures HTTP
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — PR [#9](https://github.com/vjuliani/saltcorn/pull/9); contratos em [migracao/contracts/](../../migracao/contracts/); histórico em [execucoes/GO-006.md](execucoes/GO-006.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Backend + Frontend
 - **Depende de:** GO-001, GO-003

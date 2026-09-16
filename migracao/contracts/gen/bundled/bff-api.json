@@ -1,0 +1,324 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Saltcorn Go — API do BFF (React → BFF)",
+    "version": "0.1.0",
+    "description": "Contrato consumido pelo frontend React (ADR-0002) através do BFF Node.js (ADR-0003). O BFF compõe estes recursos chamando internal-api.yaml do lado de trás; nunca acessa banco de domínio nem concentra regras de negócio. Mesmo recorte representativo de internal-api.yaml (registros dinâmicos) — ver nota de escopo em docs/migracao-go/execucoes/GO-006.md.\n"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3100",
+      "description": "BFF Node.js local (a criar em GO-017)"
+    }
+  ],
+  "security": [
+    {
+      "SessionCookie": [],
+      "CsrfToken": []
+    }
+  ],
+  "paths": {
+    "/api/bff/bootstrap": {
+      "get": {
+        "operationId": "getBootstrap",
+        "summary": "Bootstrap do editor — metadados e permissões de interface (ADR-0003)",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "dados de bootstrap para a sessão atual",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bootstrap"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/SessionRequired"
+          }
+        }
+      }
+    },
+    "/api/bff/tables/{table}/records": {
+      "parameters": [
+        {
+          "name": "table",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "listRecords",
+        "summary": "Lista registros (a UI não distingue papel/ownership — o backend Go já filtrou)",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "página de registros, mesmo formato de internal-api.yaml `Page`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/SessionRequired"
+          },
+          "502": {
+            "$ref": "#/components/responses/DomainUnavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createRecord",
+        "summary": "Cria um registro",
+        "description": "O BFF gera e propaga a Idempotency-Key para a chamada interna correspondente; um retry do navegador (ex.: timeout percebido pelo usuário) reaproveita a mesma chave, não gera uma nova (ADR-0003: \"retries de comandos exigem a mesma chave de idempotência\").\n",
+        "security": [
+          {
+            "SessionCookie": [],
+            "CsrfToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "registro criado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/SessionRequired"
+          },
+          "403": {
+            "description": "Negativo: token CSRF ausente ou inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "csrf_invalido": {
+                    "summary": "Negativo: CSRF ausente/inválido",
+                    "value": {
+                      "error": {
+                        "code": "csrf_invalid",
+                        "message": "token CSRF ausente ou inválido"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "$ref": "#/components/responses/DomainUnavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "SessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "connect.sid",
+        "description": "Sessão de navegador, emitida e validada pelo BFF Node.js (ADR-0003). Nunca chega ao backend Go — o BFF troca a sessão por um token de ServiceIdentity (ver internal-api.yaml) antes de chamar o domínio.\n"
+      },
+      "CsrfToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-CSRF-Token",
+        "description": "Exigido em toda requisição de mutação (POST/PATCH/DELETE) autenticada por sessão de navegador."
+      }
+    },
+    "responses": {
+      "SessionRequired": {
+        "description": "Sem sessão de navegador válida.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "sem_sessao": {
+                "summary": "Negativo: sessão ausente/expirada",
+                "value": {
+                  "error": {
+                    "code": "session_required",
+                    "message": "sessão de navegador ausente ou expirada"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "DomainUnavailable": {
+        "description": "O backend Go não respondeu dentro do timeout, ou respondeu com erro de infraestrutura — a indisponibilidade do Go deve produzir um erro controlado na UI (ADR-0003), nunca travar a requisição indefinidamente.\n",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "timeout": {
+                "summary": "Negativo: backend Go indisponível/timeout",
+                "value": {
+                  "error": {
+                    "code": "domain_unavailable",
+                    "message": "não foi possível completar a operação — tente novamente"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Bootstrap": {
+        "type": "object",
+        "required": [
+          "actor",
+          "tenant"
+        ],
+        "properties": {
+          "actor": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "role_id": {
+                "type": "integer"
+              }
+            }
+          },
+          "tenant": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        }
+      },
+      "Id": {
+        "type": "integer",
+        "format": "int64",
+        "description": "Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.\n"
+      },
+      "Tenant": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+        "description": "Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL.\n"
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "Código estável para tratamento programático (ex.: \"invalid_identity_token\")."
+              },
+              "message": {
+                "type": "string",
+                "description": "Mensagem legível; não é garantida estável entre versões do contrato."
+              },
+              "details": {
+                "type": "object",
+                "additionalProperties": true,
+                "description": "Contexto adicional opcional (ex.: qual campo era inválido)."
+              }
+            }
+          }
+        }
+      },
+      "Page": {
+        "type": "object",
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {}
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cursor para a próxima página, ou `null` se não houver mais páginas."
+          }
+        }
+      }
+    },
+    "parameters": {
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "description": "Cursor opaco da página anterior. Omitir para a primeira página.",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 50
+        }
+      }
+    }
+  }
+}

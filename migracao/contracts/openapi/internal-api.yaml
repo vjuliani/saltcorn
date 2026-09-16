@@ -1,0 +1,241 @@
+openapi: 3.1.0
+info:
+  title: Saltcorn Go — API interna (BFF → Go)
+  version: "0.1.0"
+  description: >
+    Contrato consumido pelo BFF Node.js (ADR-0003) — nunca diretamente pelo
+    navegador — e, em versões futuras, por integrações externas autorizadas
+    via API pública própria. Cobre o exemplo de CQRS de registros dinâmicos
+    definido em ADR-0001 (`CreateRecord`/`ListRecords`) como recorte inicial
+    representativo: não é a superfície completa do domínio, que ainda não
+    existe em Go (ver docs/migracao-go/execucoes/GO-006.md, nota de escopo).
+servers:
+  - url: http://localhost:8090
+    description: cmd/server local (GO-005)
+security:
+  - ServiceIdentity: []
+
+paths:
+  /healthz:
+    get:
+      operationId: getLiveness
+      summary: Liveness (GO-005)
+      security: []
+      responses:
+        "200":
+          description: processo vivo
+
+  /readyz:
+    get:
+      operationId: getReadiness
+      summary: Readiness (GO-005)
+      security: []
+      responses:
+        "200":
+          description: pronto para tráfego
+        "503":
+          description: ainda não pronto
+
+  /v1/tenants/{tenant}/tables/{table}/records:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: table
+        in: path
+        required: true
+        description: Nome da tabela dinâmica (definida em tempo de execução pelo usuário final — GO-011).
+        schema:
+          type: string
+    get:
+      operationId: listRecords
+      summary: "Query: lista registros de uma tabela dinâmica"
+      description: >
+        Aplica as mesmas políticas de visibilidade (papel, ownership, RLS)
+        que os comandos de escrita — ADR-0001. Não executa ações de negócio.
+      parameters:
+        - $ref: "./common.yaml#/components/parameters/Cursor"
+        - $ref: "./common.yaml#/components/parameters/Limit"
+      responses:
+        "200":
+          description: página de registros
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "./common.yaml#/components/schemas/Page"
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Record"
+              examples:
+                positivo_identidade_valida:
+                  summary: "Positivo: identidade delegada válida, tenant confere"
+                  value:
+                    items:
+                      - id: 1
+                        version: 1
+                        created_at: "2026-01-15T00:00:00Z"
+                        updated_at: "2026-01-15T00:00:00Z"
+                        name: "guitars"
+                    next_cursor: null
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+    post:
+      operationId: createRecord
+      summary: "Command: cria um registro"
+      description: >
+        Valida tenant, ator, schema, tipos, ownership e triggers
+        transacionais; grava o registro e o outbox na mesma transação
+        (ADR-0001). Idempotente por Idempotency-Key.
+      parameters:
+        - $ref: "./common.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordInput"
+      responses:
+        "201":
+          description: registro criado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+        "409":
+          $ref: "./common.yaml#/components/responses/IdempotencyConflict"
+
+  /v1/tenants/{tenant}/tables/{table}/records/{id}:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: table
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    get:
+      operationId: getRecord
+      summary: "Query: busca um registro por ID"
+      responses:
+        "200":
+          description: registro encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+        "404":
+          description: registro não encontrado (ou fora da visibilidade do ator — nunca distingue os dois casos na resposta)
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+    patch:
+      operationId: updateRecord
+      summary: "Command: atualiza campos de um registro"
+      description: >
+        Semântica de JSON Merge Patch (RFC 7396): campo ausente do corpo =
+        sem alteração; campo presente com valor `null` = limpar o campo.
+        Falha de versão otimista retorna 409.
+      parameters:
+        - $ref: "./common.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: registro atualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+        "409":
+          description: conflito de versão otimista ou de idempotência
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+    delete:
+      operationId: deleteRecord
+      summary: "Command: remove um registro"
+      parameters:
+        - $ref: "./common.yaml#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: removido
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+        "404":
+          description: já não existia (delete é idempotente)
+
+components:
+  securitySchemes:
+    ServiceIdentity:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Identidade delegada ator+tenant entre BFF e backend Go (ADR-0003). O
+        BFF assina um JWT de vida curta com claims `{sub (ator), tenant, iat,
+        exp}`; o Go valida assinatura, expiração, e que o claim `tenant` bate
+        com o tenant da URL (ver schema Tenant em common.yaml). Nunca aceitar
+        tenant vindo de um header solto — GO-001 §2.1, "identidade não pode
+        ser forjada por headers". Exemplos completos (positivo e dois
+        negativos) em ../fixtures/identidade-delegada.md.
+
+  schemas:
+    RecordInput:
+      type: object
+      additionalProperties: true
+      description: >
+        Campos do registro conforme o schema dinâmico da tabela (GO-011).
+        Este contrato não pode enumerar campos fixos — validação de schema
+        acontece no backend, não aqui.
+
+    Record:
+      type: object
+      required: [id, version, created_at]
+      properties:
+        id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        version:
+          type: integer
+          description: Versão otimista do registro (ADR-0001) — usada para detectar escrita concorrente.
+        created_at:
+          $ref: "./common.yaml#/components/schemas/DateTime"
+        updated_at:
+          $ref: "./common.yaml#/components/schemas/DateTime"
+      additionalProperties: true

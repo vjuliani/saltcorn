@@ -1,0 +1,19 @@
+{
+  "name": "saltcorn-go-contracts",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Contratos OpenAPI da migração Go (GO-006) — lint e geração de clientes TS para validação.",
+  "scripts": {
+    "lint": "redocly lint",
+    "bundle:internal": "redocly bundle openapi/internal-api.yaml -o gen/bundled/internal-api.json",
+    "bundle:bff": "redocly bundle openapi/bff-api.yaml -o gen/bundled/bff-api.json",
+    "gen:ts": "openapi-typescript",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "validate": "npm run lint && npm run gen:ts && npm run typecheck"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.53.2",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.2"
+  }
+}
