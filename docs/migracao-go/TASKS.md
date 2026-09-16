@@ -36,7 +36,7 @@ A branch prevista é `task/go-NNN`. Na primeira execução, descobrir e registra
 
 ### GO-001 — Inventariar capacidades e aplicações
 
-- [ ] **Status:** IN_REVIEW — matriz em [inventario/GO-001-matriz-capacidades.md](inventario/GO-001-matriz-capacidades.md); histórico em [execucoes/GO-001.md](execucoes/GO-001.md)
+- [ ] **Status:** IN_REVIEW — PR [#1](https://github.com/vjuliani/saltcorn/pull/1); matriz em [inventario/GO-001-matriz-capacidades.md](inventario/GO-001-matriz-capacidades.md); histórico em [execucoes/GO-001.md](execucoes/GO-001.md)
 - **Fase:** F0 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Arquitetura
 - **Depende de:** Nenhuma
