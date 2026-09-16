@@ -131,7 +131,7 @@ Execute a task GO-005 — Criar fundação Go e pipeline, de docs/migracao-go/TA
 
 ### GO-006 — Definir contratos e fixtures HTTP
 
-- [ ] **Status:** IN_REVIEW — PR [#9](https://github.com/vjuliani/saltcorn/pull/9); contratos em [migracao/contracts/](../../migracao/contracts/); histórico em [execucoes/GO-006.md](execucoes/GO-006.md)
+- [x] **Status:** DONE — integrada via PR [#9](https://github.com/vjuliani/saltcorn/pull/9) (merge `ee9fccaaa1e6dbcc942060b0a709dbc8f8d6b325`); contratos em [migracao/contracts/](../../migracao/contracts/); histórico em [execucoes/GO-006.md](execucoes/GO-006.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Backend + Frontend
 - **Depende de:** GO-001, GO-003
@@ -150,7 +150,7 @@ Execute a task GO-006 — Definir contratos e fixtures HTTP, de docs/migracao-go
 
 ### GO-007 — Implementar tenancy e contexto transacional
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — PR [#10](https://github.com/vjuliani/saltcorn/pull/10); código em [migracao/backend/internal/platform/{tenancy,database}](../../migracao/backend/internal/platform/); histórico em [execucoes/GO-007.md](execucoes/GO-007.md)
 - **Fase:** F1 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-005
