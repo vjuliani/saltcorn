@@ -1,0 +1,27 @@
+apis:
+  internal-api:
+    root: openapi/internal-api.yaml
+    x-openapi-ts:
+      output: gen/ts/internal-api.d.ts
+  bff-api:
+    root: openapi/bff-api.yaml
+    x-openapi-ts:
+      output: gen/ts/bff-api.d.ts
+
+# common.yaml não é uma API própria (é referenciada via $ref pelos dois
+# contratos acima) — não faz parte de `apis`, então não é lintada como
+# documento raiz; seu conteúdo ainda é validado indiretamente quando
+# resolvido a partir de internal-api/bff-api.
+extends:
+  - recommended
+
+rules:
+  # Contratos internos de uma migração em andamento — sem licença pública
+  # a declarar nesta fase.
+  info-license: off
+  # Os servidores apontam para localhost deliberadamente enquanto GO-005/
+  # GO-017 ainda não têm ambiente hospedado — não é um placeholder esquecido.
+  no-server-example.com: off
+  # /healthz e /readyz respondem só 200/503 por natureza; exigir 4xx aqui
+  # não faz sentido para um endpoint sem autenticação nem entrada do cliente.
+  operation-4xx-response: off

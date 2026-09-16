@@ -1,0 +1,68 @@
+name: migracao-contracts-ci
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "migracao/contracts/**"
+      - ".github/workflows/migracao-contracts-ci.yml"
+  pull_request:
+    paths:
+      - "migracao/contracts/**"
+      - ".github/workflows/migracao-contracts-ci.yml"
+
+jobs:
+  lint-and-ts-client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: migracao/contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - name: lint contratos (detecta incompatibilidade)
+        run: npm run lint
+      - name: gerar tipos TS a partir dos contratos
+        run: npm run gen:ts
+      - name: falhar se os tipos TS gerados estão desatualizados
+        run: |
+          git diff --exit-code -- gen/ts/internal-api.d.ts gen/ts/bff-api.d.ts || \
+            (echo "::error::gen/ts/*.d.ts está desatualizado em relação aos contratos — rode 'npm run gen:ts' e commite o resultado." && exit 1)
+      - name: typecheck do cliente TS gerado
+        run: npm run typecheck
+
+  go-client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: migracao/contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: npm ci
+      - name: instalar oapi-codegen
+        run: go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
+      - name: bundlar contratos (resolver $ref)
+        run: npm run bundle:internal && npm run bundle:bff
+      - name: gerar cliente Go a partir de cada contrato
+        run: |
+          oapi-codegen -config oapi-codegen.internal-api.yaml gen/bundled/internal-api.json
+          oapi-codegen -config oapi-codegen.bff-api.yaml gen/bundled/bff-api.json
+      - name: falhar se a geração produziu diferenças não commitadas
+        run: |
+          git diff --exit-code -- gen/go gen/ts gen/bundled || \
+            (echo "::error::gen/ está desatualizado em relação aos contratos — rode os comandos de geração (ver README.md) e commite o resultado." && exit 1)
+      - name: build/vet/test do cliente Go gerado
+        working-directory: migracao/contracts/gen/go
+        run: |
+          go build ./...
+          go vet ./...
+          go test -race -count=1 ./...
