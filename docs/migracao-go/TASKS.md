@@ -226,7 +226,7 @@ Execute a task GO-010 — Instrumentar observabilidade, de docs/migracao-go/TASK
 
 ### GO-011 — Portar catálogo e evolução de schema
 
-- [ ] **Status:** IN_REVIEW — implementação e testes concluídos, PR a abrir; histórico em [execucoes/GO-011.md](execucoes/GO-011.md)
+- [ ] **Status:** IN_REVIEW — PR [#14](https://github.com/vjuliani/saltcorn/pull/14) aberto; histórico em [execucoes/GO-011.md](execucoes/GO-011.md)
 - **Fase:** F2 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-007, GO-008
