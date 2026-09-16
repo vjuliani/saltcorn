@@ -264,7 +264,7 @@ Execute a task GO-012 — Implementar compilador de consultas dinâmicas, de doc
 
 ### GO-013 — Implementar comandos de registros
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — PR [#16](https://github.com/vjuliani/saltcorn/pull/16) aberto; histórico em [execucoes/GO-013.md](execucoes/GO-013.md)
 - **Fase:** F2 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-011, GO-012

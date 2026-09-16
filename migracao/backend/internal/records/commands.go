@@ -1,0 +1,312 @@
+package records
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
+)
+
+// Códigos SQLSTATE do Postgres classificados por classifyPgError — nunca a
+// mensagem crua do driver, que pode ecoar de volta um valor de linha (ex.:
+// "Key (email)=(x@y.com) already exists").
+const (
+	sqlstateUniqueViolation     = "23505"
+	sqlstateForeignKeyViolation = "23503"
+	sqlstateNotNullViolation    = "23502"
+)
+
+// Hooks define pontos de extensão para um sistema de triggers/automação
+// futuro (GO-024/GO-025, que ainda não existem) — "definir pontos de
+// extensão de triggers" do escopo de GO-013. Cada callback roda DENTRO da
+// mesma transação do comando: se um hook retornar erro, a operação inteira
+// desfaz (mesma garantia de "falha desfaz toda a operação" do critério de
+// aceite), nunca só o efeito do hook. Um *Hooks nil, ou qualquer campo
+// nil, é um no-op — nenhuma automação real usa isto ainda.
+type Hooks struct {
+	BeforeInsert func(ctx context.Context, tx pgx.Tx, table metadata.Table, values map[string]any) error
+	AfterInsert  func(ctx context.Context, tx pgx.Tx, table metadata.Table, record map[string]any) error
+	BeforeUpdate func(ctx context.Context, tx pgx.Tx, table metadata.Table, id int, values map[string]any) error
+	AfterUpdate  func(ctx context.Context, tx pgx.Tx, table metadata.Table, record map[string]any) error
+	BeforeDelete func(ctx context.Context, tx pgx.Tx, table metadata.Table, id int) error
+	AfterDelete  func(ctx context.Context, tx pgx.Tx, table metadata.Table, id int) error
+}
+
+func (h *Hooks) beforeInsert(ctx context.Context, tx pgx.Tx, table metadata.Table, values map[string]any) error {
+	if h == nil || h.BeforeInsert == nil {
+		return nil
+	}
+	return h.BeforeInsert(ctx, tx, table, values)
+}
+
+func (h *Hooks) afterInsert(ctx context.Context, tx pgx.Tx, table metadata.Table, record map[string]any) error {
+	if h == nil || h.AfterInsert == nil {
+		return nil
+	}
+	return h.AfterInsert(ctx, tx, table, record)
+}
+
+func (h *Hooks) beforeUpdate(ctx context.Context, tx pgx.Tx, table metadata.Table, id int, values map[string]any) error {
+	if h == nil || h.BeforeUpdate == nil {
+		return nil
+	}
+	return h.BeforeUpdate(ctx, tx, table, id, values)
+}
+
+func (h *Hooks) afterUpdate(ctx context.Context, tx pgx.Tx, table metadata.Table, record map[string]any) error {
+	if h == nil || h.AfterUpdate == nil {
+		return nil
+	}
+	return h.AfterUpdate(ctx, tx, table, record)
+}
+
+func (h *Hooks) beforeDelete(ctx context.Context, tx pgx.Tx, table metadata.Table, id int) error {
+	if h == nil || h.BeforeDelete == nil {
+		return nil
+	}
+	return h.BeforeDelete(ctx, tx, table, id)
+}
+
+func (h *Hooks) afterDelete(ctx context.Context, tx pgx.Tx, table metadata.Table, id int) error {
+	if h == nil || h.AfterDelete == nil {
+		return nil
+	}
+	return h.AfterDelete(ctx, tx, table, id)
+}
+
+// resolveTableForWrite resolve tableName contra o catálogo e confere
+// identity.CanWrite(actorRole, table.MinRoleWrite) — o ponto de entrada
+// comum de CreateRecord/UpdateRecord/DeleteRecord.
+func resolveTableForWrite(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableName string) (metadata.Table, map[string]metadata.Field, error) {
+	table, err := metadata.GetTable(ctx, tx, tableName)
+	if err != nil {
+		if isTableNotFound(err) {
+			return metadata.Table{}, nil, fmt.Errorf("%w: %q", ErrUnknownTable, tableName)
+		}
+		return metadata.Table{}, nil, err
+	}
+	if !identity.CanWrite(actorRole, table.MinRoleWrite) {
+		return metadata.Table{}, nil, ErrNotAuthorized
+	}
+	fields, err := metadata.ListFields(ctx, tx, table.ID)
+	if err != nil {
+		return metadata.Table{}, nil, err
+	}
+	return *table, fieldMap(fields), nil
+}
+
+// validateFieldValues resolve e valida cada entrada de values contra
+// fieldsByName — nunca aceita um nome não catalogado nem um valor de tipo
+// incompatível, a mesma disciplina de resolução de GO-012 aplicada aos
+// comandos de escrita.
+func validateFieldValues(fieldsByName map[string]metadata.Field, values map[string]any) error {
+	for name, val := range values {
+		if name == "id" || name == "_version" {
+			return fmt.Errorf("%w: %q não pode ser definido diretamente", ErrUnknownField, name)
+		}
+		f, ok := fieldsByName[name]
+		if !ok {
+			return fmt.Errorf("%w: %q", ErrUnknownField, name)
+		}
+		if err := validateValue(f, val); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CreateRecord insere um novo registro em tableName, validando cada campo
+// de values contra o catálogo (nome conhecido, tipo compatível) e
+// confirmando que todo campo obrigatório (Field.Required) foi informado.
+// Roda dentro da transação tx já aberta (WithTenant do chamador) — se
+// qualquer etapa falhar, inclusive um hook, a transação inteira desfaz.
+func CreateRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableName string, values map[string]any, hooks *Hooks) (map[string]any, error) {
+	table, fieldsByName, err := resolveTableForWrite(ctx, tx, actorRole, tableName)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateFieldValues(fieldsByName, values); err != nil {
+		return nil, err
+	}
+	for name, f := range fieldsByName {
+		if f.Required {
+			if _, ok := values[name]; !ok {
+				return nil, fmt.Errorf("%w: %q", ErrRequiredField, name)
+			}
+		}
+	}
+
+	if err := hooks.beforeInsert(ctx, tx, table, values); err != nil {
+		return nil, err
+	}
+
+	cols := make([]string, 0, len(values))
+	placeholders := make([]string, 0, len(values))
+	args := make([]any, 0, len(values))
+	for name, val := range values {
+		cols = append(cols, pgx.Identifier{name}.Sanitize())
+		args = append(args, val)
+		placeholders = append(placeholders, fmt.Sprintf("$%d", len(args)))
+	}
+
+	quotedTable := pgx.Identifier{table.Name}.Sanitize()
+	var sql string
+	if len(cols) == 0 {
+		sql = fmt.Sprintf(`INSERT INTO %s DEFAULT VALUES RETURNING *, xmin::text AS "_version"`, quotedTable)
+	} else {
+		sql = fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) RETURNING *, xmin::text AS "_version"`,
+			quotedTable, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+	}
+
+	rows, err := tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, classifyPgError(err)
+	}
+	record, err := scanOne(rows)
+	if err != nil {
+		return nil, classifyPgError(err)
+	}
+
+	if err := hooks.afterInsert(ctx, tx, table, record); err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+// UpdateRecord atualiza o registro id em tableName com values, exigindo
+// expectedVersion (o `_version`/xmin de uma leitura anterior) para
+// controle de concorrência otimista: se a linha foi modificada por outra
+// transação desde a leitura, retorna ErrVersionConflict — o "erro
+// definido" do critério de aceite de GO-013, nunca uma sobrescrita
+// silenciosa. Se id não existir, retorna ErrRecordNotFound.
+func UpdateRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableName string, id int, expectedVersion string, values map[string]any, hooks *Hooks) (map[string]any, error) {
+	table, fieldsByName, err := resolveTableForWrite(ctx, tx, actorRole, tableName)
+	if err != nil {
+		return nil, err
+	}
+	if len(values) == 0 {
+		return nil, ErrNoFields
+	}
+	if err := validateFieldValues(fieldsByName, values); err != nil {
+		return nil, err
+	}
+
+	if err := hooks.beforeUpdate(ctx, tx, table, id, values); err != nil {
+		return nil, err
+	}
+
+	setClauses := make([]string, 0, len(values))
+	args := make([]any, 0, len(values)+2)
+	for name, val := range values {
+		args = append(args, val)
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", pgx.Identifier{name}.Sanitize(), len(args)))
+	}
+	args = append(args, id)
+	idPos := len(args)
+	args = append(args, expectedVersion)
+	versionPos := len(args)
+
+	quotedTable := pgx.Identifier{table.Name}.Sanitize()
+	sql := fmt.Sprintf(`UPDATE %s SET %s WHERE id = $%d AND xmin::text = $%d RETURNING *, xmin::text AS "_version"`,
+		quotedTable, strings.Join(setClauses, ", "), idPos, versionPos)
+
+	rows, err := tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, classifyPgError(err)
+	}
+	record, err := scanOne(rows)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, conflictOrNotFound(ctx, tx, table.Name, id)
+		}
+		return nil, classifyPgError(err)
+	}
+
+	if err := hooks.afterUpdate(ctx, tx, table, record); err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+// DeleteRecord remove o registro id em tableName, com o mesmo controle de
+// concorrência otimista de UpdateRecord.
+func DeleteRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableName string, id int, expectedVersion string, hooks *Hooks) error {
+	table, _, err := resolveTableForWrite(ctx, tx, actorRole, tableName)
+	if err != nil {
+		return err
+	}
+
+	if err := hooks.beforeDelete(ctx, tx, table, id); err != nil {
+		return err
+	}
+
+	quotedTable := pgx.Identifier{table.Name}.Sanitize()
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = $1 AND xmin::text = $2`, quotedTable), id, expectedVersion)
+	if err != nil {
+		return classifyPgError(err)
+	}
+	if tag.RowsAffected() == 0 {
+		return conflictOrNotFound(ctx, tx, table.Name, id)
+	}
+
+	return hooks.afterDelete(ctx, tx, table, id)
+}
+
+// conflictOrNotFound decide, depois de uma escrita condicional (WHERE id=
+// ... AND xmin::text=...) afetar zero linhas, se o motivo foi "o registro
+// não existe" (ErrRecordNotFound) ou "o registro existe, mas mudou desde a
+// leitura" (ErrVersionConflict) — as duas causas produzem o mesmo "zero
+// linhas afetadas", então precisam de uma segunda consulta para se
+// distinguir uma da outra.
+func conflictOrNotFound(ctx context.Context, tx pgx.Tx, tableName string, id int) error {
+	var exists bool
+	err := tx.QueryRow(ctx,
+		fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1)`, pgx.Identifier{tableName}.Sanitize()),
+		id,
+	).Scan(&exists)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return ErrRecordNotFound
+	}
+	return ErrVersionConflict
+}
+
+func scanOne(rows pgx.Rows) (map[string]any, error) {
+	records, err := pgx.CollectRows(rows, pgx.RowToMap)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, pgx.ErrNoRows
+	}
+	return records[0], nil
+}
+
+// classifyPgError traduz um erro do driver Postgres para um dos erros
+// classificados deste pacote — nunca deixa a mensagem crua do driver
+// (que pode ecoar um valor de linha, ex.: violação de unicidade
+// mostrando o valor duplicado) escapar como está.
+func classifyPgError(err error) error {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return err
+	}
+	switch pgErr.Code {
+	case sqlstateUniqueViolation:
+		return fmt.Errorf("%w: %s", ErrDuplicateValue, pgErr.ConstraintName)
+	case sqlstateForeignKeyViolation:
+		return fmt.Errorf("%w: %s", ErrInvalidReference, pgErr.ConstraintName)
+	case sqlstateNotNullViolation:
+		return fmt.Errorf("%w: %s", ErrRequiredField, pgErr.ColumnName)
+	default:
+		return err
+	}
+}
