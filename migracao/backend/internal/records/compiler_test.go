@@ -417,6 +417,65 @@ func TestCompile_Join(t *testing.T) {
 	}
 }
 
+// TestCompile_JoinAuthorizationDenied cobre o critério de aceite de GO-015
+// ("contagens e agregados não revelam registros proibidos", que se aplica
+// igualmente a join): "books" é de leitura pública, mas "publisher" é
+// admin-only — um ator público não pode contornar isso trazendo colunas de
+// "publisher" via join a partir de "books", mesmo podendo ler "books"
+// diretamente.
+func TestCompile_JoinAuthorizationDenied(t *testing.T) {
+	db := testDB(t)
+	tenant := testTenant(t, db)
+	ctx := context.Background()
+
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		pub, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "publisher", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
+		if err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, pub.ID, metadata.FieldDef{Name: "name", Type: metadata.FieldText, Required: true}); err != nil {
+			return err
+		}
+		books, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "books", metadata.TableOptions{})
+		if err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "author", Type: metadata.FieldText, Required: true}); err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger, Required: true}); err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "assessment_date", Type: metadata.FieldDate}); err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "available", Type: metadata.FieldBoolean}); err != nil {
+			return err
+		}
+		_, err = metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "publisher", Type: metadata.FieldKey, References: "publisher"})
+		return err
+	}); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	pubID := insertPublisher(t, db, tenant, "Acme Press")
+	insertBook(t, db, tenant, bookRow{author: "Ada Lovelace", pages: 100, publisherID: intPtr(pubID)})
+
+	q := Query{Table: "books", Joins: []Join{{Field: "publisher", Select: []string{"name"}}}}
+
+	_, err := runQuery(t, db, tenant, identity.RolePublic, q)
+	if !errors.Is(err, ErrNotAuthorized) {
+		t.Errorf("join para tabela admin-only com ator público = %v, esperado ErrNotAuthorized", err)
+	}
+
+	rows, err := runQuery(t, db, tenant, identity.RoleAdmin, q)
+	if err != nil {
+		t.Fatalf("join com ator admin deveria suceder: %v", err)
+	}
+	if len(rows) != 1 || rows[0]["publisher__name"] != "Acme Press" {
+		t.Errorf("resultado do join com ator admin = %v, esperado publisher__name=Acme Press", rows)
+	}
+}
+
 func TestCompile_Aggregation(t *testing.T) {
 	db := testDB(t)
 	tenant := testTenant(t, db)
@@ -445,6 +504,102 @@ func TestCompile_Aggregation(t *testing.T) {
 	}
 	if rows[0]["total_pages"] != int64(300) {
 		t.Errorf("total_pages = %v (%T), esperado 300", rows[0]["total_pages"], rows[0]["total_pages"])
+	}
+}
+
+// TestCompile_AggregationAuthorizationDenied cobre diretamente o critério
+// de aceite "contagens e agregados não revelam registros proibidos":
+// "publisher" é de leitura pública, mas a tabela filha "books" (sobre a
+// qual o agregado roda) é admin-only — um ator público não pode obter
+// COUNT/SUM sobre "books" via agregação a partir de "publisher", mesmo
+// tendo acesso de leitura à própria "publisher". Sem a checagem em
+// compileAggregation, este teste falha (ver achado de verificação
+// registrado em execucoes/GO-015.md).
+func TestCompile_AggregationAuthorizationDenied(t *testing.T) {
+	db := testDB(t)
+	tenant := testTenant(t, db)
+	ctx := context.Background()
+
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		pub, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "publisher", metadata.TableOptions{})
+		if err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, pub.ID, metadata.FieldDef{Name: "name", Type: metadata.FieldText, Required: true}); err != nil {
+			return err
+		}
+		books, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "books", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
+		if err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "author", Type: metadata.FieldText, Required: true}); err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger, Required: true}); err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "assessment_date", Type: metadata.FieldDate}); err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "available", Type: metadata.FieldBoolean}); err != nil {
+			return err
+		}
+		_, err = metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "publisher", Type: metadata.FieldKey, References: "publisher"})
+		return err
+	}); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	pubID := insertPublisher(t, db, tenant, "Acme Press")
+	insertBook(t, db, tenant, bookRow{author: "Ada Lovelace", pages: 100, publisherID: intPtr(pubID)})
+
+	q := Query{
+		Table:        "publisher",
+		Aggregations: []Aggregation{{Alias: "book_count", ChildTable: "books", FKField: "publisher", Function: Count}},
+	}
+
+	_, err := runQuery(t, db, tenant, identity.RolePublic, q)
+	if !errors.Is(err, ErrNotAuthorized) {
+		t.Errorf("agregação sobre tabela filha admin-only com ator público = %v, esperado ErrNotAuthorized", err)
+	}
+
+	rows, err := runQuery(t, db, tenant, identity.RoleAdmin, q)
+	if err != nil {
+		t.Fatalf("agregação com ator admin deveria suceder: %v", err)
+	}
+	if len(rows) != 1 || rows[0]["book_count"] != int64(1) {
+		t.Errorf("resultado da agregação com ator admin = %v, esperado book_count=1", rows)
+	}
+}
+
+// TestCompile_RevocationTakesEffectImmediately cobre "revogação de acesso
+// é imediata nos caminhos protegidos": o papel do ator é resolvido a
+// partir do token/sessão a cada chamada de Compile/Rows — nunca cacheado
+// dentro de internal/records — então uma leitura bem-sucedida como admin
+// não deixa nenhum resquício que beneficie a PRÓXIMA chamada com um papel
+// insuficiente (ex.: o mesmo usuário, rebaixado de papel ou com o token
+// revogado entre duas requisições). Complementa TestCompile_
+// AuthorizationDenied (que testa a ordem público→admin) testando a ordem
+// inversa, admin→público, para provar que não há "carona" na direção
+// oposta.
+func TestCompile_RevocationTakesEffectImmediately(t *testing.T) {
+	db := testDB(t)
+	tenant := testTenant(t, db)
+	ctx := context.Background()
+
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "secrets", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
+		return err
+	}); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if _, err := runQuery(t, db, tenant, identity.RoleAdmin, Query{Table: "secrets"}); err != nil {
+		t.Fatalf("primeira consulta (ator admin) deveria suceder: %v", err)
+	}
+
+	_, err := runQuery(t, db, tenant, identity.RolePublic, Query{Table: "secrets"})
+	if !errors.Is(err, ErrNotAuthorized) {
+		t.Errorf("consulta imediatamente seguinte com ator público = %v, esperado ErrNotAuthorized (revogação não foi imediata)", err)
 	}
 }
 
