@@ -347,3 +347,25 @@ func tableNameByID(ctx context.Context, tx pgx.Tx, tableID int) (string, error) 
 	}
 	return name, nil
 }
+
+// GetTableByID busca uma tabela do catálogo pelo ID — o par de GetTable
+// (que busca por nome). Usado por GO-012 (compilador de consultas) para
+// resolver a tabela referenciada por um campo do tipo FieldKey
+// (Field.ReferencesTable é um ID, não um nome) ao montar um join.
+func GetTableByID(ctx context.Context, tx pgx.Tx, id int) (*Table, error) {
+	t := &Table{}
+	var minRead, minWrite int
+	err := tx.QueryRow(ctx,
+		"SELECT id, name, min_role_read, min_role_write FROM _sc_tables WHERE id = $1",
+		id,
+	).Scan(&t.ID, &t.Name, &minRead, &minWrite)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrTableNotFound
+		}
+		return nil, err
+	}
+	t.MinRoleRead = identity.RoleID(minRead)
+	t.MinRoleWrite = identity.RoleID(minWrite)
+	return t, nil
+}

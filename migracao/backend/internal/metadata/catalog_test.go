@@ -497,3 +497,44 @@ func TestDropTable_IdempotentAndRemovesPhysically(t *testing.T) {
 	}
 	drop() // segunda chamada: idempotente
 }
+
+func TestGetTableByID(t *testing.T) {
+	db := testDB(t)
+	tenant := testTenant(t, db)
+	ctx := context.Background()
+
+	var created *Table
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		created, err = CreateTable(ctx, tx, identity.RoleAdmin, "guitars", TableOptions{})
+		return err
+	}); err != nil {
+		t.Fatalf("CreateTable: %v", err)
+	}
+
+	var got *Table
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		got, err = GetTableByID(ctx, tx, created.ID)
+		return err
+	}); err != nil {
+		t.Fatalf("GetTableByID: %v", err)
+	}
+	if got.Name != "guitars" {
+		t.Errorf("GetTableByID Name = %q, esperado guitars", got.Name)
+	}
+}
+
+func TestGetTableByID_NotFound(t *testing.T) {
+	db := testDB(t)
+	tenant := testTenant(t, db)
+	ctx := context.Background()
+
+	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := GetTableByID(ctx, tx, 999999)
+		return err
+	})
+	if !errors.Is(err, ErrTableNotFound) {
+		t.Errorf("GetTableByID(id inexistente) = %v, esperado ErrTableNotFound", err)
+	}
+}
