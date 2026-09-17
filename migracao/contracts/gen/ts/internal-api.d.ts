@@ -60,6 +60,100 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant}/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: cria uma tabela dinâmica
+         * @description Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).
+         */
+        post: operations["createTable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/tables/{table}/fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                table: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: adiciona um campo a uma tabela dinâmica
+         * @description Adicionado por GO-019 — `internal/metadata.AddField` (GO-011) nunca tinha exposição HTTP. Idempotente pela mesma razão de createTable.
+         */
+        post: operations["addField"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: cria uma view (documento de layout do editor)
+         * @description Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
+         */
+        post: operations["createView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/views/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Query: reabre uma view
+         * @description O papel do ator é resolvido de novo a cada chamada — uma view despublicada nega a leitura seguinte sem nenhum resquício da anterior (mesmo espírito de GO-015).
+         */
+        get: operations["getView"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Command: salva ou publica uma view
+         * @description A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+         */
+        patch: operations["updateView"];
+        trace?: never;
+    };
     "/v1/tenants/{tenant}/tables/{table}/records": {
         parameters: {
             query?: never;
@@ -122,6 +216,67 @@ export interface components {
             id: components["schemas"]["Id"];
             /** @description Papel atual do ator (identity.RoleID) — nunca cacheado pelo chamador, sempre resolvido nesta consulta. */
             role_id: number;
+        };
+        TableInput: {
+            name: string;
+            min_role_read?: number;
+            min_role_write?: number;
+        };
+        Table: {
+            id: components["schemas"]["Id"];
+            name: string;
+            min_role_read: number;
+            min_role_write: number;
+        };
+        FieldInput: {
+            name: string;
+            /** @enum {string} */
+            type: "text" | "integer" | "boolean" | "float" | "date" | "key";
+            required?: boolean;
+            unique?: boolean;
+            /** @description Nome da tabela referenciada — obrigatório quando type=key. */
+            references?: string;
+        };
+        Field: {
+            id: components["schemas"]["Id"];
+            table_id: components["schemas"]["Id"];
+            name: string;
+            type: string;
+            required?: boolean;
+            unique?: boolean;
+            references_table_id?: components["schemas"]["Id"];
+        };
+        ViewInput: {
+            name: string;
+            /** @description Nome da tabela (não o id) que a view consulta. */
+            table: string;
+            /** @description Identificador de intenção (ex. "List", "Show") — armazenado, não interpretado nesta versão (a renderização é GO-020). */
+            template: string;
+            /** @description O documento de layout produzido pelo builder Craft.js (`craftToSaltcorn`, GO-018). */
+            configuration: {
+                [key: string]: unknown;
+            };
+            min_role?: number;
+        };
+        ViewUpdateInput: {
+            /** @description O `_version` de uma leitura anterior — obrigatório, mesmo quando só min_role está sendo alterado (publicar também é uma escrita sujeita a conflito). */
+            _version: string;
+            configuration?: {
+                [key: string]: unknown;
+            };
+            template?: string;
+            min_role?: number;
+        };
+        View: {
+            id: components["schemas"]["Id"];
+            name: string;
+            table_id: components["schemas"]["Id"];
+            template: string;
+            min_role: number;
+            configuration: {
+                [key: string]: unknown;
+            };
+            _version: string;
         };
         /** @description Campos do registro conforme o schema dinâmico da tabela (GO-011). Este contrato não pode enumerar campos fixos — validação de schema acontece no backend, não aqui. */
         RecordInput: {
@@ -197,11 +352,11 @@ export interface components {
         };
     };
     parameters: {
+        /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
+        IdempotencyKey: string;
         /** @description Cursor opaco da página anterior. Omitir para a primeira página. */
         Cursor: string;
         Limit: number;
-        /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
-        IdempotencyKey: string;
     };
     requestBodies: never;
     headers: never;
@@ -274,6 +429,170 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    createTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TableInput"];
+            };
+        };
+        responses: {
+            /** @description tabela criada (ou já existente, idempotente) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Table"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    addField: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FieldInput"];
+            };
+        };
+        responses: {
+            /** @description campo criado (ou já existente, idempotente) */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Field"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createView: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewInput"];
+            };
+        };
+        responses: {
+            /** @description view criada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["IdempotencyConflict"];
+        };
+    };
+    getView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description view encontrada */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description view não encontrada */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateView: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description view atualizada */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description conflito de versão otimista (edição concorrente) ou de idempotência */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listRecords: {

@@ -25,15 +25,19 @@ src/
   goClient.ts        cliente HTTP tipado para internal-api.yaml (tipos de
                      ../../contracts/gen/ts), timeout via AbortController
   errors.ts          formato de erro do contrato (common.yaml#/Error) + BffError
-  router.ts          roteador mínimo (5 rotas, sem dependência externa)
+  router.ts          roteador mínimo (GET/POST/PATCH, sem dependência externa)
   httpHelpers.ts      leitura de corpo JSON com limite, envio de resposta
   app.ts             composição das rotas de bff-api.yaml
   server.ts          entrypoint: configuração, servidor HTTP, encerramento gracioso
 test/
   *.test.ts          unitários (sessão, CSRF, idempotência, ServiceIdentity)
   mockGoServer.ts    réplica mínima da verificação de identidade delegada do Go real,
-                     só para os testes de integração exercitarem a fronteira de verdade
+                     também replica idempotência/conflito de versão de outbox.Do
+                     (createRecord/createView/updateView), só para os testes de
+                     integração exercitarem a fronteira de verdade
   app.test.ts        integração: app real + servidor HTTP real contra o mock do Go
+  editor.test.ts     integração do ciclo do editor (GO-019): criar tabela/campo/view,
+                     salvar, reabrir, conflito de edição concorrente propagado (409)
 ```
 
 ## Rotas (`bff-api.yaml`)
@@ -42,8 +46,13 @@ test/
 - `GET /api/bff/bootstrap` — exige sessão; resolve o papel atual do ator no Go (`GET /v1/tenants/{tenant}/actor`, extensão de GO-017 a `internal-api.yaml` — ver nota de escopo em `docs/migracao-go/execucoes/GO-017.md`) a cada chamada, nunca cacheado (ADR-0007).
 - `GET /api/bff/tables/:table/records` — exige sessão; delega a `internal/records.Rows` do lado Go.
 - `POST /api/bff/tables/:table/records` — exige sessão + CSRF; gera a `Idempotency-Key` deterministicamente e delega a `internal/records.CreateRecord` via `outbox.Do` (GO-014) do lado Go.
+- `POST /api/bff/tables` — exige sessão + CSRF; delega a `metadata.CreateTable` (GO-019). **Sem `Idempotency-Key`** — `CreateTable` já é idempotente por definição do lado Go (mesmo raciocínio de `addField` abaixo).
+- `POST /api/bff/tables/:table/fields` — exige sessão + CSRF; delega a `metadata.AddField` (GO-019). Sem `Idempotency-Key`, mesmo motivo.
+- `POST /api/bff/views` — exige sessão + CSRF; gera `Idempotency-Key` (reaproveitando `computeIdempotencyKey`, com `"views"` como escopo de recurso — string genérica, não um nome de tabela literal) e delega a `views.CreateView` via `outbox.Do` do lado Go (GO-019) — `CreateView` NÃO é idempotente por natureza (nome único), diferente de `createTable`/`addField` acima.
+- `GET /api/bff/views/:id` — exige sessão; delega a `views.GetView`.
+- `PATCH /api/bff/views/:id` — exige sessão + CSRF; gera `Idempotency-Key` com escopo `"views/<id>"`; delega a `views.UpdateView` via `outbox.Do`. É "salvar" (com `configuration`) e "publicar" (com `min_role` menor) — a mesma rota. Propaga o 409 `version_conflict` do Go sem mascarar — ver `test/editor.test.ts`, `conflito de edição concorrente...`.
 
-**Sem endpoint de login nesta entrega** (nem `bff-api.yaml` nem `internal-api.yaml` definem um) — o mecanismo de sessão existe como módulo testável (`SessionStore`), mas criar uma sessão de verdade (usuário+senha) é UI/fluxo de uma tarefa futura (GO-018/019). Os testes seedam uma sessão diretamente no store.
+**Sem endpoint de login nesta entrega** (nem `bff-api.yaml` nem `internal-api.yaml` definem um) — o mecanismo de sessão existe como módulo testável (`SessionStore`), mas criar uma sessão de verdade (usuário+senha) é UI/fluxo de uma tarefa futura. Os testes seedam uma sessão diretamente no store.
 
 ## Build, testes e execução
 

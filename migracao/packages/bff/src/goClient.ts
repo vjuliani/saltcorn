@@ -16,6 +16,16 @@ type GetActorResponse =
   InternalPaths["/v1/tenants/{tenant}/actor"]["get"]["responses"]["200"]["content"]["application/json"];
 type GoErrorBody =
   InternalPaths["/v1/tenants/{tenant}/actor"]["get"]["responses"]["401"]["content"]["application/json"];
+type CreateTableResponse =
+  InternalPaths["/v1/tenants/{tenant}/tables"]["post"]["responses"]["201"]["content"]["application/json"];
+type AddFieldResponse =
+  InternalPaths["/v1/tenants/{tenant}/tables/{table}/fields"]["post"]["responses"]["201"]["content"]["application/json"];
+type CreateViewResponse =
+  InternalPaths["/v1/tenants/{tenant}/views"]["post"]["responses"]["201"]["content"]["application/json"];
+type GetViewResponse =
+  InternalPaths["/v1/tenants/{tenant}/views/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
+type UpdateViewResponse =
+  InternalPaths["/v1/tenants/{tenant}/views/{id}"]["patch"]["responses"]["200"]["content"]["application/json"];
 
 export interface GoClientOptions {
   readonly baseUrl: string;
@@ -59,6 +69,61 @@ export class GoClient {
   async getActor(serviceIdentityToken: string, tenant: string): Promise<GetActorResponse> {
     const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/actor`);
     return this.request<GetActorResponse>(url, { method: "GET", serviceIdentityToken });
+  }
+
+  async createTable(
+    serviceIdentityToken: string,
+    tenant: string,
+    input: { name: string; min_role_read?: number; min_role_write?: number }
+  ): Promise<CreateTableResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/tables`);
+    return this.request<CreateTableResponse>(url, { method: "POST", serviceIdentityToken, body: input });
+  }
+
+  async addField(
+    serviceIdentityToken: string,
+    tenant: string,
+    table: string,
+    input: { name: string; type: string; required?: boolean; unique?: boolean; references?: string }
+  ): Promise<AddFieldResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/tables/${encodeURIComponent(table)}/fields`);
+    return this.request<AddFieldResponse>(url, { method: "POST", serviceIdentityToken, body: input });
+  }
+
+  async createView(
+    serviceIdentityToken: string,
+    idempotencyKey: string,
+    tenant: string,
+    input: { name: string; table: string; template: string; configuration: Record<string, unknown>; min_role?: number }
+  ): Promise<CreateViewResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/views`);
+    return this.request<CreateViewResponse>(url, {
+      method: "POST",
+      serviceIdentityToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: input,
+    });
+  }
+
+  async getView(serviceIdentityToken: string, tenant: string, id: number): Promise<GetViewResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/views/${id}`);
+    return this.request<GetViewResponse>(url, { method: "GET", serviceIdentityToken });
+  }
+
+  async updateView(
+    serviceIdentityToken: string,
+    idempotencyKey: string,
+    tenant: string,
+    id: number,
+    input: { _version: string; configuration?: Record<string, unknown>; template?: string; min_role?: number }
+  ): Promise<UpdateViewResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/views/${id}`);
+    return this.request<UpdateViewResponse>(url, {
+      method: "PATCH",
+      serviceIdentityToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: input,
+    });
   }
 
   private async request<T>(

@@ -1,6 +1,6 @@
-# saltcorn-go-frontend (GO-018)
+# saltcorn-go-frontend (GO-018/GO-019)
 
-Shell React + SB Admin 2 ([ADR-0002](../../../docs/migracao-go/adr/0002-frontend-react-sbadmin2.md)): sidebar/topbar/navegação reimplementados em React puro (sem os scripts imperativos legados — `bootstrap.bundle.min.js`, jQuery — no mesmo DOM), o builder Craft.js **existente** (`packages/saltcorn-builder`) reaproveitado como widget isolado, e um cliente HTTP tipado para o BFF (`bff-api.yaml`).
+Shell React + SB Admin 2 ([ADR-0002](../../../docs/migracao-go/adr/0002-frontend-react-sbadmin2.md)): sidebar/topbar/navegação reimplementados em React puro (sem os scripts imperativos legados — `bootstrap.bundle.min.js`, jQuery — no mesmo DOM), o builder Craft.js **existente** (`packages/saltcorn-builder`) reaproveitado como widget isolado, um cliente HTTP tipado para o BFF (`bff-api.yaml`), e (GO-019) o fluxo do editor conectado a esse BFF real: criar tabela/campo, criar/salvar/reabrir/publicar view.
 
 ## Por que React puro na casca administrativa
 
@@ -39,6 +39,23 @@ O critério de aceite "round-trip preserva propriedades, referências e extensõ
 ## Cliente HTTP tipado para o BFF
 
 `src/bffClient.ts` seguindo o mesmo padrão de `migracao/packages/bff/src/goClient.ts`: tipos gerados de `migracao/contracts/gen/ts/bff-api.d.ts` (openapi-typescript), `fetch` com `credentials: "include"` (sessão via cookie `sc_session`, nunca um token no código do frontend). "Remover a dependência do frontend de modelos de servidor" (ADR-0002): este pacote nunca importa nada de `packages/saltcorn-data`.
+
+## Cliente HTTP tipado para o BFF, estendido (GO-019)
+
+`src/bffClient.ts` ganhou `createTable`/`addField`/`createView`/`getView`/`updateView`, mesmo padrão do restante do arquivo (tipos derivados de `bff-api.d.ts`, `credentials: "include"`, `X-CSRF-Token` via `requireCsrf()`). `updateView` traduz especificamente o 409 `version_conflict` do BFF em `ViewConflictError` — uma classe própria, não uma checagem de string de mensagem — para o chamador (`EditorPage`) DISTINGUIR "conflito de edição" de qualquer outro erro sem inspecionar o corpo da resposta de novo. `readCsrfCookie()` (novo) lê o cookie `sc_csrf` não-HttpOnly que o BFF expõe para esse fim (ADR-0007/GO-006) — nunca gera nem armazena um token, só ecoa o que já está no navegador.
+
+## Fluxo do editor (GO-019)
+
+`src/editor/EditorPage.tsx` é o ponto de demonstração/dev do ciclo "criar tabela e view, salvar, reabrir e publicar com dois papéis" (critério de aceite de GO-019) contra o BFF real — `App.tsx` expõe um botão "Abrir editor (conectado ao BFF)" que a monta com um `BffClient` de verdade (`baseUrl` de `VITE_BFF_BASE_URL`, vazio por padrão = mesma origem via proxy reverso). Como `App.tsx` em si (ver Limitações abaixo), **não é uma rota real do produto ainda** — só a prova de que a conexão fim-a-fim funciona.
+
+- **Conflito de edição:** ao salvar/publicar, um `ViewConflictError` (ver seção acima) marca `conflict = true` e mostra uma mensagem (`data-testid="conflict-message"`, `role="alert"`) SEM alterar o estado local da view (a `_version` conhecida no shell não avança) — o critério "apresentado sem sobrescrever silenciosamente" exige exatamente isto: nenhuma tentativa automática de reenviar por cima.
+- **Publicar** é o mesmo `updateView` de "salvar", só que com `min_role: 100` (público) em vez de `configuration` — não existe endpoint/botão separado, mesma decisão do lado Go (ver README do backend).
+
+### Achado de escopo: o "Salvar" do Craft.js não é um callback React — é um `<form>.submit()` nativo
+
+Investigando como conectar o `BuilderPanel` (widget isolado, GO-018) a um "Salvar" de verdade, o botão "Next" do builder (`packages/saltcorn-builder/src/components/Builder.js`, `NextButton.onClick`) não expõe o documento editado via prop/callback nenhum: ele grava o JSON serializado em dois `<input type="hidden">` (`form#scbuildform input[name=columns|layout]`) e chama `document.getElementById("scbuildform").submit()` — um submit **nativo** de formulário HTML (semântica de POST + reload de página inteira). Um `submit()` chamado programaticamente (diferente de `.requestSubmit()`) **não dispara o evento `submit`**, então nem `onSubmit`/`preventDefault()` do React conseguem interceptá-lo — e mesmo que disparasse, o destino seria um POST de formulário HTML, que o BFF (uma API JSON) não tem como atender sem reescrever esse contrato.
+
+Isso é incompatível com uma SPA persistente sem alterar o próprio builder (fora do escopo desta tarefa) ou recorrer a um hack frágil (monkey-patch de `HTMLFormElement.prototype.submit`, `MutationObserver` nos `<input>` ocultos). Por isso `EditorPage.tsx` documenta esta lacuna em vez de contorná-la: o botão "Salvar" do shell é um controle PRÓPRIO fora do Craft.js, que reenvia a `configuration` já conhecida pelo shell (prova o ciclo salvar/conflito/publicar contra o BFF real) — não a edição ao vivo de dentro do canvas. Extrair essa edição ao vivo é decisão de GO-020 (runtime de views, que já é quem decide composição BFF+renderização), não fabricada aqui.
 
 ## Build, testes e execução
 

@@ -17,6 +17,36 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for FieldInputType.
+const (
+	Boolean FieldInputType = "boolean"
+	Date    FieldInputType = "date"
+	Float   FieldInputType = "float"
+	Integer FieldInputType = "integer"
+	Key     FieldInputType = "key"
+	Text    FieldInputType = "text"
+)
+
+// Valid indicates whether the value is a known member of the FieldInputType enum.
+func (e FieldInputType) Valid() bool {
+	switch e {
+	case Boolean:
+		return true
+	case Date:
+		return true
+	case Float:
+		return true
+	case Integer:
+		return true
+	case Key:
+		return true
+	case Text:
+		return true
+	default:
+		return false
+	}
+}
+
 // Actor defines model for Actor.
 type Actor struct {
 	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
@@ -42,6 +72,36 @@ type Error struct {
 		Message string `json:"message"`
 	} `json:"error"`
 }
+
+// Field defines model for Field.
+type Field struct {
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id   Id     `json:"id"`
+	Name string `json:"name"`
+
+	// ReferencesTableId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	ReferencesTableId *Id   `json:"references_table_id,omitempty"`
+	Required          *bool `json:"required,omitempty"`
+
+	// TableId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	TableId Id     `json:"table_id"`
+	Type    string `json:"type"`
+	Unique  *bool  `json:"unique,omitempty"`
+}
+
+// FieldInput defines model for FieldInput.
+type FieldInput struct {
+	Name string `json:"name"`
+
+	// References Nome da tabela referenciada — obrigatório quando type=key.
+	References *string        `json:"references,omitempty"`
+	Required   *bool          `json:"required,omitempty"`
+	Type       FieldInputType `json:"type"`
+	Unique     *bool          `json:"unique,omitempty"`
+}
+
+// FieldInputType defines model for FieldInput.Type.
+type FieldInputType string
 
 // Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
 type Id = int64
@@ -73,8 +133,62 @@ type Record struct {
 // RecordInput Campos do registro conforme o schema dinâmico da tabela (GO-011). Este contrato não pode enumerar campos fixos — validação de schema acontece no backend, não aqui.
 type RecordInput map[string]interface{}
 
+// Table defines model for Table.
+type Table struct {
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id           Id     `json:"id"`
+	MinRoleRead  int    `json:"min_role_read"`
+	MinRoleWrite int    `json:"min_role_write"`
+	Name         string `json:"name"`
+}
+
+// TableInput defines model for TableInput.
+type TableInput struct {
+	MinRoleRead  *int   `json:"min_role_read,omitempty"`
+	MinRoleWrite *int   `json:"min_role_write,omitempty"`
+	Name         string `json:"name"`
+}
+
 // Tenant Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL.
 type Tenant = string
+
+// View defines model for View.
+type View struct {
+	UnderscoreVersion string                 `json:"_version"`
+	Configuration     map[string]interface{} `json:"configuration"`
+
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id      Id     `json:"id"`
+	MinRole int    `json:"min_role"`
+	Name    string `json:"name"`
+
+	// TableId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	TableId  Id     `json:"table_id"`
+	Template string `json:"template"`
+}
+
+// ViewInput defines model for ViewInput.
+type ViewInput struct {
+	// Configuration O documento de layout produzido pelo builder Craft.js (`craftToSaltcorn`, GO-018).
+	Configuration map[string]interface{} `json:"configuration"`
+	MinRole       *int                   `json:"min_role,omitempty"`
+	Name          string                 `json:"name"`
+
+	// Table Nome da tabela (não o id) que a view consulta.
+	Table string `json:"table"`
+
+	// Template Identificador de intenção (ex. "List", "Show") — armazenado, não interpretado nesta versão (a renderização é GO-020).
+	Template string `json:"template"`
+}
+
+// ViewUpdateInput defines model for ViewUpdateInput.
+type ViewUpdateInput struct {
+	// UnderscoreVersion O `_version` de uma leitura anterior — obrigatório, mesmo quando só min_role está sendo alterado (publicar também é uma escrita sujeita a conflito).
+	UnderscoreVersion string                  `json:"_version"`
+	Configuration     *map[string]interface{} `json:"configuration,omitempty"`
+	MinRole           *int                    `json:"min_role,omitempty"`
+	Template          *string                 `json:"template,omitempty"`
+}
 
 // Cursor defines model for Cursor.
 type Cursor = string
@@ -122,11 +236,35 @@ type UpdateRecordParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// CreateViewParams defines parameters for CreateView.
+type CreateViewParams struct {
+	// IdempotencyKey Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// UpdateViewParams defines parameters for UpdateView.
+type UpdateViewParams struct {
+	// IdempotencyKey Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// CreateTableJSONRequestBody defines body for CreateTable for application/json ContentType.
+type CreateTableJSONRequestBody = TableInput
+
+// AddFieldJSONRequestBody defines body for AddField for application/json ContentType.
+type AddFieldJSONRequestBody = FieldInput
+
 // CreateRecordJSONRequestBody defines body for CreateRecord for application/json ContentType.
 type CreateRecordJSONRequestBody = RecordInput
 
 // UpdateRecordApplicationMergePatchPlusJSONRequestBody defines body for UpdateRecord for application/merge-patch+json ContentType.
 type UpdateRecordApplicationMergePatchPlusJSONRequestBody UpdateRecordApplicationMergePatchPlusJSONBody
+
+// CreateViewJSONRequestBody defines body for CreateView for application/json ContentType.
+type CreateViewJSONRequestBody = ViewInput
+
+// UpdateViewJSONRequestBody defines body for UpdateView for application/json ContentType.
+type UpdateViewJSONRequestBody = ViewUpdateInput
 
 // Getter for additional properties for Record. Returns the specified
 // element and whether it was found
@@ -326,6 +464,42 @@ type ClientInterface interface {
 	// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 	GetActor(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CreateTableWithBody Command: cria uma tabela dinâmica
+	//
+	// Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables (the `CreateTable` operationId).
+	CreateTableWithBody(ctx context.Context, tenant Tenant, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateTable Command: cria uma tabela dinâmica
+	//
+	// Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables (the `CreateTable` operationId).
+	CreateTable(ctx context.Context, tenant Tenant, body CreateTableJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AddFieldWithBody Command: adiciona um campo a uma tabela dinâmica
+	//
+	// Adicionado por GO-019 — `internal/metadata.AddField` (GO-011) nunca tinha exposição HTTP. Idempotente pela mesma razão de createTable.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/fields (the `AddField` operationId).
+	AddFieldWithBody(ctx context.Context, tenant Tenant, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AddField Command: adiciona um campo a uma tabela dinâmica
+	//
+	// Adicionado por GO-019 — `internal/metadata.AddField` (GO-011) nunca tinha exposição HTTP. Idempotente pela mesma razão de createTable.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/fields (the `AddField` operationId).
+	AddField(ctx context.Context, tenant Tenant, table string, body AddFieldJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListRecords Query: lista registros de uma tabela dinâmica
 	//
 	// Aplica as mesmas políticas de visibilidade (papel, ownership, RLS) que os comandos de escrita — ADR-0001. Não executa ações de negócio.
@@ -378,6 +552,49 @@ type ClientInterface interface {
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 	UpdateRecordWithApplicationMergePatchPlusJSONBody(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateViewWithBody Command: cria uma view (documento de layout do editor)
+	//
+	// Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/views (the `CreateView` operationId).
+	CreateViewWithBody(ctx context.Context, tenant Tenant, params *CreateViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateView Command: cria uma view (documento de layout do editor)
+	//
+	// Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/views (the `CreateView` operationId).
+	CreateView(ctx context.Context, tenant Tenant, params *CreateViewParams, body CreateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetView Query: reabre uma view
+	//
+	// O papel do ator é resolvido de novo a cada chamada — uma view despublicada nega a leitura seguinte sem nenhum resquício da anterior (mesmo espírito de GO-015).
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/views/{id} (the `GetView` operationId).
+	GetView(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateViewWithBody Command: salva ou publica uma view
+	//
+	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
+	UpdateViewWithBody(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateView Command: salva ou publica uma view
+	//
+	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
+	UpdateView(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // GetLiveness Liveness (GO-005)
@@ -417,6 +634,82 @@ func (c *Client) GetReadiness(ctx context.Context, reqEditors ...RequestEditorFn
 // Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 func (c *Client) GetActor(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetActorRequest(c.Server, tenant)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateTableWithBody Command: cria uma tabela dinâmica
+//
+// Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables (the `CreateTable` operationId).
+func (c *Client) CreateTableWithBody(ctx context.Context, tenant Tenant, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateTableRequestWithBody(c.Server, tenant, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateTable Command: cria uma tabela dinâmica
+//
+// Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables (the `CreateTable` operationId).
+func (c *Client) CreateTable(ctx context.Context, tenant Tenant, body CreateTableJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateTableRequest(c.Server, tenant, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AddFieldWithBody Command: adiciona um campo a uma tabela dinâmica
+//
+// Adicionado por GO-019 — `internal/metadata.AddField` (GO-011) nunca tinha exposição HTTP. Idempotente pela mesma razão de createTable.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/fields (the `AddField` operationId).
+func (c *Client) AddFieldWithBody(ctx context.Context, tenant Tenant, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddFieldRequestWithBody(c.Server, tenant, table, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AddField Command: adiciona um campo a uma tabela dinâmica
+//
+// Adicionado por GO-019 — `internal/metadata.AddField` (GO-011) nunca tinha exposição HTTP. Idempotente pela mesma razão de createTable.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/fields (the `AddField` operationId).
+func (c *Client) AddField(ctx context.Context, tenant Tenant, table string, body AddFieldJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddFieldRequest(c.Server, tenant, table, body)
 	if err != nil {
 		return nil, err
 	}
@@ -550,6 +843,99 @@ func (c *Client) UpdateRecordWithApplicationMergePatchPlusJSONBody(ctx context.C
 	return c.Client.Do(req)
 }
 
+// CreateViewWithBody Command: cria uma view (documento de layout do editor)
+//
+// Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/views (the `CreateView` operationId).
+func (c *Client) CreateViewWithBody(ctx context.Context, tenant Tenant, params *CreateViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateViewRequestWithBody(c.Server, tenant, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateView Command: cria uma view (documento de layout do editor)
+//
+// Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/views (the `CreateView` operationId).
+func (c *Client) CreateView(ctx context.Context, tenant Tenant, params *CreateViewParams, body CreateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateViewRequest(c.Server, tenant, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetView Query: reabre uma view
+//
+// O papel do ator é resolvido de novo a cada chamada — uma view despublicada nega a leitura seguinte sem nenhum resquício da anterior (mesmo espírito de GO-015).
+//
+// Corresponds with GET /v1/tenants/{tenant}/views/{id} (the `GetView` operationId).
+func (c *Client) GetView(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetViewRequest(c.Server, tenant, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateViewWithBody Command: salva ou publica uma view
+//
+// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
+func (c *Client) UpdateViewWithBody(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateViewRequestWithBody(c.Server, tenant, id, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateView Command: salva ou publica uma view
+//
+// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
+func (c *Client) UpdateView(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateViewRequest(c.Server, tenant, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // NewGetLivenessRequest constructs an http.Request for the GetLiveness method
 func NewGetLivenessRequest(server string) (*http.Request, error) {
 	var err error
@@ -634,6 +1020,107 @@ func NewGetActorRequest(server string, tenant Tenant) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewCreateTableRequest calls the generic CreateTable builder with application/json body
+func NewCreateTableRequest(server string, tenant Tenant, body CreateTableJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateTableRequestWithBody(server, tenant, "application/json", bodyReader)
+}
+
+// NewCreateTableRequestWithBody constructs an http.Request for the CreateTable method, with any body, and a specified content type
+func NewCreateTableRequestWithBody(server string, tenant Tenant, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/tables", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAddFieldRequest calls the generic AddField builder with application/json body
+func NewAddFieldRequest(server string, tenant Tenant, table string, body AddFieldJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAddFieldRequestWithBody(server, tenant, table, "application/json", bodyReader)
+}
+
+// NewAddFieldRequestWithBody constructs an http.Request for the AddField method, with any body, and a specified content type
+func NewAddFieldRequestWithBody(server string, tenant Tenant, table string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "table", table, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/tables/%s/fields", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -968,6 +1455,174 @@ func NewUpdateRecordRequestWithBody(server string, tenant Tenant, table string, 
 	return req, nil
 }
 
+// NewCreateViewRequest calls the generic CreateView builder with application/json body
+func NewCreateViewRequest(server string, tenant Tenant, params *CreateViewParams, body CreateViewJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateViewRequestWithBody(server, tenant, params, "application/json", bodyReader)
+}
+
+// NewCreateViewRequestWithBody constructs an http.Request for the CreateView method, with any body, and a specified content type
+func NewCreateViewRequestWithBody(server string, tenant Tenant, params *CreateViewParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/views", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewGetViewRequest constructs an http.Request for the GetView method
+func NewGetViewRequest(server string, tenant Tenant, id Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/views/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateViewRequest calls the generic UpdateView builder with application/json body
+func NewUpdateViewRequest(server string, tenant Tenant, id Id, params *UpdateViewParams, body UpdateViewJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateViewRequestWithBody(server, tenant, id, params, "application/json", bodyReader)
+}
+
+// NewUpdateViewRequestWithBody constructs an http.Request for the UpdateView method, with any body, and a specified content type
+func NewUpdateViewRequestWithBody(server string, tenant Tenant, id Id, params *UpdateViewParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/views/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1035,6 +1690,42 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 	GetActorWithResponse(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*GetActorResponse, error)
 
+	// CreateTableWithBodyWithResponse Command: cria uma tabela dinâmica
+	//
+	// Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables (the `CreateTable` operationId).
+	CreateTableWithBodyWithResponse(ctx context.Context, tenant Tenant, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTableResponse, error)
+
+	// CreateTableWithResponse Command: cria uma tabela dinâmica
+	//
+	// Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables (the `CreateTable` operationId).
+	CreateTableWithResponse(ctx context.Context, tenant Tenant, body CreateTableJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTableResponse, error)
+
+	// AddFieldWithBodyWithResponse Command: adiciona um campo a uma tabela dinâmica
+	//
+	// Adicionado por GO-019 — `internal/metadata.AddField` (GO-011) nunca tinha exposição HTTP. Idempotente pela mesma razão de createTable.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/fields (the `AddField` operationId).
+	AddFieldWithBodyWithResponse(ctx context.Context, tenant Tenant, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddFieldResponse, error)
+
+	// AddFieldWithResponse Command: adiciona um campo a uma tabela dinâmica
+	//
+	// Adicionado por GO-019 — `internal/metadata.AddField` (GO-011) nunca tinha exposição HTTP. Idempotente pela mesma razão de createTable.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/fields (the `AddField` operationId).
+	AddFieldWithResponse(ctx context.Context, tenant Tenant, table string, body AddFieldJSONRequestBody, reqEditors ...RequestEditorFn) (*AddFieldResponse, error)
+
 	// ListRecordsWithResponse Query: lista registros de uma tabela dinâmica
 	//
 	// Aplica as mesmas políticas de visibilidade (papel, ownership, RLS) que os comandos de escrita — ADR-0001. Não executa ações de negócio.
@@ -1093,6 +1784,51 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 	UpdateRecordWithApplicationMergePatchPlusJSONBodyWithResponse(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateRecordResponse, error)
+
+	// CreateViewWithBodyWithResponse Command: cria uma view (documento de layout do editor)
+	//
+	// Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/views (the `CreateView` operationId).
+	CreateViewWithBodyWithResponse(ctx context.Context, tenant Tenant, params *CreateViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateViewResponse, error)
+
+	// CreateViewWithResponse Command: cria uma view (documento de layout do editor)
+	//
+	// Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/views (the `CreateView` operationId).
+	CreateViewWithResponse(ctx context.Context, tenant Tenant, params *CreateViewParams, body CreateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateViewResponse, error)
+
+	// GetViewWithResponse Query: reabre uma view
+	//
+	// O papel do ator é resolvido de novo a cada chamada — uma view despublicada nega a leitura seguinte sem nenhum resquício da anterior (mesmo espírito de GO-015).
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/views/{id} (the `GetView` operationId).
+	GetViewWithResponse(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*GetViewResponse, error)
+
+	// UpdateViewWithBodyWithResponse Command: salva ou publica uma view
+	//
+	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
+	UpdateViewWithBodyWithResponse(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error)
+
+	// UpdateViewWithResponse Command: salva ou publica uma view
+	//
+	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
+	UpdateViewWithResponse(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error)
 }
 
 type GetLivenessResponse struct {
@@ -1212,6 +1948,116 @@ func (r GetActorResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetActorResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateTableResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Table
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateTableResponse) GetJSON201() *Table {
+	return r.JSON201
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateTableResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateTableResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateTableResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateTableResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateTableResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateTableResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AddFieldResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Field
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r AddFieldResponse) GetJSON201() *Field {
+	return r.JSON201
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AddFieldResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r AddFieldResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r AddFieldResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AddFieldResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AddFieldResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AddFieldResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -1517,6 +2363,192 @@ func (r UpdateRecordResponse) ContentType() string {
 	return ""
 }
 
+type CreateViewResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *View
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *IdempotencyConflict
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateViewResponse) GetJSON201() *View {
+	return r.JSON201
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateViewResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateViewResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r CreateViewResponse) GetJSON409() *IdempotencyConflict {
+	return r.JSON409
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateViewResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateViewResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateViewResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateViewResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetViewResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *View
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetViewResponse) GetJSON200() *View {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetViewResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetViewResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetViewResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r GetViewResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetViewResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetViewResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetViewResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateViewResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *View
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateViewResponse) GetJSON200() *View {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UpdateViewResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UpdateViewResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r UpdateViewResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateViewResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateViewResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateViewResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateViewResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // GetLivenessWithResponse Liveness (GO-005)
 //
 // Returns a wrapper object for the known response body format(s).
@@ -1556,6 +2588,66 @@ func (c *ClientWithResponses) GetActorWithResponse(ctx context.Context, tenant T
 		return nil, err
 	}
 	return ParseGetActorResponse(rsp)
+}
+
+// CreateTableWithBodyWithResponse Command: cria uma tabela dinâmica
+//
+// Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables (the `CreateTable` operationId).
+func (c *ClientWithResponses) CreateTableWithBodyWithResponse(ctx context.Context, tenant Tenant, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTableResponse, error) {
+	rsp, err := c.CreateTableWithBody(ctx, tenant, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateTableResponse(rsp)
+}
+
+// CreateTableWithResponse Command: cria uma tabela dinâmica
+//
+// Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables (the `CreateTable` operationId).
+func (c *ClientWithResponses) CreateTableWithResponse(ctx context.Context, tenant Tenant, body CreateTableJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTableResponse, error) {
+	rsp, err := c.CreateTable(ctx, tenant, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateTableResponse(rsp)
+}
+
+// AddFieldWithBodyWithResponse Command: adiciona um campo a uma tabela dinâmica
+//
+// Adicionado por GO-019 — `internal/metadata.AddField` (GO-011) nunca tinha exposição HTTP. Idempotente pela mesma razão de createTable.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/fields (the `AddField` operationId).
+func (c *ClientWithResponses) AddFieldWithBodyWithResponse(ctx context.Context, tenant Tenant, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddFieldResponse, error) {
+	rsp, err := c.AddFieldWithBody(ctx, tenant, table, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAddFieldResponse(rsp)
+}
+
+// AddFieldWithResponse Command: adiciona um campo a uma tabela dinâmica
+//
+// Adicionado por GO-019 — `internal/metadata.AddField` (GO-011) nunca tinha exposição HTTP. Idempotente pela mesma razão de createTable.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/fields (the `AddField` operationId).
+func (c *ClientWithResponses) AddFieldWithResponse(ctx context.Context, tenant Tenant, table string, body AddFieldJSONRequestBody, reqEditors ...RequestEditorFn) (*AddFieldResponse, error) {
+	rsp, err := c.AddField(ctx, tenant, table, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAddFieldResponse(rsp)
 }
 
 // ListRecordsWithResponse Query: lista registros de uma tabela dinâmica
@@ -1659,6 +2751,81 @@ func (c *ClientWithResponses) UpdateRecordWithApplicationMergePatchPlusJSONBodyW
 	return ParseUpdateRecordResponse(rsp)
 }
 
+// CreateViewWithBodyWithResponse Command: cria uma view (documento de layout do editor)
+//
+// Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/views (the `CreateView` operationId).
+func (c *ClientWithResponses) CreateViewWithBodyWithResponse(ctx context.Context, tenant Tenant, params *CreateViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateViewResponse, error) {
+	rsp, err := c.CreateViewWithBody(ctx, tenant, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateViewResponse(rsp)
+}
+
+// CreateViewWithResponse Command: cria uma view (documento de layout do editor)
+//
+// Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/views (the `CreateView` operationId).
+func (c *ClientWithResponses) CreateViewWithResponse(ctx context.Context, tenant Tenant, params *CreateViewParams, body CreateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateViewResponse, error) {
+	rsp, err := c.CreateView(ctx, tenant, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateViewResponse(rsp)
+}
+
+// GetViewWithResponse Query: reabre uma view
+//
+// O papel do ator é resolvido de novo a cada chamada — uma view despublicada nega a leitura seguinte sem nenhum resquício da anterior (mesmo espírito de GO-015).
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/tenants/{tenant}/views/{id} (the `GetView` operationId).
+func (c *ClientWithResponses) GetViewWithResponse(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*GetViewResponse, error) {
+	rsp, err := c.GetView(ctx, tenant, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetViewResponse(rsp)
+}
+
+// UpdateViewWithBodyWithResponse Command: salva ou publica uma view
+//
+// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
+func (c *ClientWithResponses) UpdateViewWithBodyWithResponse(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error) {
+	rsp, err := c.UpdateViewWithBody(ctx, tenant, id, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateViewResponse(rsp)
+}
+
+// UpdateViewWithResponse Command: salva ou publica uma view
+//
+// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
+func (c *ClientWithResponses) UpdateViewWithResponse(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error) {
+	rsp, err := c.UpdateView(ctx, tenant, id, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateViewResponse(rsp)
+}
+
 // ParseGetLivenessResponse parses an HTTP response from a GetLivenessWithResponse call
 func ParseGetLivenessResponse(rsp *http.Response) (*GetLivenessResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -1711,6 +2878,86 @@ func ParseGetActorResponse(rsp *http.Response) (*GetActorResponse, error) {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateTableResponse parses an HTTP response from a CreateTableWithResponse call
+func ParseCreateTableResponse(rsp *http.Response) (*CreateTableResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateTableResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Table
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAddFieldResponse parses an HTTP response from a AddFieldWithResponse call
+func ParseAddFieldResponse(rsp *http.Response) (*AddFieldResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AddFieldResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Field
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Unauthorized
@@ -1925,6 +3172,147 @@ func ParseUpdateRecordResponse(rsp *http.Response) (*UpdateRecordResponse, error
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Record
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateViewResponse parses an HTTP response from a CreateViewWithResponse call
+func ParseCreateViewResponse(rsp *http.Response) (*CreateViewResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateViewResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest View
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest IdempotencyConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetViewResponse parses an HTTP response from a GetViewWithResponse call
+func ParseGetViewResponse(rsp *http.Response) (*GetViewResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetViewResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest View
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateViewResponse parses an HTTP response from a UpdateViewWithResponse call
+func ParseUpdateViewResponse(rsp *http.Response) (*UpdateViewResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateViewResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest View
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
