@@ -397,7 +397,7 @@ Execute a task GO-019 — Integrar editor ao BFF, de docs/migracao-go/TASKS.md, 
 
 ### GO-020 — Portar runtime de views e páginas
 
-- [ ] **Status:** IN_REVIEW — histórico em [execucoes/GO-020.md](execucoes/GO-020.md)
+- [x] **Status:** DONE — integrada via PR [#23](https://github.com/vjuliani/saltcorn/pull/23) (merge `dc4c555ddfaee6330e8e45a0a77b065031b68444`); histórico em [execucoes/GO-020.md](execucoes/GO-020.md)
 - **Fase:** F3 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Frontend
 - **Depende de:** GO-012, GO-013, GO-018, GO-019 (corrigido nesta entrega — o escopo real depende de `internal/views`, GO-019; lacuna do backlog original, ver [execucoes/GO-020.md](execucoes/GO-020.md) nota 1)
