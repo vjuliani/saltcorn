@@ -378,7 +378,7 @@ Execute a task GO-018 — Integrar React + SB Admin 2 e desacoplar builder, de d
 
 ### GO-019 — Integrar editor ao BFF
 
-- [ ] **Status:** IN_REVIEW — histórico em [execucoes/GO-019.md](execucoes/GO-019.md)
+- [x] **Status:** DONE — integrada via PR [#22](https://github.com/vjuliani/saltcorn/pull/22) (merge `8f268ba369b416c8adf138b3d8270bd60588754e`); histórico em [execucoes/GO-019.md](execucoes/GO-019.md)
 - **Fase:** F3 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Frontend
 - **Depende de:** GO-017, GO-018
