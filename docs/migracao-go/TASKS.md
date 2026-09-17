@@ -435,7 +435,7 @@ Execute a task GO-021 — Validar experiência e compatibilidade web, de docs/mi
 
 ### GO-022 — Implementar host temporário de extensões JS
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — implementação, testes e documentação concluídos; aguardando abertura/revisão do PR; histórico em [execucoes/GO-022.md](execucoes/GO-022.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Plataforma
 - **Depende de:** GO-004, GO-008, GO-009

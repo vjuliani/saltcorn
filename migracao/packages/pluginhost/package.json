@@ -1,0 +1,22 @@
+{
+  "name": "saltcorn-go-pluginhost",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Host JS temporário (GO-022), separado do BFF: avalia expressões/callbacks de plugin sob um processo isolado, com capacidades explícitas, limites e protocolo de erros. Nunca recebe credenciais de banco (ADR-0005).",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "npm run build",
+    "test": "node --test dist/test/**/*.test.js",
+    "start": "node --experimental-strip-types src/host.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "22.10.5",
+    "typescript": "5.9.2"
+  }
+}
