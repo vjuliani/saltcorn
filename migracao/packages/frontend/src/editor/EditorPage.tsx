@@ -20,7 +20,7 @@
 // documento editado de dentro do canvas fica para GO-020 (runtime de
 // views, que já é quem decide composição BFF+renderização React).
 import { useState } from "react";
-import { BffClient, ViewConflictError, type BffClientError } from "../bffClient";
+import { BffClient, ViewConflictError, ViewUnsupportedError, type BffClientError } from "../bffClient";
 import { BuilderPanel } from "../builder/BuilderPanel";
 import type { LayoutSegment } from "../types/layout";
 
@@ -38,7 +38,20 @@ type ViewState = {
   _version: string;
 };
 
-const EMPTY_LAYOUT: LayoutSegment = { above: [{ type: "blank", contents: "Nova view" }] };
+// TITLE_FIELD_NAME/DEFAULT_LAYOUT (GO-021): o layout de demonstração
+// precisava ser executável pelo runtime de renderização novo
+// (internal/views/render.go, GO-020) para "Publicar" funcionar de
+// verdade — um layout opaco (`{above: [...]}`, o shape de mock de
+// GO-018/019) é classificado como incompatível e bloqueado na publicação
+// desde GO-020. `handleCreateTable` por isso também cria um campo
+// ("titulo", texto) logo após a tabela, e a view nasce já referenciando
+// esse campo no shape suportado (`layout.besides` com uma coluna
+// `{type: "Field", field_name}` — o mesmo shape real do viewtemplate
+// List legado, não inventado).
+const TITLE_FIELD_NAME = "titulo";
+const DEFAULT_LAYOUT: LayoutSegment = {
+  layout: { besides: [{ header_label: "Título", contents: { type: "Field", field_name: TITLE_FIELD_NAME } }] },
+};
 
 export function EditorPage({ bffClient }: EditorPageProps) {
   const [tableName, setTableName] = useState("");
@@ -50,6 +63,7 @@ export function EditorPage({ bffClient }: EditorPageProps) {
   async function handleCreateTable() {
     setMessage(null);
     const created = await bffClient.createTable({ name: tableName });
+    await bffClient.addField(created.name as string, { name: TITLE_FIELD_NAME, type: "text" });
     setTable({ id: created.id as number, name: created.name as string });
   }
 
@@ -60,7 +74,7 @@ export function EditorPage({ bffClient }: EditorPageProps) {
       name: `${table.name}_view`,
       table: table.name,
       template: "List",
-      configuration: EMPTY_LAYOUT,
+      configuration: DEFAULT_LAYOUT,
     });
     setView(created as ViewState);
   }
@@ -92,6 +106,10 @@ export function EditorPage({ bffClient }: EditorPageProps) {
         setMessage("Conflito de edição: alguém salvou esta view por cima da sua versão. Releia antes de tentar de novo.");
         return;
       }
+      if (err instanceof ViewUnsupportedError) {
+        setMessage(`Layout não suportado pelo runtime atual: ${err.message}`);
+        return;
+      }
       setMessage(`Erro ao salvar: ${(err as BffClientError).message}`);
     }
   }
@@ -108,6 +126,10 @@ export function EditorPage({ bffClient }: EditorPageProps) {
       if (err instanceof ViewConflictError) {
         setConflict(true);
         setMessage("Conflito de edição: releia antes de publicar.");
+        return;
+      }
+      if (err instanceof ViewUnsupportedError) {
+        setMessage(`Publicação bloqueada — layout não suportado pelo runtime atual: ${err.message}`);
         return;
       }
       setMessage(`Erro ao publicar: ${(err as BffClientError).message}`);

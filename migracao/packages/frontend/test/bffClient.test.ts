@@ -138,4 +138,39 @@ describe("BffClient — ciclo do editor (GO-019)", () => {
     const client = new BffClient({ baseUrl: "http://bff.local", csrfToken: "tok" });
     await expect(client.renderView(5)).rejects.toThrow(ViewUnsupportedError);
   });
+
+  // GO-021: achado do E2E de navegador real — `baseUrl: ""` (mesma
+  // origem via proxy reverso, a topologia real de produção, ver App.tsx)
+  // fazia `listViews`/`renderView`/`listRecords` lançarem "Invalid URL"
+  // (new URL(path) sem base, path relativo) — nenhum teste anterior
+  // exercitava baseUrl vazio com uma URL de verdade. Nenhum dos testes
+  // acima pegava isso porque todos usam uma baseUrl ABSOLUTA de teste.
+  describe("com baseUrl vazio (mesma origem via proxy reverso)", () => {
+    it("listViews monta uma URL relativa válida, sem lançar Invalid URL", async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, [{ id: 1, name: "booklist" }]));
+      const client = new BffClient({ baseUrl: "", csrfToken: "tok" });
+      const list = await client.listViews("books");
+      expect(list).toEqual([{ id: 1, name: "booklist" }]);
+      const [url] = fetchMock.mock.calls[0]!;
+      expect(url).toEqual("/api/bff/views?table=books");
+    });
+
+    it("renderView monta uma URL relativa válida com query params, sem lançar Invalid URL", async () => {
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(200, { view_id: 1, columns: [], rows: [], order_by: "id", descending: false, next_cursor: null })
+      );
+      const client = new BffClient({ baseUrl: "", csrfToken: "tok" });
+      await client.renderView(1, { limit: 2 });
+      const [url] = fetchMock.mock.calls[0]!;
+      expect(url).toEqual("/api/bff/views/1/render?limit=2");
+    });
+
+    it("listRecords monta uma URL relativa válida, sem lançar Invalid URL", async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(200, { items: [], next_cursor: null }));
+      const client = new BffClient({ baseUrl: "", csrfToken: "tok" });
+      await client.listRecords("books", "cursor123");
+      const [url] = fetchMock.mock.calls[0]!;
+      expect(url).toEqual("/api/bff/tables/books/records?cursor=cursor123");
+    });
+  });
 });

@@ -337,6 +337,19 @@ Até esta tarefa, nem o catálogo de tabelas/campos (`internal/metadata`, GO-011
 
 **Verificação de regressão deliberada** (desabilitar → confirmar falha real → restaurar → confirmar passe), aplicada quatro vezes: bloqueio de publicação no domínio e via HTTP, classificação em `CompileListPlan` no domínio e via HTTP. O achado mais grave: sem a checagem de classificação, o endpoint de renderização devolvia 200 OK com as linhas reais da tabela para uma view do tipo "Show" — um vazamento de dados de uma view fora do subconjunto suportado, silencioso. Detalhes completos em `docs/migracao-go/execucoes/GO-020.md`.
 
+## `cli e2e-seed` — bootstrap de tenant para E2E de navegador (GO-021)
+
+`cmd/cli` ganha o subcomando `e2e-seed` (`--dsn`, `--tenant`, `--email`): recria o schema do tenant do zero, aplica `EnsureSchema` de identidade/metadados/outbox/views, cria um usuário admin, e registra ownership de Go (`cutover.SetOwner`) para `tables.records`/`tables.schema`/`tables.views`. Não existe (nem deveria existir) uma rota HTTP pública para criar o primeiro usuário/conceder ownership — são ações anteriores a qualquer requisição autenticada. É o mínimo necessário para o harness de E2E de navegador real (`migracao/e2e/`, ver README próprio) preparar um tenant utilizável antes de subir `cmd/server`/BFF/frontend — paridade mínima com `saltcorn create-user`/`reset-schema` do CLI legado (matriz GO-001 §2.6), focada no que o harness precisa, não um comando de administração completo. Testado em `cmd/cli/e2eseed_test.go` (Postgres real, 2 testes: criação bem-sucedida e re-execução idempotente do ponto de vista do harness — recria do zero, não acumula).
+
+```bash
+go run ./cmd/cli e2e-seed --dsn "$SALTCORN_GO_TEST_DATABASE_URL" --tenant e2e_web
+# {"tenant":"e2e_web","admin_user_id":1,"admin_role_id":1}
+```
+
+## E2E de navegador real (GO-021)
+
+Até esta tarefa, "E2E" nas entregas anteriores (GO-018/019/020) significava HTTP real via `httptest`/Postgres real, documentado repetidamente como "sem ferramenta de browser disponível neste ambiente". **Essa afirmação estava desatualizada**: Playwright já está instalado neste ambiente (usado por `deploy/playwright` desde GO-002) e um Chromium/Firefox headless real funciona (confirmado nesta tarefa). `migracao/e2e/` (novo pacote, README próprio) é a correção — Playwright de verdade contra o stack completo (este backend Go real, compilado e rodando via `go build`; BFF real; frontend real, buildado e servido), dirigindo um navegador real: **6/6 testes em Chromium e 6/6 em Firefox** (fluxo criar/publicar/operar, teclado, responsividade, sanitização HTML). Ver `migracao/e2e/README.md` e `docs/migracao-go/execucoes/GO-021.md` para o design completo (WebKit não coberto por limitação real do ambiente — dependência de sistema ausente, sem acesso root para instalar) e os quatro achados reais corrigidos durante a implementação (CORS, limpeza de processos do harness, uma URL relativa quebrada em `bffClient.ts` desde GO-017, e um layout de view incompatível em `EditorPage.tsx`).
+
 ## Encerramento gracioso
 
 `cmd/server` e `cmd/worker` capturam `SIGINT`/`SIGTERM`, param de aceitar trabalho novo, e esperam o trabalho já em curso terminar (via `internal/platform/shutdown.Tracker`) antes de sair — dentro do prazo de `SALTCORN_GO_SHUTDOWN_TIMEOUT_SECONDS`. Se o prazo estourar, o processo registra um aviso e sai mesmo assim; isso é uma decisão operacional explícita, não um bug — ver `shutdown.Tracker.Drain`.
