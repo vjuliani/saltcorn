@@ -435,7 +435,7 @@ Execute a task GO-021 — Validar experiência e compatibilidade web, de docs/mi
 
 ### GO-022 — Implementar host temporário de extensões JS
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — PR [#25](https://github.com/vjuliani/saltcorn/pull/25) aberto; aguardando revisão e checks; histórico em [execucoes/GO-022.md](execucoes/GO-022.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Plataforma
 - **Depende de:** GO-004, GO-008, GO-009
