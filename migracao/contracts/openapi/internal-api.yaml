@@ -139,6 +139,33 @@ paths:
         required: true
         schema:
           $ref: "./common.yaml#/components/schemas/Tenant"
+    get:
+      operationId: listViews
+      summary: "Query: lista views"
+      description: >
+        Adicionado por GO-020 — a página administrativa de views (frontend)
+        precisa enumerar o que existe antes de abrir uma view individual.
+        `table` filtra por tabela; omitido lista todas as views visíveis ao
+        ator (mesmo filtro por papel de getView/updateView — nunca revela
+        uma view não publicada a um ator sem papel suficiente).
+      parameters:
+        - name: table
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: views visíveis ao ator
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/View"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
     post:
       operationId: createView
       summary: "Command: cria uma view (documento de layout do editor)"
@@ -215,7 +242,11 @@ paths:
         leitura anterior) para controle de concorrência otimista: se a
         view mudou desde a leitura, 409 — "conflito de edição é
         apresentado sem sobrescrever silenciosamente" (critério de aceite
-        de GO-019). Idempotente por Idempotency-Key.
+        de GO-019). Idempotente por Idempotency-Key. Desde GO-020, publicar
+        (resultar num `min_role` que não seja admin-only) exige que o
+        layout seja executável pelo runtime novo — 422 caso contrário
+        ("layouts incompatíveis bloqueiam publicação", critério de aceite
+        de GO-020).
       parameters:
         - $ref: "./common.yaml#/components/parameters/IdempotencyKey"
       requestBody:
@@ -241,6 +272,75 @@ paths:
             application/json:
               schema:
                 $ref: "./common.yaml#/components/schemas/Error"
+        "422":
+          description: >
+            layout incompatível com o runtime de renderização — só ao
+            tentar publicar (min_role não admin-only); editar mantendo
+            admin-only nunca é bloqueado.
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+              example:
+                error:
+                  code: view_unsupported
+                  message: "template \"Show\" não suportado neste runtime (só \"List\")"
+
+  /v1/tenants/{tenant}/views/{id}/render:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    get:
+      operationId: renderView
+      summary: "Query: renderiza uma view List (GO-020)"
+      description: >
+        Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas
+        resolvidas contra o catálogo + linhas + paginação) que o BFF/React
+        desenham. Subconjunto suportado desta tarefa: só o template "List",
+        com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`);
+        qualquer view fora desse subconjunto devolve 422, nunca uma
+        renderização parcial. A autorização da view (`min_role`) e da
+        tabela por baixo (`min_role_read`, GO-015) são checagens
+        independentes — publicar uma view não contorna o papel mínimo de
+        leitura da própria tabela.
+      parameters:
+        - $ref: "./common.yaml#/components/parameters/Cursor"
+        - $ref: "./common.yaml#/components/parameters/Limit"
+      responses:
+        "200":
+          description: plano de renderização (colunas + linhas + paginação)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViewRenderPlan"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+        "404":
+          description: view não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "422":
+          description: view existe, mas usa um recurso fora do subconjunto suportado por este runtime
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+              example:
+                error:
+                  code: view_unsupported
+                  message: "layout.besides ausente ou não é uma lista — só layouts de lista de colunas são suportados"
 
   /v1/tenants/{tenant}/tables/{table}/records:
     parameters:
@@ -546,6 +646,43 @@ components:
           additionalProperties: true
         _version:
           type: string
+
+    ViewRenderColumn:
+      type: object
+      required: [field_name, header_label]
+      properties:
+        field_name:
+          type: string
+          description: Nome do campo (já resolvido contra o catálogo, GO-011) que esta coluna exibe.
+        header_label:
+          type: string
+
+    ViewRenderPlan:
+      type: object
+      required: [view_id, columns, rows, order_by, descending]
+      description: >
+        DTO de renderização de uma view "List" (GO-020) — todas as decisões
+        (colunas, ordenação, consulta) já foram tomadas pelo backend; o
+        BFF/React só desenham o que está aqui.
+      properties:
+        view_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/ViewRenderColumn"
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        order_by:
+          type: string
+        descending:
+          type: boolean
+        next_cursor:
+          type: ["string", "null"]
+          description: Cursor para a próxima página, ou `null` se não houver mais páginas.
 
     RecordInput:
       type: object

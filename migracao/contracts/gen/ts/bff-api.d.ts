@@ -87,7 +87,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Lista views visíveis ao ator (GO-020) */
+        get: operations["listViews"];
         put?: never;
         /**
          * Cria uma view — o documento de layout do editor (GO-019)
@@ -123,6 +124,28 @@ export interface paths {
         patch: operations["updateView"];
         trace?: never;
     };
+    "/api/bff/views/{id}/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Renderiza uma view List (GO-020)
+         * @description Devolve o DTO (colunas + linhas + paginação) de internal-api.yaml, sem reinterpretar nada — o React desenha a tabela a partir dele.
+         */
+        get: operations["renderView"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -144,6 +167,21 @@ export interface components {
                 [key: string]: unknown;
             };
             _version: string;
+        };
+        ViewRenderColumn: {
+            field_name: string;
+            header_label: string;
+        };
+        ViewRenderPlan: {
+            view_id: components["schemas"]["Id"];
+            columns: components["schemas"]["ViewRenderColumn"][];
+            rows: {
+                [key: string]: unknown;
+            }[];
+            order_by: string;
+            descending: boolean;
+            /** @description Cursor para a próxima página, ou `null` se não houver mais páginas. */
+            next_cursor?: string | null;
         };
         /**
          * Format: int64
@@ -360,6 +398,30 @@ export interface operations {
             502: components["responses"]["DomainUnavailable"];
         };
     };
+    listViews: {
+        parameters: {
+            query?: {
+                table?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description views visíveis ao ator */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"][];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
     createView: {
         parameters: {
             query?: never;
@@ -463,6 +525,60 @@ export interface operations {
             403: components["responses"]["CsrfInvalid"];
             /** @description Negativo: conflito de edição concorrente — a view mudou desde a leitura */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Negativo: layout incompatível com o runtime — só ao tentar publicar (GO-020) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    renderView: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description plano de renderização */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewRenderPlan"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            /** @description view não encontrada (ou fora da visibilidade do ator) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description view existe, mas usa um recurso fora do subconjunto suportado por este runtime */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

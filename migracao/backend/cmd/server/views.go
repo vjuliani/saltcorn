@@ -133,6 +133,65 @@ func createViewHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerF
 	}
 }
 
+// listViewsHandler implementa GET /v1/tenants/{tenant}/views (GO-020) — a
+// página "Views" do admin (frontend) precisa enumerar o que existe antes de
+// abrir qualquer view individual; sem isso, GO-019 só permitia buscar por
+// ID já conhecido. `?table=` filtra por tabela (nome, resolvido via
+// metadata.GetTable); omitido lista todas as views que o ator pode ver
+// (mesmo filtro por papel de views.ListViews, nunca revela uma view não
+// publicada a um ator sem papel suficiente).
+func listViewsHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		end, err := tracker.Begin()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer end()
+
+		tenant, _ := tenancy.TenantFromContext(r.Context())
+		if db == nil {
+			writeAPIError(w, http.StatusBadGateway, "database_unavailable", "banco não configurado nesta instância")
+			return
+		}
+
+		tableName := r.URL.Query().Get("table")
+
+		var resp []viewResponse
+		err = db.WithTenant(r.Context(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+			role, ok := resolveActorRole(ctx, tx, r, w)
+			if !ok {
+				return errHandled
+			}
+			tableID := 0
+			if tableName != "" {
+				table, err := metadata.GetTable(ctx, tx, tableName)
+				if err != nil {
+					return err
+				}
+				tableID = table.ID
+			}
+			list, err := views.ListViews(ctx, tx, role, tableID)
+			if err != nil {
+				return err
+			}
+			resp = make([]viewResponse, 0, len(list))
+			for _, v := range list {
+				resp = append(resp, viewToResponse(v))
+			}
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, errHandled) {
+				return
+			}
+			writeViewsOrMetadataError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
 // getViewHandler implementa GET /v1/tenants/{tenant}/views/{id} — "reabre"
 // do critério de aceite: o mesmo papel do ator é resolvido de novo, do
 // zero, a cada chamada (nunca cacheado), então uma view despublicada
@@ -289,6 +348,7 @@ func updateViewHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerF
 // resolver a tabela) — mesma disciplina de writeRecordsError/
 // writeMetadataError: nunca a mensagem crua de um erro Go.
 func writeViewsOrMetadataError(w http.ResponseWriter, err error) {
+	var unsupported *views.UnsupportedLayoutError
 	switch {
 	case errors.Is(err, views.ErrNotAuthorized), errors.Is(err, metadata.ErrNotAuthorized):
 		writeAPIError(w, http.StatusForbidden, "not_authorized", "ator não tem papel suficiente para esta operação")
@@ -298,6 +358,13 @@ func writeViewsOrMetadataError(w http.ResponseWriter, err error) {
 		writeAPIError(w, http.StatusConflict, "version_conflict", "a view foi modificada por outra transação — releia e tente novamente")
 	case errors.Is(err, views.ErrDuplicateName):
 		writeAPIError(w, http.StatusConflict, "duplicate_name", "já existe uma view com este nome")
+	case errors.As(err, &unsupported):
+		// 422: a requisição está bem formada e o ator tem permissão, mas o
+		// ESTADO do recurso (o layout desta view) não pode ser processado
+		// da forma pedida (publicá-la) — GO-020, "layouts incompatíveis
+		// bloqueiam publicação". Reason vai no corpo para a UI mostrar o
+		// motivo específico, nunca uma mensagem genérica de erro.
+		writeAPIError(w, http.StatusUnprocessableEntity, "view_unsupported", unsupported.Reason)
 	default:
 		writeAPIError(w, http.StatusBadGateway, "database_error", "erro ao processar a operação")
 	}

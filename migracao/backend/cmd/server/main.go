@@ -168,12 +168,18 @@ func main() {
 		mux.Handle("POST /v1/tenants/{tenant}/views",
 			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, viewsCapability, createViewHandler(tracker, db)))))
+		mux.Handle("GET /v1/tenants/{tenant}/views",
+			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, viewsCapability, listViewsHandler(tracker, db)))))
 		mux.Handle("GET /v1/tenants/{tenant}/views/{id}",
 			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, viewsCapability, getViewHandler(tracker, db)))))
 		mux.Handle("PATCH /v1/tenants/{tenant}/views/{id}",
 			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, viewsCapability, updateViewHandler(tracker, db)))))
+		mux.Handle("GET /v1/tenants/{tenant}/views/{id}/render",
+			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, viewsCapability, renderListHandler(tracker, db)))))
 	}
 
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux, BaseContext: func(net.Listener) context.Context {

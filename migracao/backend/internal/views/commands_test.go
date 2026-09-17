@@ -156,10 +156,27 @@ func TestGetView_PublishWithTwoRoles(t *testing.T) {
 	tenant, tableID := testFixture(t, db)
 	ctx := context.Background()
 
+	// Desde GO-020, UpdateView bloqueia a publicação (MinRole != RoleAdmin)
+	// de uma view cujo layout não é executável pelo runtime novo — este
+	// teste valida visibilidade por papel, não renderização, então precisa
+	// de um layout COMPATÍVEL (compatibleConfiguration, de
+	// classify_test.go) para o passo de publicar não ser bloqueado por um
+	// motivo alheio ao que o teste verifica.
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText})
+		if err != nil {
+			return err
+		}
+		_, err = metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger})
+		return err
+	}); err != nil {
+		t.Fatalf("preparar campos title/pages: %v", err)
+	}
+
 	var created View
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		created, err = CreateView(ctx, tx, identity.RoleAdmin, "booklist", tableID, "List", map[string]any{}, ViewOptions{})
+		created, err = CreateView(ctx, tx, identity.RoleAdmin, "booklist", tableID, "List", compatibleConfiguration(), ViewOptions{})
 		return err
 	}); err != nil {
 		t.Fatalf("CreateView: %v", err)
@@ -283,15 +300,23 @@ func TestListViews_FiltersByRoleAndTable(t *testing.T) {
 	tenant, tableID := testFixture(t, db)
 	ctx := context.Background()
 
-	publicRole := identity.RolePublic
+	// "published" nasce já pública (MinRole na criação, não via UpdateView)
+	// — desde GO-020 isso também exige um layout compatível (ver
+	// CreateView); "draft" fica admin-only e por isso pode ter
+	// configuration vazia sem ser bloqueada.
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := CreateView(ctx, tx, identity.RoleAdmin, "published", tableID, "List", nil, ViewOptions{MinRole: identity.RolePublic}); err != nil {
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText}); err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger}); err != nil {
+			return err
+		}
+		if _, err := CreateView(ctx, tx, identity.RoleAdmin, "published", tableID, "List", compatibleConfiguration(), ViewOptions{MinRole: identity.RolePublic}); err != nil {
 			return err
 		}
 		if _, err := CreateView(ctx, tx, identity.RoleAdmin, "draft", tableID, "List", nil, ViewOptions{}); err != nil {
 			return err
 		}
-		_ = publicRole
 		return nil
 	}); err != nil {
 		t.Fatalf("setup: %v", err)

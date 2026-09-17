@@ -114,7 +114,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Query: lista views
+         * @description Adicionado por GO-020 — a página administrativa de views (frontend) precisa enumerar o que existe antes de abrir uma view individual. `table` filtra por tabela; omitido lista todas as views visíveis ao ator (mesmo filtro por papel de getView/updateView — nunca revela uma view não publicada a um ator sem papel suficiente).
+         */
+        get: operations["listViews"];
         put?: never;
         /**
          * Command: cria uma view (documento de layout do editor)
@@ -149,9 +153,32 @@ export interface paths {
         head?: never;
         /**
          * Command: salva ou publica uma view
-         * @description A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+         * @description A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key. Desde GO-020, publicar (resultar num `min_role` que não seja admin-only) exige que o layout seja executável pelo runtime novo — 422 caso contrário ("layouts incompatíveis bloqueiam publicação", critério de aceite de GO-020).
          */
         patch: operations["updateView"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/views/{id}/render": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Query: renderiza uma view List (GO-020)
+         * @description Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas resolvidas contra o catálogo + linhas + paginação) que o BFF/React desenham. Subconjunto suportado desta tarefa: só o template "List", com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`); qualquer view fora desse subconjunto devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
+         */
+        get: operations["renderView"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/tenants/{tenant}/tables/{table}/records": {
@@ -277,6 +304,23 @@ export interface components {
                 [key: string]: unknown;
             };
             _version: string;
+        };
+        ViewRenderColumn: {
+            /** @description Nome do campo (já resolvido contra o catálogo, GO-011) que esta coluna exibe. */
+            field_name: string;
+            header_label: string;
+        };
+        /** @description DTO de renderização de uma view "List" (GO-020) — todas as decisões (colunas, ordenação, consulta) já foram tomadas pelo backend; o BFF/React só desenham o que está aqui. */
+        ViewRenderPlan: {
+            view_id: components["schemas"]["Id"];
+            columns: components["schemas"]["ViewRenderColumn"][];
+            rows: {
+                [key: string]: unknown;
+            }[];
+            order_by: string;
+            descending: boolean;
+            /** @description Cursor para a próxima página, ou `null` se não houver mais páginas. */
+            next_cursor?: string | null;
         };
         /** @description Campos do registro conforme o schema dinâmico da tabela (GO-011). Este contrato não pode enumerar campos fixos — validação de schema acontece no backend, não aqui. */
         RecordInput: {
@@ -488,6 +532,32 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    listViews: {
+        parameters: {
+            query?: {
+                table?: string;
+            };
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description views visíveis ao ator */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     createView: {
         parameters: {
             query?: never;
@@ -590,6 +660,78 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description layout incompatível com o runtime de renderização — só ao tentar publicar (min_role não admin-only); editar mantendo admin-only nunca é bloqueado. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "view_unsupported",
+                     *         "message": "template \"Show\" não suportado neste runtime (só \"List\")"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    renderView: {
+        parameters: {
+            query?: {
+                /** @description Cursor opaco da página anterior. Omitir para a primeira página. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description plano de renderização (colunas + linhas + paginação) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewRenderPlan"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description view não encontrada */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description view existe, mas usa um recurso fora do subconjunto suportado por este runtime */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "view_unsupported",
+                     *         "message": "layout.besides ausente ou não é uma lista — só layouts de lista de colunas são suportados"
+                     *       }
+                     *     }
+                     */
                     "application/json": components["schemas"]["Error"];
                 };
             };

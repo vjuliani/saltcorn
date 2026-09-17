@@ -211,3 +211,103 @@ test("conflito de edição concorrente (PATCH com _version obsoleto) retorna 409
     await mockGo.close();
   }
 });
+
+// GO-020: GET /api/bff/views/:id/render — só repassa o DTO do Go
+// (colunas/linhas/paginação), sem reinterpretar nada. A classificação de
+// compatibilidade em si já tem cobertura exaustiva do lado Go
+// (internal/views/render_test.go, cmd/server/render_test.go); aqui o foco
+// é a fronteira do BFF: sessão, encaminhamento de limit/cursor, e
+// propagação do 422 sem mascarar.
+test("GET /api/bff/views lista as views criadas (GO-020)", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    await fetch(`${baseUrl}/api/bff/views`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken },
+      body: JSON.stringify({ name: "booklist", table: "books", template: "List", configuration: {} }),
+    });
+
+    const listRes = await fetch(`${baseUrl}/api/bff/views`, { headers: { Cookie: cookie } });
+    assert.equal(listRes.status, 200);
+    const list = (await listRes.json()) as any[];
+    assert.equal(list.length, 1);
+    assert.equal(list[0].name, "booklist");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("GET /api/bff/views/:id/render exige sessão", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, baseUrl } = await startBff(goUrl);
+  try {
+    const res = await fetch(`${baseUrl}/api/bff/views/1/render`);
+    assert.equal(res.status, 401);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("GET /api/bff/views/:id/render devolve colunas/linhas/paginação para uma view compatível", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const createRes = await fetch(`${baseUrl}/api/bff/views`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken },
+      body: JSON.stringify({
+        name: "booklist",
+        table: "books",
+        template: "List",
+        configuration: { layout: { besides: [{ header_label: "Título", contents: { type: "Field", field_name: "title" } }] } },
+      }),
+    });
+    const created = (await createRes.json()) as any;
+
+    const renderRes = await fetch(`${baseUrl}/api/bff/views/${created.id}/render?limit=2`, { headers: { Cookie: cookie } });
+    assert.equal(renderRes.status, 200);
+    const plan = (await renderRes.json()) as any;
+    assert.deepEqual(plan.columns, [{ field_name: "title", header_label: "Título" }]);
+    assert.equal(plan.rows.length, 2);
+    assert.ok(plan.next_cursor, "esperado next_cursor (há um 3º registro no mock)");
+
+    const nextPageRes = await fetch(`${baseUrl}/api/bff/views/${created.id}/render?limit=2&cursor=${plan.next_cursor}`, { headers: { Cookie: cookie } });
+    const nextPage = (await nextPageRes.json()) as any;
+    assert.equal(nextPage.rows.length, 1);
+    assert.equal(nextPage.next_cursor, null);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("GET /api/bff/views/:id/render propaga 422 view_unsupported do Go, sem mascarar", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const createRes = await fetch(`${baseUrl}/api/bff/views`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken },
+      body: JSON.stringify({ name: "showbook", table: "books", template: "Show", configuration: {} }),
+    });
+    const created = (await createRes.json()) as any;
+
+    const renderRes = await fetch(`${baseUrl}/api/bff/views/${created.id}/render`, { headers: { Cookie: cookie } });
+    assert.equal(renderRes.status, 422);
+    const body = (await renderRes.json()) as any;
+    assert.equal(body.error.code, "view_unsupported");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});

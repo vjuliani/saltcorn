@@ -263,6 +263,45 @@
       }
     },
     "/api/bff/views": {
+      "get": {
+        "operationId": "listViews",
+        "summary": "Lista views visíveis ao ator (GO-020)",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "table",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "views visíveis ao ator",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/View"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/SessionRequired"
+          },
+          "502": {
+            "$ref": "#/components/responses/DomainUnavailable"
+          }
+        }
+      },
       "post": {
         "operationId": "createView",
         "summary": "Cria uma view — o documento de layout do editor (GO-019)",
@@ -454,6 +493,103 @@
               }
             }
           },
+          "422": {
+            "description": "Negativo: layout incompatível com o runtime — só ao tentar publicar (GO-020)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "layout_incompativel": {
+                    "summary": "Negativo: template/colunas fora do subconjunto suportado",
+                    "value": {
+                      "error": {
+                        "code": "view_unsupported",
+                        "message": "template \"Show\" não suportado neste runtime (só \"List\")"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "$ref": "#/components/responses/DomainUnavailable"
+          }
+        }
+      }
+    },
+    "/api/bff/views/{id}/render": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Id"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "renderView",
+        "summary": "Renderiza uma view List (GO-020)",
+        "description": "Devolve o DTO (colunas + linhas + paginação) de internal-api.yaml, sem reinterpretar nada — o React desenha a tabela a partir dele.\n",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "plano de renderização",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewRenderPlan"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/SessionRequired"
+          },
+          "404": {
+            "description": "view não encontrada (ou fora da visibilidade do ator)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "view existe, mas usa um recurso fora do subconjunto suportado por este runtime",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
           "502": {
             "$ref": "#/components/responses/DomainUnavailable"
           }
@@ -598,6 +734,62 @@
           },
           "_version": {
             "type": "string"
+          }
+        }
+      },
+      "ViewRenderColumn": {
+        "type": "object",
+        "required": [
+          "field_name",
+          "header_label"
+        ],
+        "properties": {
+          "field_name": {
+            "type": "string"
+          },
+          "header_label": {
+            "type": "string"
+          }
+        }
+      },
+      "ViewRenderPlan": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "columns",
+          "rows",
+          "order_by",
+          "descending"
+        ],
+        "properties": {
+          "view_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewRenderColumn"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "order_by": {
+            "type": "string"
+          },
+          "descending": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Cursor para a próxima página, ou `null` se não houver mais páginas."
           }
         }
       },

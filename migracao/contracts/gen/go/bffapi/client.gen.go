@@ -71,6 +71,26 @@ type View struct {
 	Template string `json:"template"`
 }
 
+// ViewRenderColumn defines model for ViewRenderColumn.
+type ViewRenderColumn struct {
+	FieldName   string `json:"field_name"`
+	HeaderLabel string `json:"header_label"`
+}
+
+// ViewRenderPlan defines model for ViewRenderPlan.
+type ViewRenderPlan struct {
+	Columns    []ViewRenderColumn `json:"columns"`
+	Descending bool               `json:"descending"`
+
+	// NextCursor Cursor para a próxima página, ou `null` se não houver mais páginas.
+	NextCursor *string                  `json:"next_cursor,omitempty"`
+	OrderBy    string                   `json:"order_by"`
+	Rows       []map[string]interface{} `json:"rows"`
+
+	// ViewId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	ViewId Id `json:"view_id"`
+}
+
 // Cursor defines model for Cursor.
 type Cursor = string
 
@@ -110,6 +130,11 @@ type ListRecordsParams struct {
 // CreateRecordJSONBody defines parameters for CreateRecord.
 type CreateRecordJSONBody map[string]interface{}
 
+// ListViewsParams defines parameters for ListViews.
+type ListViewsParams struct {
+	Table *string `form:"table,omitempty" json:"table,omitempty"`
+}
+
 // CreateViewJSONBody defines parameters for CreateView.
 type CreateViewJSONBody struct {
 	Configuration map[string]interface{} `json:"configuration"`
@@ -125,6 +150,12 @@ type UpdateViewJSONBody struct {
 	Configuration     *map[string]interface{} `json:"configuration,omitempty"`
 	MinRole           *int                    `json:"min_role,omitempty"`
 	Template          *string                 `json:"template,omitempty"`
+}
+
+// RenderViewParams defines parameters for RenderView.
+type RenderViewParams struct {
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
 // CreateTableJSONRequestBody defines body for CreateTable for application/json ContentType.
@@ -272,6 +303,11 @@ type ClientInterface interface {
 	// Corresponds with POST /api/bff/tables/{table}/records (the `CreateRecord` operationId).
 	CreateRecord(ctx context.Context, table string, body CreateRecordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListViews Lista views visíveis ao ator (GO-020)
+	//
+	// Corresponds with GET /api/bff/views (the `ListViews` operationId).
+	ListViews(ctx context.Context, params *ListViewsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CreateViewWithBody Cria uma view — o documento de layout do editor (GO-019)
 	//
 	// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
@@ -312,6 +348,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
 	UpdateView(ctx context.Context, id Id, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RenderView Renderiza uma view List (GO-020)
+	//
+	// Devolve o DTO (colunas + linhas + paginação) de internal-api.yaml, sem reinterpretar nada — o React desenha a tabela a partir dele.
+	//
+	// Corresponds with GET /api/bff/views/{id}/render (the `RenderView` operationId).
+	RenderView(ctx context.Context, id Id, params *RenderViewParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // GetBootstrap Bootstrap do editor — metadados e permissões de interface (ADR-0003)
@@ -450,6 +493,21 @@ func (c *Client) CreateRecord(ctx context.Context, table string, body CreateReco
 	return c.Client.Do(req)
 }
 
+// ListViews Lista views visíveis ao ator (GO-020)
+//
+// Corresponds with GET /api/bff/views (the `ListViews` operationId).
+func (c *Client) ListViews(ctx context.Context, params *ListViewsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListViewsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // CreateViewWithBody Cria uma view — o documento de layout do editor (GO-019)
 //
 // O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
@@ -531,6 +589,23 @@ func (c *Client) UpdateViewWithBody(ctx context.Context, id Id, contentType stri
 // Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
 func (c *Client) UpdateView(ctx context.Context, id Id, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateViewRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RenderView Renderiza uma view List (GO-020)
+//
+// Devolve o DTO (colunas + linhas + paginação) de internal-api.yaml, sem reinterpretar nada — o React desenha a tabela a partir dele.
+//
+// Corresponds with GET /api/bff/views/{id}/render (the `RenderView` operationId).
+func (c *Client) RenderView(ctx context.Context, id Id, params *RenderViewParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRenderViewRequest(c.Server, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -775,6 +850,60 @@ func NewCreateRecordRequestWithBody(server string, table string, contentType str
 	return req, nil
 }
 
+// NewListViewsRequest constructs an http.Request for the ListViews method
+func NewListViewsRequest(server string, params *ListViewsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/views")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Table != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "table", *params.Table, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewCreateViewRequest calls the generic CreateView builder with application/json body
 func NewCreateViewRequest(server string, body CreateViewJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -896,6 +1025,79 @@ func NewUpdateViewRequestWithBody(server string, id Id, contentType string, body
 	return req, nil
 }
 
+// NewRenderViewRequest constructs an http.Request for the RenderView method
+func NewRenderViewRequest(server string, id Id, params *RenderViewParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/views/%s/render", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1000,6 +1202,13 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /api/bff/tables/{table}/records (the `CreateRecord` operationId).
 	CreateRecordWithResponse(ctx context.Context, table string, body CreateRecordJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateRecordResponse, error)
 
+	// ListViewsWithResponse Lista views visíveis ao ator (GO-020)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/bff/views (the `ListViews` operationId).
+	ListViewsWithResponse(ctx context.Context, params *ListViewsParams, reqEditors ...RequestEditorFn) (*ListViewsResponse, error)
+
 	// CreateViewWithBodyWithResponse Cria uma view — o documento de layout do editor (GO-019)
 	//
 	// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
@@ -1042,6 +1251,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
 	UpdateViewWithResponse(ctx context.Context, id Id, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error)
+
+	// RenderViewWithResponse Renderiza uma view List (GO-020)
+	//
+	// Devolve o DTO (colunas + linhas + paginação) de internal-api.yaml, sem reinterpretar nada — o React desenha a tabela a partir dele.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/bff/views/{id}/render (the `RenderView` operationId).
+	RenderViewWithResponse(ctx context.Context, id Id, params *RenderViewParams, reqEditors ...RequestEditorFn) (*RenderViewResponse, error)
 }
 
 type GetBootstrapResponse struct {
@@ -1333,6 +1551,61 @@ func (r CreateRecordResponse) ContentType() string {
 	return ""
 }
 
+type ListViewsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]View
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListViewsResponse) GetJSON200() *[]View {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListViewsResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r ListViewsResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r ListViewsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListViewsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListViewsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListViewsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type CreateViewResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1468,6 +1741,8 @@ type UpdateViewResponse struct {
 	JSON403 *CsrfInvalid
 	// JSON409 the response for an HTTP 409 `application/json` response
 	JSON409 *Error
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Error
 	// JSON502 the response for an HTTP 502 `application/json` response
 	JSON502 *DomainUnavailable
 }
@@ -1490,6 +1765,11 @@ func (r UpdateViewResponse) GetJSON403() *CsrfInvalid {
 // GetJSON409 returns the response for an HTTP 409 `application/json` response
 func (r UpdateViewResponse) GetJSON409() *Error {
 	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r UpdateViewResponse) GetJSON422() *Error {
+	return r.JSON422
 }
 
 // GetJSON502 returns the response for an HTTP 502 `application/json` response
@@ -1520,6 +1800,75 @@ func (r UpdateViewResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateViewResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RenderViewResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ViewRenderPlan
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RenderViewResponse) GetJSON200() *ViewRenderPlan {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RenderViewResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RenderViewResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r RenderViewResponse) GetJSON422() *Error {
+	return r.JSON422
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r RenderViewResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r RenderViewResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RenderViewResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RenderViewResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RenderViewResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -1634,6 +1983,19 @@ func (c *ClientWithResponses) CreateRecordWithResponse(ctx context.Context, tabl
 	return ParseCreateRecordResponse(rsp)
 }
 
+// ListViewsWithResponse Lista views visíveis ao ator (GO-020)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/bff/views (the `ListViews` operationId).
+func (c *ClientWithResponses) ListViewsWithResponse(ctx context.Context, params *ListViewsParams, reqEditors ...RequestEditorFn) (*ListViewsResponse, error) {
+	rsp, err := c.ListViews(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListViewsResponse(rsp)
+}
+
 // CreateViewWithBodyWithResponse Cria uma view — o documento de layout do editor (GO-019)
 //
 // O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
@@ -1705,6 +2067,21 @@ func (c *ClientWithResponses) UpdateViewWithResponse(ctx context.Context, id Id,
 		return nil, err
 	}
 	return ParseUpdateViewResponse(rsp)
+}
+
+// RenderViewWithResponse Renderiza uma view List (GO-020)
+//
+// Devolve o DTO (colunas + linhas + paginação) de internal-api.yaml, sem reinterpretar nada — o React desenha a tabela a partir dele.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/bff/views/{id}/render (the `RenderView` operationId).
+func (c *ClientWithResponses) RenderViewWithResponse(ctx context.Context, id Id, params *RenderViewParams, reqEditors ...RequestEditorFn) (*RenderViewResponse, error) {
+	rsp, err := c.RenderView(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRenderViewResponse(rsp)
 }
 
 // ParseGetBootstrapResponse parses an HTTP response from a GetBootstrapWithResponse call
@@ -1921,6 +2298,46 @@ func ParseCreateRecordResponse(rsp *http.Response) (*CreateRecordResponse, error
 	return response, nil
 }
 
+// ParseListViewsResponse parses an HTTP response from a ListViewsWithResponse call
+func ParseListViewsResponse(rsp *http.Response) (*ListViewsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListViewsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []View
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseCreateViewResponse parses an HTTP response from a CreateViewWithResponse call
 func ParseCreateViewResponse(rsp *http.Response) (*CreateViewResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -2056,6 +2473,67 @@ func ParseUpdateViewResponse(rsp *http.Response) (*UpdateViewResponse, error) {
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRenderViewResponse parses an HTTP response from a RenderViewWithResponse call
+func ParseRenderViewResponse(rsp *http.Response) (*RenderViewResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RenderViewResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ViewRenderPlan
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
 		var dest DomainUnavailable

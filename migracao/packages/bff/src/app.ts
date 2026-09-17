@@ -107,6 +107,15 @@ export function buildRouter(deps: AppDeps): Router {
     sendJSON(res, 201, created);
   });
 
+  router.get("/api/bff/views", async (req, res) => {
+    const { data } = await requireSession(req, sessionStore);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const url = new URL(req.url ?? "/", "http://placeholder");
+    const table = url.searchParams.get("table") ?? undefined;
+    const list = await goClient.listViews(token, data.tenant, table);
+    sendJSON(res, 200, list);
+  });
+
   router.post("/api/bff/views", async (req, res) => {
     const { data } = await requireSession(req, sessionStore);
     requireCsrf(req);
@@ -131,6 +140,21 @@ export function buildRouter(deps: AppDeps): Router {
     const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
     const view = await goClient.getView(token, data.tenant, Number(params.id));
     sendJSON(res, 200, view);
+  });
+
+  // renderView (GO-020) — só sessão, sem CSRF: é uma leitura, não uma
+  // mutação, mesmo padrão de listRecords/getView acima.
+  router.get("/api/bff/views/:id/render", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const url = new URL(req.url ?? "/", "http://placeholder");
+    const limitRaw = url.searchParams.get("limit");
+    const cursor = url.searchParams.get("cursor") ?? undefined;
+    const plan = await goClient.renderView(token, data.tenant, Number(params.id), {
+      limit: limitRaw ? Number(limitRaw) : undefined,
+      cursor,
+    });
+    sendJSON(res, 200, plan);
   });
 
   router.patch("/api/bff/views/:id", async (req, res, params) => {

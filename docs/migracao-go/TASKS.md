@@ -397,10 +397,10 @@ Execute a task GO-019 — Integrar editor ao BFF, de docs/migracao-go/TASKS.md, 
 
 ### GO-020 — Portar runtime de views e páginas
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — histórico em [execucoes/GO-020.md](execucoes/GO-020.md)
 - **Fase:** F3 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Frontend
-- **Depende de:** GO-012, GO-013, GO-018
+- **Depende de:** GO-012, GO-013, GO-018, GO-019 (corrigido nesta entrega — o escopo real depende de `internal/views`, GO-019; lacuna do backlog original, ver [execucoes/GO-020.md](execucoes/GO-020.md) nota 1)
 - **Branch:** `task/go-020`
 - **Escopo:** Separar metadados e regras de views no Go, composição no BFF Node.js e renderização React; aplicar SB Admin 2 à interface administrativa e preservar temas das aplicações, URLs, forms e widgets legados.
 - **Aceite:** Aplicações fixture renderizam e operam com paridade funcional/visual; layouts incompatíveis bloqueiam publicação ou seguem rota legada explícita.
