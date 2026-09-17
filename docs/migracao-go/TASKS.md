@@ -359,7 +359,7 @@ Execute a task GO-017 — Implementar BFF web em Node.js, de docs/migracao-go/TA
 
 ### GO-018 — Integrar React + SB Admin 2 e desacoplar builder
 
-- [ ] **Status:** IN_REVIEW — PR [#21](https://github.com/vjuliani/saltcorn/pull/21) aberto; histórico em [execucoes/GO-018.md](execucoes/GO-018.md)
+- [x] **Status:** DONE — PR [#21](https://github.com/vjuliani/saltcorn/pull/21) mergeado; histórico em [execucoes/GO-018.md](execucoes/GO-018.md)
 - **Fase:** F3 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Frontend
 - **Depende de:** GO-006
