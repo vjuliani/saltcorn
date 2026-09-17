@@ -12,7 +12,27 @@ type ListRecordsResponse =
   paths["/api/bff/tables/{table}/records"]["get"]["responses"]["200"]["content"]["application/json"];
 type CreateRecordResponse =
   paths["/api/bff/tables/{table}/records"]["post"]["responses"]["201"]["content"]["application/json"];
+type CreateTableResponse = paths["/api/bff/tables"]["post"]["responses"]["201"]["content"]["application/json"];
+type AddFieldResponse =
+  paths["/api/bff/tables/{table}/fields"]["post"]["responses"]["201"]["content"]["application/json"];
+type CreateViewResponse = paths["/api/bff/views"]["post"]["responses"]["201"]["content"]["application/json"];
+type GetViewResponse = paths["/api/bff/views/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
+type UpdateViewResponse = paths["/api/bff/views/{id}"]["patch"]["responses"]["200"]["content"]["application/json"];
 type ErrorResponse = { error: { code: string; message: string } };
+
+/**
+ * VersionConflictError distingue o 409 de "conflito de edição" (GO-019)
+ * de qualquer outro erro do BFF — o React usa isso para mostrar "alguém
+ * mais salvou por cima" em vez de um erro genérico, o critério de aceite
+ * "conflito de edição é apresentado, não sobrescrito silenciosamente"
+ * exige que o chamador consiga DISTINGUIR esse caso, não só ver uma
+ * mensagem de erro qualquer.
+ */
+export class ViewConflictError extends Error {
+  constructor() {
+    super("a view foi modificada por outra transação — releia e tente novamente");
+  }
+}
 
 export class BffClientError extends Error {
   constructor(
@@ -30,6 +50,17 @@ export interface BffClientOptions {
   csrfToken?: string;
 }
 
+/**
+ * Lê o cookie `sc_csrf` (não-HttpOnly por natureza: `csrf.ts` do BFF o
+ * expõe justamente para o JS do cliente poder ecoá-lo de volta no
+ * cabeçalho `X-CSRF-Token`, GO-006). Não gera nem armazena token algum
+ * aqui — só lê o que o BFF já colocou no navegador.
+ */
+export function readCsrfCookie(cookie: string = document.cookie): string | undefined {
+  const match = cookie.match(/(?:^|;\s*)sc_csrf=([^;]+)/);
+  return match ? decodeURIComponent(match[1]!) : undefined;
+}
+
 export class BffClient {
   constructor(private readonly opts: BffClientOptions) {}
 
@@ -44,14 +75,79 @@ export class BffClient {
   }
 
   async createRecord(table: string, input: Record<string, unknown>): Promise<CreateRecordResponse> {
+    return this.request<CreateRecordResponse>(`/api/bff/tables/${encodeURIComponent(table)}/records`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+      body: JSON.stringify(input),
+    });
+  }
+
+  async createTable(input: { name: string; min_role_read?: number; min_role_write?: number }): Promise<CreateTableResponse> {
+    return this.request<CreateTableResponse>("/api/bff/tables", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+      body: JSON.stringify(input),
+    });
+  }
+
+  async addField(
+    table: string,
+    input: { name: string; type: string; required?: boolean; unique?: boolean; references?: string }
+  ): Promise<AddFieldResponse> {
+    return this.request<AddFieldResponse>(`/api/bff/tables/${encodeURIComponent(table)}/fields`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+      body: JSON.stringify(input),
+    });
+  }
+
+  async createView(input: {
+    name: string;
+    table: string;
+    template: string;
+    configuration: Record<string, unknown>;
+    min_role?: number;
+  }): Promise<CreateViewResponse> {
+    return this.request<CreateViewResponse>("/api/bff/views", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+      body: JSON.stringify(input),
+    });
+  }
+
+  async getView(id: number): Promise<GetViewResponse> {
+    return this.request<GetViewResponse>(`/api/bff/views/${id}`, { method: "GET" });
+  }
+
+  /**
+   * updateView é "salvar" (com `configuration`) e "publicar" (com
+   * `min_role` menor) — a mesma chamada. Lança ViewConflictError
+   * especificamente em 409 `version_conflict`, para o chamador
+   * distinguir de qualquer outro erro (ver ViewConflictError acima).
+   */
+  async updateView(
+    id: number,
+    input: { _version: string; configuration?: Record<string, unknown>; template?: string; min_role?: number }
+  ): Promise<UpdateViewResponse> {
+    try {
+      return await this.request<UpdateViewResponse>(`/api/bff/views/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+        body: JSON.stringify(input),
+      });
+    } catch (err) {
+      if (err instanceof BffClientError && err.status === 409 && err.code === "version_conflict") {
+        throw new ViewConflictError();
+      }
+      throw err;
+    }
+  }
+
+  private requireCsrf(): string {
     if (!this.opts.csrfToken) {
       throw new BffClientError(0, "csrf_token_missing", "csrfToken não configurado no BffClient");
     }
-    return this.request<CreateRecordResponse>(`/api/bff/tables/${encodeURIComponent(table)}/records`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-CSRF-Token": this.opts.csrfToken },
-      body: JSON.stringify(input),
-    });
+    return this.opts.csrfToken;
   }
 
   private async request<T>(path: string, init: RequestInit): Promise<T> {

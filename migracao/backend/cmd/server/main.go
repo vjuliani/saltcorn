@@ -47,6 +47,19 @@ const recordsRoute = "tenant_records"
 // actorRoute é o nome lógico da rota GET .../actor (GO-017) para métrica.
 const actorRoute = "tenant_actor"
 
+// tablesSchemaCapability (GO-019) identifica, para o registro de
+// ownership, a capacidade de mutar o catálogo (criar tabela/campo) — uma
+// capacidade distinta de recordsCapability: o corte gradual Node/Go pode
+// liberar leitura/escrita de registros para Go antes (ou depois) de
+// liberar mutação de schema, mesmo espírito granular de GO-009.
+const tablesSchemaCapability = "tables.schema"
+const tablesSchemaRoute = "tenant_tables_schema"
+
+// viewsCapability (GO-019) identifica a capacidade de criar/ler/editar
+// views — também distinta de recordsCapability, pelo mesmo motivo.
+const viewsCapability = "tables.views"
+const viewsRoute = "tenant_views"
+
 func main() {
 	cfg, err := config.Load()
 	logger := slog.New(telemetry.NewHandler(os.Stdout, cfg.LogLevel))
@@ -138,6 +151,29 @@ func main() {
 		// verificados).
 		mux.Handle("GET /v1/tenants/{tenant}/actor",
 			tenancy.Middleware(verifier, telemetry.Middleware(actorRoute, httpMetrics, getActorHandler(tracker, db))))
+
+		// GO-019: tabelas/campos (metadata.CreateTable/AddField, GO-011) e
+		// views (internal/views, novo) nunca tinham rota HTTP — o ciclo do
+		// editor (criar, salvar, reabrir, publicar) exige as duas.
+		// Capacidades próprias de cutover (não recordsCapability): schema e
+		// views são concerns distintos de dados de registro, cada um pode
+		// ser cortado para Go independentemente (mesmo espírito granular de
+		// GO-009).
+		mux.Handle("POST /v1/tenants/{tenant}/tables",
+			tenancy.Middleware(verifier, telemetry.Middleware(tablesSchemaRoute, httpMetrics,
+				cutover.RequireOwnership(guard, tablesSchemaCapability, createTableHandler(tracker, db)))))
+		mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/fields",
+			tenancy.Middleware(verifier, telemetry.Middleware(tablesSchemaRoute, httpMetrics,
+				cutover.RequireOwnership(guard, tablesSchemaCapability, addFieldHandler(tracker, db)))))
+		mux.Handle("POST /v1/tenants/{tenant}/views",
+			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, viewsCapability, createViewHandler(tracker, db)))))
+		mux.Handle("GET /v1/tenants/{tenant}/views/{id}",
+			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, viewsCapability, getViewHandler(tracker, db)))))
+		mux.Handle("PATCH /v1/tenants/{tenant}/views/{id}",
+			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, viewsCapability, updateViewHandler(tracker, db)))))
 	}
 
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux, BaseContext: func(net.Listener) context.Context {

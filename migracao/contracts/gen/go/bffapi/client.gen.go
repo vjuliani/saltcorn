@@ -56,17 +56,49 @@ type Page struct {
 // Tenant Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL.
 type Tenant = string
 
+// View defines model for View.
+type View struct {
+	UnderscoreVersion string                 `json:"_version"`
+	Configuration     map[string]interface{} `json:"configuration"`
+
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id      Id     `json:"id"`
+	MinRole int    `json:"min_role"`
+	Name    string `json:"name"`
+
+	// TableId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	TableId  Id     `json:"table_id"`
+	Template string `json:"template"`
+}
+
 // Cursor defines model for Cursor.
 type Cursor = string
 
 // Limit defines model for Limit.
 type Limit = int
 
+// CsrfInvalid defines model for CsrfInvalid.
+type CsrfInvalid = Error
+
 // DomainUnavailable defines model for DomainUnavailable.
 type DomainUnavailable = Error
 
 // SessionRequired defines model for SessionRequired.
 type SessionRequired = Error
+
+// CreateTableJSONBody defines parameters for CreateTable.
+type CreateTableJSONBody struct {
+	Name string `json:"name"`
+}
+
+// AddFieldJSONBody defines parameters for AddField.
+type AddFieldJSONBody struct {
+	Name       string  `json:"name"`
+	References *string `json:"references,omitempty"`
+	Required   *bool   `json:"required,omitempty"`
+	Type       string  `json:"type"`
+	Unique     *bool   `json:"unique,omitempty"`
+}
 
 // ListRecordsParams defines parameters for ListRecords.
 type ListRecordsParams struct {
@@ -78,8 +110,37 @@ type ListRecordsParams struct {
 // CreateRecordJSONBody defines parameters for CreateRecord.
 type CreateRecordJSONBody map[string]interface{}
 
+// CreateViewJSONBody defines parameters for CreateView.
+type CreateViewJSONBody struct {
+	Configuration map[string]interface{} `json:"configuration"`
+	MinRole       *int                   `json:"min_role,omitempty"`
+	Name          string                 `json:"name"`
+	Table         string                 `json:"table"`
+	Template      string                 `json:"template"`
+}
+
+// UpdateViewJSONBody defines parameters for UpdateView.
+type UpdateViewJSONBody struct {
+	UnderscoreVersion string                  `json:"_version"`
+	Configuration     *map[string]interface{} `json:"configuration,omitempty"`
+	MinRole           *int                    `json:"min_role,omitempty"`
+	Template          *string                 `json:"template,omitempty"`
+}
+
+// CreateTableJSONRequestBody defines body for CreateTable for application/json ContentType.
+type CreateTableJSONRequestBody CreateTableJSONBody
+
+// AddFieldJSONRequestBody defines body for AddField for application/json ContentType.
+type AddFieldJSONRequestBody AddFieldJSONBody
+
 // CreateRecordJSONRequestBody defines body for CreateRecord for application/json ContentType.
 type CreateRecordJSONRequestBody CreateRecordJSONBody
+
+// CreateViewJSONRequestBody defines body for CreateView for application/json ContentType.
+type CreateViewJSONRequestBody CreateViewJSONBody
+
+// UpdateViewJSONRequestBody defines body for UpdateView for application/json ContentType.
+type UpdateViewJSONRequestBody UpdateViewJSONBody
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -160,6 +221,34 @@ type ClientInterface interface {
 	// Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 	GetBootstrap(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// CreateTableWithBody Cria uma tabela dinâmica (GO-019)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/bff/tables (the `CreateTable` operationId).
+	CreateTableWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateTable Cria uma tabela dinâmica (GO-019)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/bff/tables (the `CreateTable` operationId).
+	CreateTable(ctx context.Context, body CreateTableJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AddFieldWithBody Adiciona um campo a uma tabela dinâmica (GO-019)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/bff/tables/{table}/fields (the `AddField` operationId).
+	AddFieldWithBody(ctx context.Context, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AddField Adiciona um campo a uma tabela dinâmica (GO-019)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/bff/tables/{table}/fields (the `AddField` operationId).
+	AddField(ctx context.Context, table string, body AddFieldJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListRecords Lista registros (a UI não distingue papel/ownership — o backend Go já filtrou)
 	//
 	// Corresponds with GET /api/bff/tables/{table}/records (the `ListRecords` operationId).
@@ -182,6 +271,47 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/bff/tables/{table}/records (the `CreateRecord` operationId).
 	CreateRecord(ctx context.Context, table string, body CreateRecordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateViewWithBody Cria uma view — o documento de layout do editor (GO-019)
+	//
+	// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/bff/views (the `CreateView` operationId).
+	CreateViewWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateView Cria uma view — o documento de layout do editor (GO-019)
+	//
+	// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/bff/views (the `CreateView` operationId).
+	CreateView(ctx context.Context, body CreateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetView Reabre uma view (GO-019)
+	//
+	// Corresponds with GET /api/bff/views/{id} (the `GetView` operationId).
+	GetView(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateViewWithBody Salva ou publica uma view (GO-019)
+	//
+	// Mesma operação para "salvar" (corpo com `configuration`) e "publicar" (corpo com `min_role` menor). Exige `_version` (de uma leitura anterior) — conflito de edição concorrente retorna 409, nunca sobrescreve silenciosamente.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
+	UpdateViewWithBody(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateView Salva ou publica uma view (GO-019)
+	//
+	// Mesma operação para "salvar" (corpo com `configuration`) e "publicar" (corpo com `min_role` menor). Exige `_version` (de uma leitura anterior) — conflito de edição concorrente retorna 409, nunca sobrescreve silenciosamente.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
+	UpdateView(ctx context.Context, id Id, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // GetBootstrap Bootstrap do editor — metadados e permissões de interface (ADR-0003)
@@ -189,6 +319,74 @@ type ClientInterface interface {
 // Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 func (c *Client) GetBootstrap(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetBootstrapRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateTableWithBody Cria uma tabela dinâmica (GO-019)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/bff/tables (the `CreateTable` operationId).
+func (c *Client) CreateTableWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateTableRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateTable Cria uma tabela dinâmica (GO-019)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/bff/tables (the `CreateTable` operationId).
+func (c *Client) CreateTable(ctx context.Context, body CreateTableJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateTableRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AddFieldWithBody Adiciona um campo a uma tabela dinâmica (GO-019)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/bff/tables/{table}/fields (the `AddField` operationId).
+func (c *Client) AddFieldWithBody(ctx context.Context, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddFieldRequestWithBody(c.Server, table, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AddField Adiciona um campo a uma tabela dinâmica (GO-019)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/bff/tables/{table}/fields (the `AddField` operationId).
+func (c *Client) AddField(ctx context.Context, table string, body AddFieldJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddFieldRequest(c.Server, table, body)
 	if err != nil {
 		return nil, err
 	}
@@ -252,6 +450,97 @@ func (c *Client) CreateRecord(ctx context.Context, table string, body CreateReco
 	return c.Client.Do(req)
 }
 
+// CreateViewWithBody Cria uma view — o documento de layout do editor (GO-019)
+//
+// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/bff/views (the `CreateView` operationId).
+func (c *Client) CreateViewWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateViewRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateView Cria uma view — o documento de layout do editor (GO-019)
+//
+// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/bff/views (the `CreateView` operationId).
+func (c *Client) CreateView(ctx context.Context, body CreateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateViewRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetView Reabre uma view (GO-019)
+//
+// Corresponds with GET /api/bff/views/{id} (the `GetView` operationId).
+func (c *Client) GetView(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetViewRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateViewWithBody Salva ou publica uma view (GO-019)
+//
+// Mesma operação para "salvar" (corpo com `configuration`) e "publicar" (corpo com `min_role` menor). Exige `_version` (de uma leitura anterior) — conflito de edição concorrente retorna 409, nunca sobrescreve silenciosamente.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
+func (c *Client) UpdateViewWithBody(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateViewRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateView Salva ou publica uma view (GO-019)
+//
+// Mesma operação para "salvar" (corpo com `configuration`) e "publicar" (corpo com `min_role` menor). Exige `_version` (de uma leitura anterior) — conflito de edição concorrente retorna 409, nunca sobrescreve silenciosamente.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
+func (c *Client) UpdateView(ctx context.Context, id Id, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateViewRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // NewGetBootstrapRequest constructs an http.Request for the GetBootstrap method
 func NewGetBootstrapRequest(server string) (*http.Request, error) {
 	var err error
@@ -275,6 +564,93 @@ func NewGetBootstrapRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewCreateTableRequest calls the generic CreateTable builder with application/json body
+func NewCreateTableRequest(server string, body CreateTableJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateTableRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateTableRequestWithBody constructs an http.Request for the CreateTable method, with any body, and a specified content type
+func NewCreateTableRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/tables")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAddFieldRequest calls the generic AddField builder with application/json body
+func NewAddFieldRequest(server string, table string, body AddFieldJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAddFieldRequestWithBody(server, table, "application/json", bodyReader)
+}
+
+// NewAddFieldRequestWithBody constructs an http.Request for the AddField method, with any body, and a specified content type
+func NewAddFieldRequestWithBody(server string, table string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "table", table, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/tables/%s/fields", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -399,6 +775,127 @@ func NewCreateRecordRequestWithBody(server string, table string, contentType str
 	return req, nil
 }
 
+// NewCreateViewRequest calls the generic CreateView builder with application/json body
+func NewCreateViewRequest(server string, body CreateViewJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateViewRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateViewRequestWithBody constructs an http.Request for the CreateView method, with any body, and a specified content type
+func NewCreateViewRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/views")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetViewRequest constructs an http.Request for the GetView method
+func NewGetViewRequest(server string, id Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/views/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateViewRequest calls the generic UpdateView builder with application/json body
+func NewUpdateViewRequest(server string, id Id, body UpdateViewJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateViewRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewUpdateViewRequestWithBody constructs an http.Request for the UpdateView method, with any body, and a specified content type
+func NewUpdateViewRequestWithBody(server string, id Id, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/views/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -450,6 +947,34 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 	GetBootstrapWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetBootstrapResponse, error)
 
+	// CreateTableWithBodyWithResponse Cria uma tabela dinâmica (GO-019)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/tables (the `CreateTable` operationId).
+	CreateTableWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTableResponse, error)
+
+	// CreateTableWithResponse Cria uma tabela dinâmica (GO-019)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/tables (the `CreateTable` operationId).
+	CreateTableWithResponse(ctx context.Context, body CreateTableJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTableResponse, error)
+
+	// AddFieldWithBodyWithResponse Adiciona um campo a uma tabela dinâmica (GO-019)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/tables/{table}/fields (the `AddField` operationId).
+	AddFieldWithBodyWithResponse(ctx context.Context, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddFieldResponse, error)
+
+	// AddFieldWithResponse Adiciona um campo a uma tabela dinâmica (GO-019)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/tables/{table}/fields (the `AddField` operationId).
+	AddFieldWithResponse(ctx context.Context, table string, body AddFieldJSONRequestBody, reqEditors ...RequestEditorFn) (*AddFieldResponse, error)
+
 	// ListRecordsWithResponse Lista registros (a UI não distingue papel/ownership — o backend Go já filtrou)
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -474,6 +999,49 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/bff/tables/{table}/records (the `CreateRecord` operationId).
 	CreateRecordWithResponse(ctx context.Context, table string, body CreateRecordJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateRecordResponse, error)
+
+	// CreateViewWithBodyWithResponse Cria uma view — o documento de layout do editor (GO-019)
+	//
+	// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/views (the `CreateView` operationId).
+	CreateViewWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateViewResponse, error)
+
+	// CreateViewWithResponse Cria uma view — o documento de layout do editor (GO-019)
+	//
+	// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/views (the `CreateView` operationId).
+	CreateViewWithResponse(ctx context.Context, body CreateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateViewResponse, error)
+
+	// GetViewWithResponse Reabre uma view (GO-019)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/bff/views/{id} (the `GetView` operationId).
+	GetViewWithResponse(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*GetViewResponse, error)
+
+	// UpdateViewWithBodyWithResponse Salva ou publica uma view (GO-019)
+	//
+	// Mesma operação para "salvar" (corpo com `configuration`) e "publicar" (corpo com `min_role` menor). Exige `_version` (de uma leitura anterior) — conflito de edição concorrente retorna 409, nunca sobrescreve silenciosamente.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
+	UpdateViewWithBodyWithResponse(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error)
+
+	// UpdateViewWithResponse Salva ou publica uma view (GO-019)
+	//
+	// Mesma operação para "salvar" (corpo com `configuration`) e "publicar" (corpo com `min_role` menor). Exige `_version` (de uma leitura anterior) — conflito de edição concorrente retorna 409, nunca sobrescreve silenciosamente.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
+	UpdateViewWithResponse(ctx context.Context, id Id, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error)
 }
 
 type GetBootstrapResponse struct {
@@ -518,6 +1086,130 @@ func (r GetBootstrapResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetBootstrapResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateTableResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *map[string]interface{}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateTableResponse) GetJSON201() *map[string]interface{} {
+	return r.JSON201
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateTableResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateTableResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r CreateTableResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateTableResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateTableResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateTableResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateTableResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AddFieldResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *map[string]interface{}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r AddFieldResponse) GetJSON201() *map[string]interface{} {
+	return r.JSON201
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r AddFieldResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r AddFieldResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r AddFieldResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r AddFieldResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AddFieldResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AddFieldResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AddFieldResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -587,7 +1279,7 @@ type CreateRecordResponse struct {
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *SessionRequired
 	// JSON403 the response for an HTTP 403 `application/json` response
-	JSON403 *Error
+	JSON403 *CsrfInvalid
 	// JSON502 the response for an HTTP 502 `application/json` response
 	JSON502 *DomainUnavailable
 }
@@ -603,7 +1295,7 @@ func (r CreateRecordResponse) GetJSON401() *SessionRequired {
 }
 
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
-func (r CreateRecordResponse) GetJSON403() *Error {
+func (r CreateRecordResponse) GetJSON403() *CsrfInvalid {
 	return r.JSON403
 }
 
@@ -641,6 +1333,199 @@ func (r CreateRecordResponse) ContentType() string {
 	return ""
 }
 
+type CreateViewResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *View
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateViewResponse) GetJSON201() *View {
+	return r.JSON201
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateViewResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateViewResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r CreateViewResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateViewResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateViewResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateViewResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateViewResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetViewResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *View
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetViewResponse) GetJSON200() *View {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetViewResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetViewResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r GetViewResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r GetViewResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetViewResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetViewResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetViewResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateViewResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *View
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateViewResponse) GetJSON200() *View {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UpdateViewResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UpdateViewResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r UpdateViewResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r UpdateViewResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateViewResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateViewResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateViewResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateViewResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // GetBootstrapWithResponse Bootstrap do editor — metadados e permissões de interface (ADR-0003)
 //
 // Returns a wrapper object for the known response body format(s).
@@ -652,6 +1537,58 @@ func (c *ClientWithResponses) GetBootstrapWithResponse(ctx context.Context, reqE
 		return nil, err
 	}
 	return ParseGetBootstrapResponse(rsp)
+}
+
+// CreateTableWithBodyWithResponse Cria uma tabela dinâmica (GO-019)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/tables (the `CreateTable` operationId).
+func (c *ClientWithResponses) CreateTableWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateTableResponse, error) {
+	rsp, err := c.CreateTableWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateTableResponse(rsp)
+}
+
+// CreateTableWithResponse Cria uma tabela dinâmica (GO-019)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/tables (the `CreateTable` operationId).
+func (c *ClientWithResponses) CreateTableWithResponse(ctx context.Context, body CreateTableJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTableResponse, error) {
+	rsp, err := c.CreateTable(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateTableResponse(rsp)
+}
+
+// AddFieldWithBodyWithResponse Adiciona um campo a uma tabela dinâmica (GO-019)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/tables/{table}/fields (the `AddField` operationId).
+func (c *ClientWithResponses) AddFieldWithBodyWithResponse(ctx context.Context, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddFieldResponse, error) {
+	rsp, err := c.AddFieldWithBody(ctx, table, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAddFieldResponse(rsp)
+}
+
+// AddFieldWithResponse Adiciona um campo a uma tabela dinâmica (GO-019)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/tables/{table}/fields (the `AddField` operationId).
+func (c *ClientWithResponses) AddFieldWithResponse(ctx context.Context, table string, body AddFieldJSONRequestBody, reqEditors ...RequestEditorFn) (*AddFieldResponse, error) {
+	rsp, err := c.AddField(ctx, table, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAddFieldResponse(rsp)
 }
 
 // ListRecordsWithResponse Lista registros (a UI não distingue papel/ownership — o backend Go já filtrou)
@@ -697,6 +1634,79 @@ func (c *ClientWithResponses) CreateRecordWithResponse(ctx context.Context, tabl
 	return ParseCreateRecordResponse(rsp)
 }
 
+// CreateViewWithBodyWithResponse Cria uma view — o documento de layout do editor (GO-019)
+//
+// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/views (the `CreateView` operationId).
+func (c *ClientWithResponses) CreateViewWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateViewResponse, error) {
+	rsp, err := c.CreateViewWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateViewResponse(rsp)
+}
+
+// CreateViewWithResponse Cria uma view — o documento de layout do editor (GO-019)
+//
+// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/views (the `CreateView` operationId).
+func (c *ClientWithResponses) CreateViewWithResponse(ctx context.Context, body CreateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateViewResponse, error) {
+	rsp, err := c.CreateView(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateViewResponse(rsp)
+}
+
+// GetViewWithResponse Reabre uma view (GO-019)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/bff/views/{id} (the `GetView` operationId).
+func (c *ClientWithResponses) GetViewWithResponse(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*GetViewResponse, error) {
+	rsp, err := c.GetView(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetViewResponse(rsp)
+}
+
+// UpdateViewWithBodyWithResponse Salva ou publica uma view (GO-019)
+//
+// Mesma operação para "salvar" (corpo com `configuration`) e "publicar" (corpo com `min_role` menor). Exige `_version` (de uma leitura anterior) — conflito de edição concorrente retorna 409, nunca sobrescreve silenciosamente.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
+func (c *ClientWithResponses) UpdateViewWithBodyWithResponse(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error) {
+	rsp, err := c.UpdateViewWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateViewResponse(rsp)
+}
+
+// UpdateViewWithResponse Salva ou publica uma view (GO-019)
+//
+// Mesma operação para "salvar" (corpo com `configuration`) e "publicar" (corpo com `min_role` menor). Exige `_version` (de uma leitura anterior) — conflito de edição concorrente retorna 409, nunca sobrescreve silenciosamente.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
+func (c *ClientWithResponses) UpdateViewWithResponse(ctx context.Context, id Id, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error) {
+	rsp, err := c.UpdateView(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateViewResponse(rsp)
+}
+
 // ParseGetBootstrapResponse parses an HTTP response from a GetBootstrapWithResponse call
 func ParseGetBootstrapResponse(rsp *http.Response) (*GetBootstrapResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -724,6 +1734,100 @@ func ParseGetBootstrapResponse(rsp *http.Response) (*GetBootstrapResponse, error
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateTableResponse parses an HTTP response from a CreateTableWithResponse call
+func ParseCreateTableResponse(rsp *http.Response) (*CreateTableResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateTableResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAddFieldResponse parses an HTTP response from a AddFieldWithResponse call
+func ParseAddFieldResponse(rsp *http.Response) (*AddFieldResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AddFieldResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest map[string]interface{}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
 
 	}
 
@@ -799,11 +1903,159 @@ func ParseCreateRecordResponse(rsp *http.Response) (*CreateRecordResponse, error
 		response.JSON401 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest Error
+		var dest CsrfInvalid
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateViewResponse parses an HTTP response from a CreateViewWithResponse call
+func ParseCreateViewResponse(rsp *http.Response) (*CreateViewResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateViewResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest View
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetViewResponse parses an HTTP response from a GetViewWithResponse call
+func ParseGetViewResponse(rsp *http.Response) (*GetViewResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetViewResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest View
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateViewResponse parses an HTTP response from a UpdateViewWithResponse call
+func ParseUpdateViewResponse(rsp *http.Response) (*UpdateViewResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateViewResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest View
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
 		var dest DomainUnavailable

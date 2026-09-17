@@ -44,6 +44,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bff/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cria uma tabela dinâmica (GO-019) */
+        post: operations["createTable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bff/tables/{table}/fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                table: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Adiciona um campo a uma tabela dinâmica (GO-019) */
+        post: operations["addField"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bff/views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cria uma view — o documento de layout do editor (GO-019)
+         * @description O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createRecord — um retry do editor reaproveita a mesma chave.
+         */
+        post: operations["createView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bff/views/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Reabre uma view (GO-019) */
+        get: operations["getView"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Salva ou publica uma view (GO-019)
+         * @description Mesma operação para "salvar" (corpo com `configuration`) e "publicar" (corpo com `min_role` menor). Exige `_version` (de uma leitura anterior) — conflito de edição concorrente retorna 409, nunca sobrescreve silenciosamente.
+         */
+        patch: operations["updateView"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -54,6 +133,17 @@ export interface components {
                 role_id?: number;
             };
             tenant: components["schemas"]["Tenant"];
+        };
+        View: {
+            id: components["schemas"]["Id"];
+            name: string;
+            table_id: components["schemas"]["Id"];
+            template: string;
+            min_role: number;
+            configuration: {
+                [key: string]: unknown;
+            };
+            _version: string;
         };
         /**
          * Format: int64
@@ -92,6 +182,15 @@ export interface components {
         };
         /** @description O backend Go não respondeu dentro do timeout, ou respondeu com erro de infraestrutura — a indisponibilidade do Go deve produzir um erro controlado na UI (ADR-0003), nunca travar a requisição indefinidamente. */
         DomainUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Token CSRF ausente ou inválido. */
+        CsrfInvalid: {
             headers: {
                 [name: string]: unknown;
             };
@@ -189,8 +288,181 @@ export interface operations {
                 };
             };
             401: components["responses"]["SessionRequired"];
-            /** @description Negativo: token CSRF ausente ou inválido */
-            403: {
+            403: components["responses"]["CsrfInvalid"];
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    createTable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description tabela criada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    addField: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    type: string;
+                    required?: boolean;
+                    unique?: boolean;
+                    references?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description campo criado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    createView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    table: string;
+                    template: string;
+                    configuration: {
+                        [key: string]: unknown;
+                    };
+                    min_role?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description view criada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    getView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description view encontrada */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            /** @description view não encontrada (ou fora da visibilidade do ator, nunca distingue os dois casos) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    updateView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    _version: string;
+                    configuration?: {
+                        [key: string]: unknown;
+                    };
+                    template?: string;
+                    min_role?: number;
+                };
+            };
+        };
+        responses: {
+            /** @description view atualizada */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["View"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            /** @description Negativo: conflito de edição concorrente — a view mudou desde a leitura */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

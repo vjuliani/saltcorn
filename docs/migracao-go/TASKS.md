@@ -378,7 +378,7 @@ Execute a task GO-018 — Integrar React + SB Admin 2 e desacoplar builder, de d
 
 ### GO-019 — Integrar editor ao BFF
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — histórico em [execucoes/GO-019.md](execucoes/GO-019.md)
 - **Fase:** F3 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Frontend
 - **Depende de:** GO-017, GO-018

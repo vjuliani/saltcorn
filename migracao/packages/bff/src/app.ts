@@ -83,6 +83,72 @@ export function buildRouter(deps: AppDeps): Router {
     sendJSON(res, 201, created);
   });
 
+  // GO-019: conectar tabelas/campos/views ao ciclo real do editor —
+  // createTable/addField não precisam de Idempotency-Key (o Go já é
+  // idempotente por definição própria para os dois, ver
+  // internal-api.yaml); createView/updateView precisam (mesma razão de
+  // createRecord: sem isso, um retry de rede colidiria em nome duplicado
+  // ou em conflito de versão que na verdade já tinha sido salvo).
+  router.post("/api/bff/tables", async (req, res) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const created = await goClient.createTable(token, data.tenant, body as { name: string });
+    sendJSON(res, 201, created);
+  });
+
+  router.post("/api/bff/tables/:table/fields", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const created = await goClient.addField(token, data.tenant, params.table!, body as { name: string; type: string });
+    sendJSON(res, 201, created);
+  });
+
+  router.post("/api/bff/views", async (req, res) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    // "views" como escopo do recurso na chave de idempotência (o mesmo
+    // parâmetro que computeIdempotencyKey chama de "tabela" para
+    // records) — só precisa ser um identificador estável do tipo de
+    // operação, não literalmente um nome de tabela dinâmica.
+    const idempotencyKey = computeIdempotencyKey(data.userId, data.tenant, "views", body);
+    const created = await goClient.createView(
+      token,
+      idempotencyKey,
+      data.tenant,
+      body as { name: string; table: string; template: string; configuration: Record<string, unknown> }
+    );
+    sendJSON(res, 201, created);
+  });
+
+  router.get("/api/bff/views/:id", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const view = await goClient.getView(token, data.tenant, Number(params.id));
+    sendJSON(res, 200, view);
+  });
+
+  router.patch("/api/bff/views/:id", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const idempotencyKey = computeIdempotencyKey(data.userId, data.tenant, "views/" + params.id, body);
+    const updated = await goClient.updateView(
+      token,
+      idempotencyKey,
+      data.tenant,
+      Number(params.id),
+      body as { _version: string; configuration?: Record<string, unknown>; template?: string; min_role?: number }
+    );
+    sendJSON(res, 200, updated);
+  });
+
   return router;
 }
 

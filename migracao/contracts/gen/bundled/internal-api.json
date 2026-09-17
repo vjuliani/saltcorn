@@ -79,6 +79,258 @@
         }
       }
     },
+    "/v1/tenants/{tenant}/tables": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "createTable",
+        "summary": "Command: cria uma tabela dinâmica",
+        "description": "Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TableInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "tabela criada (ou já existente, idempotente)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Table"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenant}/tables/{table}/fields": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        },
+        {
+          "name": "table",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "addField",
+        "summary": "Command: adiciona um campo a uma tabela dinâmica",
+        "description": "Adicionado por GO-019 — `internal/metadata.AddField` (GO-011) nunca tinha exposição HTTP. Idempotente pela mesma razão de createTable.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "campo criado (ou já existente, idempotente)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Field"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenant}/views": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "createView",
+        "summary": "Command: cria uma view (documento de layout do editor)",
+        "description": "Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViewInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "view criada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/View"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflict"
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenant}/views/{id}": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Id"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getView",
+        "summary": "Query: reabre uma view",
+        "description": "O papel do ator é resolvido de novo a cada chamada — uma view despublicada nega a leitura seguinte sem nenhum resquício da anterior (mesmo espírito de GO-015).",
+        "responses": {
+          "200": {
+            "description": "view encontrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/View"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "view não encontrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateView",
+        "summary": "Command: salva ou publica uma view",
+        "description": "A mesma operação serve para \"salvar\" (corpo com `configuration` nova) e \"publicar\" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — \"conflito de edição é apresentado sem sobrescrever silenciosamente\" (critério de aceite de GO-019). Idempotente por Idempotency-Key.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViewUpdateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "view atualizada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/View"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "conflito de versão otimista (edição concorrente) ou de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tenants/{tenant}/tables/{table}/records": {
       "parameters": [
         {
@@ -363,6 +615,199 @@
           }
         }
       },
+      "TableInput": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "min_role_read": {
+            "type": "integer"
+          },
+          "min_role_write": {
+            "type": "integer"
+          }
+        }
+      },
+      "Table": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "min_role_read",
+          "min_role_write"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "min_role_read": {
+            "type": "integer"
+          },
+          "min_role_write": {
+            "type": "integer"
+          }
+        }
+      },
+      "FieldInput": {
+        "type": "object",
+        "required": [
+          "name",
+          "type"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "text",
+              "integer",
+              "boolean",
+              "float",
+              "date",
+              "key"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "unique": {
+            "type": "boolean"
+          },
+          "references": {
+            "type": "string",
+            "description": "Nome da tabela referenciada — obrigatório quando type=key."
+          }
+        }
+      },
+      "Field": {
+        "type": "object",
+        "required": [
+          "id",
+          "table_id",
+          "name",
+          "type"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "table_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "unique": {
+            "type": "boolean"
+          },
+          "references_table_id": {
+            "$ref": "#/components/schemas/Id"
+          }
+        }
+      },
+      "ViewInput": {
+        "type": "object",
+        "required": [
+          "name",
+          "table",
+          "template",
+          "configuration"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "table": {
+            "type": "string",
+            "description": "Nome da tabela (não o id) que a view consulta."
+          },
+          "template": {
+            "type": "string",
+            "description": "Identificador de intenção (ex. \"List\", \"Show\") — armazenado, não interpretado nesta versão (a renderização é GO-020)."
+          },
+          "configuration": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "O documento de layout produzido pelo builder Craft.js (`craftToSaltcorn`, GO-018)."
+          },
+          "min_role": {
+            "type": "integer"
+          }
+        }
+      },
+      "ViewUpdateInput": {
+        "type": "object",
+        "required": [
+          "_version"
+        ],
+        "properties": {
+          "_version": {
+            "type": "string",
+            "description": "O `_version` de uma leitura anterior — obrigatório, mesmo quando só min_role está sendo alterado (publicar também é uma escrita sujeita a conflito)."
+          },
+          "configuration": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "template": {
+            "type": "string"
+          },
+          "min_role": {
+            "type": "integer"
+          }
+        }
+      },
+      "View": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "table_id",
+          "template",
+          "min_role",
+          "configuration",
+          "_version"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "table_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "template": {
+            "type": "string"
+          },
+          "min_role": {
+            "type": "integer"
+          },
+          "configuration": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "_version": {
+            "type": "string"
+          }
+        }
+      },
       "RecordInput": {
         "type": "object",
         "additionalProperties": true,
@@ -525,6 +970,17 @@
       }
     },
     "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).\n",
+        "schema": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      },
       "Cursor": {
         "name": "cursor",
         "in": "query",
@@ -543,17 +999,6 @@
           "minimum": 1,
           "maximum": 200,
           "default": 50
-        }
-      },
-      "IdempotencyKey": {
-        "name": "Idempotency-Key",
-        "in": "header",
-        "required": true,
-        "description": "Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).\n",
-        "schema": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 255
         }
       }
     }

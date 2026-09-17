@@ -87,18 +87,213 @@ paths:
         "401":
           $ref: "#/components/responses/SessionRequired"
         "403":
-          description: "Negativo: token CSRF ausente ou inválido"
+          $ref: "#/components/responses/CsrfInvalid"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+  /api/bff/tables:
+    post:
+      operationId: createTable
+      summary: Cria uma tabela dinâmica (GO-019)
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "201":
+          description: tabela criada
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+  /api/bff/tables/{table}/fields:
+    parameters:
+      - name: table
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: addField
+      summary: Adiciona um campo a uma tabela dinâmica (GO-019)
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name:
+                  type: string
+                type:
+                  type: string
+                required:
+                  type: boolean
+                unique:
+                  type: boolean
+                references:
+                  type: string
+      responses:
+        "201":
+          description: campo criado
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+  /api/bff/views:
+    post:
+      operationId: createView
+      summary: Cria uma view — o documento de layout do editor (GO-019)
+      description: >
+        O BFF gera e propaga a Idempotency-Key para a chamada interna,
+        mesmo padrão de createRecord — um retry do editor reaproveita a
+        mesma chave.
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, table, template, configuration]
+              properties:
+                name:
+                  type: string
+                table:
+                  type: string
+                template:
+                  type: string
+                configuration:
+                  type: object
+                  additionalProperties: true
+                min_role:
+                  type: integer
+      responses:
+        "201":
+          description: view criada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/View"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+  /api/bff/views/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    get:
+      operationId: getView
+      summary: Reabre uma view (GO-019)
+      security:
+        - SessionCookie: []
+      responses:
+        "200":
+          description: view encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/View"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          description: view não encontrada (ou fora da visibilidade do ator, nunca distingue os dois casos)
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+    patch:
+      operationId: updateView
+      summary: Salva ou publica uma view (GO-019)
+      description: >
+        Mesma operação para "salvar" (corpo com `configuration`) e
+        "publicar" (corpo com `min_role` menor). Exige `_version` (de uma
+        leitura anterior) — conflito de edição concorrente retorna 409,
+        nunca sobrescreve silenciosamente.
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [_version]
+              properties:
+                _version:
+                  type: string
+                configuration:
+                  type: object
+                  additionalProperties: true
+                template:
+                  type: string
+                min_role:
+                  type: integer
+      responses:
+        "200":
+          description: view atualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/View"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "409":
+          description: "Negativo: conflito de edição concorrente — a view mudou desde a leitura"
           content:
             application/json:
               schema:
                 $ref: "./common.yaml#/components/schemas/Error"
               examples:
-                csrf_invalido:
-                  summary: "Negativo: CSRF ausente/inválido"
+                conflito_de_edicao:
+                  summary: "Negativo: outra sessão salvou primeiro"
                   value:
                     error:
-                      code: csrf_invalid
-                      message: "token CSRF ausente ou inválido"
+                      code: version_conflict
+                      message: "a view foi modificada por outra transação — releia e tente novamente"
         "502":
           $ref: "#/components/responses/DomainUnavailable"
 
@@ -153,6 +348,19 @@ components:
                 error:
                   code: domain_unavailable
                   message: "não foi possível completar a operação — tente novamente"
+    CsrfInvalid:
+      description: Token CSRF ausente ou inválido.
+      content:
+        application/json:
+          schema:
+            $ref: "./common.yaml#/components/schemas/Error"
+          examples:
+            csrf_invalido:
+              summary: "Negativo: CSRF ausente/inválido"
+              value:
+                error:
+                  code: csrf_invalid
+                  message: "token CSRF ausente ou inválido"
 
   schemas:
     Bootstrap:
@@ -168,3 +376,23 @@ components:
               type: integer
         tenant:
           $ref: "./common.yaml#/components/schemas/Tenant"
+
+    View:
+      type: object
+      required: [id, name, table_id, template, min_role, configuration, _version]
+      properties:
+        id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        name:
+          type: string
+        table_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        template:
+          type: string
+        min_role:
+          type: integer
+        configuration:
+          type: object
+          additionalProperties: true
+        _version:
+          type: string
