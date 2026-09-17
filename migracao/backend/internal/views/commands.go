@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 )
 
 const sqlstateUniqueViolation = "23505"
@@ -57,7 +58,11 @@ func scanView(row pgx.Row) (View, error) {
 const viewColumns = `id, name, table_id, template, min_role, configuration, xmin::text AS "_version"`
 
 // CreateView grava uma view nova — MinRole ausente (zero-value) vira
-// identity.RoleAdmin (ver ViewOptions), nunca publicada por omissão.
+// identity.RoleAdmin (ver ViewOptions), nunca publicada por omissão. Se o
+// chamador pedir MinRole != RoleAdmin já na criação (publicar direto, sem
+// passar por um rascunho admin-only primeiro), o mesmo bloqueio de layout
+// incompatível de UpdateView (GO-020) se aplica aqui — "bloqueiam
+// publicação" vale para qualquer forma de publicar, não só a mais comum.
 func CreateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name string, tableID int, template string, configuration map[string]any, opts ViewOptions) (View, error) {
 	if err := requireAdmin(actorRole); err != nil {
 		return View{}, err
@@ -65,6 +70,15 @@ func CreateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name 
 	minRole := opts.MinRole
 	if minRole == 0 {
 		minRole = identity.RoleAdmin
+	}
+	if minRole != identity.RoleAdmin {
+		fields, err := metadata.ListFields(ctx, tx, tableID)
+		if err != nil {
+			return View{}, err
+		}
+		if _, err := ClassifyView(View{Template: template, Configuration: configuration}, fields); err != nil {
+			return View{}, err
+		}
 	}
 	configJSON, err := json.Marshal(configuration)
 	if err != nil {
@@ -139,7 +153,10 @@ func ListViews(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableI
 // garantia) de internal/records.UpdateRecord (GO-013): se a view mudou
 // desde a leitura, ErrVersionConflict, nunca uma sobrescrita silenciosa.
 // "Publicar" é uma chamada desta função baixando MinRole (ex.: para
-// identity.RolePublic) — não um mecanismo separado.
+// identity.RolePublic) — não um mecanismo separado. Desde GO-020, publicar
+// (deixar minRole != identity.RoleAdmin) exige que o layout resultante
+// seja executável pelo runtime novo (ver render.go, ClassifyView) —
+// *UnsupportedLayoutError se não for.
 type ViewUpdate struct {
 	Configuration *map[string]any
 	Template      *string
@@ -168,6 +185,23 @@ func UpdateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, id in
 	if update.MinRole != nil {
 		minRole = *update.MinRole
 	}
+
+	// "Publicar" (GO-019) é justamente isto: o resultado final não fica
+	// admin-only. Nesse caso — e só nesse caso, para não travar um admin
+	// iterando numa view ainda não publicada — GO-020 exige que o layout
+	// seja executável pelo runtime novo antes de permitir a escrita.
+	// Nunca uma sobrescrita silenciosa de uma view incompatível "meio
+	// publicada": ou passa por inteiro, ou falha com o motivo específico.
+	if minRole != identity.RoleAdmin {
+		fields, err := metadata.ListFields(ctx, tx, current.TableID)
+		if err != nil {
+			return View{}, err
+		}
+		if _, err := ClassifyView(View{Template: template, Configuration: configuration}, fields); err != nil {
+			return View{}, err
+		}
+	}
+
 	configJSON, err := json.Marshal(configuration)
 	if err != nil {
 		return View{}, fmt.Errorf("views: codificar configuration: %w", err)

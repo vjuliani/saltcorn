@@ -5,7 +5,7 @@
 // o BffClient monta a requisição certa e distingue ViewConflictError de
 // qualquer outro erro.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { BffClient, BffClientError, ViewConflictError, readCsrfCookie } from "../src/bffClient";
+import { BffClient, BffClientError, ViewConflictError, ViewUnsupportedError, readCsrfCookie } from "../src/bffClient";
 
 describe("readCsrfCookie", () => {
   it("extrai sc_csrf de uma string de cookies com múltiplos valores", () => {
@@ -99,5 +99,43 @@ describe("BffClient — ciclo do editor (GO-019)", () => {
     expect(published.min_role).toEqual(100);
     const [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse(init.body as string)).toEqual({ _version: "1", min_role: 100 });
+  });
+
+  it("updateView em 422 view_unsupported lança ViewUnsupportedError com o motivo do Go (GO-020)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(422, { error: { code: "view_unsupported", message: 'template "Show" não suportado neste runtime (só "List")' } })
+    );
+    const client = new BffClient({ baseUrl: "http://bff.local", csrfToken: "tok" });
+    const err = await client.updateView(5, { _version: "1", min_role: 100 }).catch((e) => e);
+    expect(err).toBeInstanceOf(ViewUnsupportedError);
+    expect((err as ViewUnsupportedError).message).toEqual('template "Show" não suportado neste runtime (só "List")');
+  });
+
+  it("listViews envia GET /api/bff/views, com filtro opcional por tabela (GO-020)", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, [{ id: 5, name: "booklist" }]));
+    const client = new BffClient({ baseUrl: "http://bff.local", csrfToken: "tok" });
+    const list = await client.listViews("books");
+    expect(list).toEqual([{ id: 5, name: "booklist" }]);
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(url).toEqual("http://bff.local/api/bff/views?table=books");
+  });
+
+  it("renderView devolve o plano de colunas/linhas/paginação (GO-020)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { view_id: 5, columns: [{ field_name: "title", header_label: "Título" }], rows: [{ title: "Dune" }], order_by: "id", descending: false, next_cursor: null })
+    );
+    const client = new BffClient({ baseUrl: "http://bff.local", csrfToken: "tok" });
+    const plan = await client.renderView(5, { limit: 2 });
+    expect(plan.rows).toEqual([{ title: "Dune" }]);
+    const [url] = fetchMock.mock.calls[0]!;
+    expect(url).toEqual("http://bff.local/api/bff/views/5/render?limit=2");
+  });
+
+  it("renderView em 422 view_unsupported lança ViewUnsupportedError, distinguível de outros erros (GO-020)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(422, { error: { code: "view_unsupported", message: "layout.besides ausente" } })
+    );
+    const client = new BffClient({ baseUrl: "http://bff.local", csrfToken: "tok" });
+    await expect(client.renderView(5)).rejects.toThrow(ViewUnsupportedError);
   });
 });

@@ -26,6 +26,10 @@ type GetViewResponse =
   InternalPaths["/v1/tenants/{tenant}/views/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
 type UpdateViewResponse =
   InternalPaths["/v1/tenants/{tenant}/views/{id}"]["patch"]["responses"]["200"]["content"]["application/json"];
+type RenderViewResponse =
+  InternalPaths["/v1/tenants/{tenant}/views/{id}/render"]["get"]["responses"]["200"]["content"]["application/json"];
+type ListViewsResponse =
+  InternalPaths["/v1/tenants/{tenant}/views"]["get"]["responses"]["200"]["content"]["application/json"];
 
 export interface GoClientOptions {
   readonly baseUrl: string;
@@ -90,6 +94,14 @@ export class GoClient {
     return this.request<AddFieldResponse>(url, { method: "POST", serviceIdentityToken, body: input });
   }
 
+  // listViews (GO-020) — a página administrativa de views precisa
+  // enumerar o que existe antes de abrir uma view individual.
+  async listViews(serviceIdentityToken: string, tenant: string, table?: string): Promise<ListViewsResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/views`);
+    if (table) url.searchParams.set("table", table);
+    return this.request<ListViewsResponse>(url, { method: "GET", serviceIdentityToken });
+  }
+
   async createView(
     serviceIdentityToken: string,
     idempotencyKey: string,
@@ -124,6 +136,21 @@ export class GoClient {
       headers: { "Idempotency-Key": idempotencyKey },
       body: input,
     });
+  }
+
+  // renderView (GO-020) — só GET, sem Idempotency-Key (não é uma mutação).
+  // Devolve o DTO de renderização (colunas + linhas + paginação) tal como
+  // o Go monta — o BFF não reinterpreta nada, só repassa.
+  async renderView(
+    serviceIdentityToken: string,
+    tenant: string,
+    id: number,
+    query: { limit?: number; cursor?: string } = {}
+  ): Promise<RenderViewResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/views/${id}/render`);
+    if (query.limit !== undefined) url.searchParams.set("limit", String(query.limit));
+    if (query.cursor !== undefined) url.searchParams.set("cursor", query.cursor);
+    return this.request<RenderViewResponse>(url, { method: "GET", serviceIdentityToken });
   }
 
   private async request<T>(

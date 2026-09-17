@@ -181,6 +181,27 @@ type ViewInput struct {
 	Template string `json:"template"`
 }
 
+// ViewRenderColumn defines model for ViewRenderColumn.
+type ViewRenderColumn struct {
+	// FieldName Nome do campo (já resolvido contra o catálogo, GO-011) que esta coluna exibe.
+	FieldName   string `json:"field_name"`
+	HeaderLabel string `json:"header_label"`
+}
+
+// ViewRenderPlan DTO de renderização de uma view "List" (GO-020) — todas as decisões (colunas, ordenação, consulta) já foram tomadas pelo backend; o BFF/React só desenham o que está aqui.
+type ViewRenderPlan struct {
+	Columns    []ViewRenderColumn `json:"columns"`
+	Descending bool               `json:"descending"`
+
+	// NextCursor Cursor para a próxima página, ou `null` se não houver mais páginas.
+	NextCursor *string                  `json:"next_cursor,omitempty"`
+	OrderBy    string                   `json:"order_by"`
+	Rows       []map[string]interface{} `json:"rows"`
+
+	// ViewId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	ViewId Id `json:"view_id"`
+}
+
 // ViewUpdateInput defines model for ViewUpdateInput.
 type ViewUpdateInput struct {
 	// UnderscoreVersion O `_version` de uma leitura anterior — obrigatório, mesmo quando só min_role está sendo alterado (publicar também é uma escrita sujeita a conflito).
@@ -236,6 +257,11 @@ type UpdateRecordParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// ListViewsParams defines parameters for ListViews.
+type ListViewsParams struct {
+	Table *string `form:"table,omitempty" json:"table,omitempty"`
+}
+
 // CreateViewParams defines parameters for CreateView.
 type CreateViewParams struct {
 	// IdempotencyKey Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).
@@ -246,6 +272,13 @@ type CreateViewParams struct {
 type UpdateViewParams struct {
 	// IdempotencyKey Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// RenderViewParams defines parameters for RenderView.
+type RenderViewParams struct {
+	// Cursor Cursor opaco da página anterior. Omitir para a primeira página.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateTableJSONRequestBody defines body for CreateTable for application/json ContentType.
@@ -553,6 +586,13 @@ type ClientInterface interface {
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 	UpdateRecordWithApplicationMergePatchPlusJSONBody(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListViews Query: lista views
+	//
+	// Adicionado por GO-020 — a página administrativa de views (frontend) precisa enumerar o que existe antes de abrir uma view individual. `table` filtra por tabela; omitido lista todas as views visíveis ao ator (mesmo filtro por papel de getView/updateView — nunca revela uma view não publicada a um ator sem papel suficiente).
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/views (the `ListViews` operationId).
+	ListViews(ctx context.Context, tenant Tenant, params *ListViewsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CreateViewWithBody Command: cria uma view (documento de layout do editor)
 	//
 	// Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
@@ -580,7 +620,7 @@ type ClientInterface interface {
 
 	// UpdateViewWithBody Command: salva ou publica uma view
 	//
-	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key. Desde GO-020, publicar (resultar num `min_role` que não seja admin-only) exige que o layout seja executável pelo runtime novo — 422 caso contrário ("layouts incompatíveis bloqueiam publicação", critério de aceite de GO-020).
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -589,12 +629,19 @@ type ClientInterface interface {
 
 	// UpdateView Command: salva ou publica uma view
 	//
-	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key. Desde GO-020, publicar (resultar num `min_role` que não seja admin-only) exige que o layout seja executável pelo runtime novo — 422 caso contrário ("layouts incompatíveis bloqueiam publicação", critério de aceite de GO-020).
 	//
 	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
 	UpdateView(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RenderView Query: renderiza uma view List (GO-020)
+	//
+	// Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas resolvidas contra o catálogo + linhas + paginação) que o BFF/React desenham. Subconjunto suportado desta tarefa: só o template "List", com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`); qualquer view fora desse subconjunto devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/views/{id}/render (the `RenderView` operationId).
+	RenderView(ctx context.Context, tenant Tenant, id Id, params *RenderViewParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // GetLiveness Liveness (GO-005)
@@ -843,6 +890,23 @@ func (c *Client) UpdateRecordWithApplicationMergePatchPlusJSONBody(ctx context.C
 	return c.Client.Do(req)
 }
 
+// ListViews Query: lista views
+//
+// Adicionado por GO-020 — a página administrativa de views (frontend) precisa enumerar o que existe antes de abrir uma view individual. `table` filtra por tabela; omitido lista todas as views visíveis ao ator (mesmo filtro por papel de getView/updateView — nunca revela uma view não publicada a um ator sem papel suficiente).
+//
+// Corresponds with GET /v1/tenants/{tenant}/views (the `ListViews` operationId).
+func (c *Client) ListViews(ctx context.Context, tenant Tenant, params *ListViewsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListViewsRequest(c.Server, tenant, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // CreateViewWithBody Command: cria uma view (documento de layout do editor)
 //
 // Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
@@ -900,7 +964,7 @@ func (c *Client) GetView(ctx context.Context, tenant Tenant, id Id, reqEditors .
 
 // UpdateViewWithBody Command: salva ou publica uma view
 //
-// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key. Desde GO-020, publicar (resultar num `min_role` que não seja admin-only) exige que o layout seja executável pelo runtime novo — 422 caso contrário ("layouts incompatíveis bloqueiam publicação", critério de aceite de GO-020).
 //
 // Takes any type of body and a specified content type.
 //
@@ -919,13 +983,30 @@ func (c *Client) UpdateViewWithBody(ctx context.Context, tenant Tenant, id Id, p
 
 // UpdateView Command: salva ou publica uma view
 //
-// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key. Desde GO-020, publicar (resultar num `min_role` que não seja admin-only) exige que o layout seja executável pelo runtime novo — 422 caso contrário ("layouts incompatíveis bloqueiam publicação", critério de aceite de GO-020).
 //
 // Takes a body of the `application/json` content type.
 //
 // Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
 func (c *Client) UpdateView(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateViewRequest(c.Server, tenant, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RenderView Query: renderiza uma view List (GO-020)
+//
+// Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas resolvidas contra o catálogo + linhas + paginação) que o BFF/React desenham. Subconjunto suportado desta tarefa: só o template "List", com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`); qualquer view fora desse subconjunto devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
+//
+// Corresponds with GET /v1/tenants/{tenant}/views/{id}/render (the `RenderView` operationId).
+func (c *Client) RenderView(ctx context.Context, tenant Tenant, id Id, params *RenderViewParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRenderViewRequest(c.Server, tenant, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1455,6 +1536,67 @@ func NewUpdateRecordRequestWithBody(server string, tenant Tenant, table string, 
 	return req, nil
 }
 
+// NewListViewsRequest constructs an http.Request for the ListViews method
+func NewListViewsRequest(server string, tenant Tenant, params *ListViewsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/views", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Table != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "table", *params.Table, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewCreateViewRequest calls the generic CreateView builder with application/json body
 func NewCreateViewRequest(server string, tenant Tenant, params *CreateViewParams, body CreateViewJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -1623,6 +1765,86 @@ func NewUpdateViewRequestWithBody(server string, tenant Tenant, id Id, params *U
 	return req, nil
 }
 
+// NewRenderViewRequest constructs an http.Request for the RenderView method
+func NewRenderViewRequest(server string, tenant Tenant, id Id, params *RenderViewParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/views/%s/render", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1785,6 +2007,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 	UpdateRecordWithApplicationMergePatchPlusJSONBodyWithResponse(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateRecordResponse, error)
 
+	// ListViewsWithResponse Query: lista views
+	//
+	// Adicionado por GO-020 — a página administrativa de views (frontend) precisa enumerar o que existe antes de abrir uma view individual. `table` filtra por tabela; omitido lista todas as views visíveis ao ator (mesmo filtro por papel de getView/updateView — nunca revela uma view não publicada a um ator sem papel suficiente).
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/views (the `ListViews` operationId).
+	ListViewsWithResponse(ctx context.Context, tenant Tenant, params *ListViewsParams, reqEditors ...RequestEditorFn) (*ListViewsResponse, error)
+
 	// CreateViewWithBodyWithResponse Command: cria uma view (documento de layout do editor)
 	//
 	// Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
@@ -1814,7 +2045,7 @@ type ClientWithResponsesInterface interface {
 
 	// UpdateViewWithBodyWithResponse Command: salva ou publica uma view
 	//
-	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key. Desde GO-020, publicar (resultar num `min_role` que não seja admin-only) exige que o layout seja executável pelo runtime novo — 422 caso contrário ("layouts incompatíveis bloqueiam publicação", critério de aceite de GO-020).
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -1823,12 +2054,21 @@ type ClientWithResponsesInterface interface {
 
 	// UpdateViewWithResponse Command: salva ou publica uma view
 	//
-	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+	// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key. Desde GO-020, publicar (resultar num `min_role` que não seja admin-only) exige que o layout seja executável pelo runtime novo — 422 caso contrário ("layouts incompatíveis bloqueiam publicação", critério de aceite de GO-020).
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
 	UpdateViewWithResponse(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error)
+
+	// RenderViewWithResponse Query: renderiza uma view List (GO-020)
+	//
+	// Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas resolvidas contra o catálogo + linhas + paginação) que o BFF/React desenham. Subconjunto suportado desta tarefa: só o template "List", com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`); qualquer view fora desse subconjunto devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/views/{id}/render (the `RenderView` operationId).
+	RenderViewWithResponse(ctx context.Context, tenant Tenant, id Id, params *RenderViewParams, reqEditors ...RequestEditorFn) (*RenderViewResponse, error)
 }
 
 type GetLivenessResponse struct {
@@ -2363,6 +2603,61 @@ func (r UpdateRecordResponse) ContentType() string {
 	return ""
 }
 
+type ListViewsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]View
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListViewsResponse) GetJSON200() *[]View {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListViewsResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListViewsResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r ListViewsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListViewsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListViewsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListViewsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type CreateViewResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2498,6 +2793,8 @@ type UpdateViewResponse struct {
 	JSON403 *Forbidden
 	// JSON409 the response for an HTTP 409 `application/json` response
 	JSON409 *Error
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2518,6 +2815,11 @@ func (r UpdateViewResponse) GetJSON403() *Forbidden {
 // GetJSON409 returns the response for an HTTP 409 `application/json` response
 func (r UpdateViewResponse) GetJSON409() *Error {
 	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r UpdateViewResponse) GetJSON422() *Error {
+	return r.JSON422
 }
 
 // GetBody returns the raw response body bytes
@@ -2543,6 +2845,75 @@ func (r UpdateViewResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateViewResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RenderViewResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ViewRenderPlan
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RenderViewResponse) GetJSON200() *ViewRenderPlan {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RenderViewResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RenderViewResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RenderViewResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r RenderViewResponse) GetJSON422() *Error {
+	return r.JSON422
+}
+
+// GetBody returns the raw response body bytes
+func (r RenderViewResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RenderViewResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RenderViewResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RenderViewResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2751,6 +3122,21 @@ func (c *ClientWithResponses) UpdateRecordWithApplicationMergePatchPlusJSONBodyW
 	return ParseUpdateRecordResponse(rsp)
 }
 
+// ListViewsWithResponse Query: lista views
+//
+// Adicionado por GO-020 — a página administrativa de views (frontend) precisa enumerar o que existe antes de abrir uma view individual. `table` filtra por tabela; omitido lista todas as views visíveis ao ator (mesmo filtro por papel de getView/updateView — nunca revela uma view não publicada a um ator sem papel suficiente).
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/tenants/{tenant}/views (the `ListViews` operationId).
+func (c *ClientWithResponses) ListViewsWithResponse(ctx context.Context, tenant Tenant, params *ListViewsParams, reqEditors ...RequestEditorFn) (*ListViewsResponse, error) {
+	rsp, err := c.ListViews(ctx, tenant, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListViewsResponse(rsp)
+}
+
 // CreateViewWithBodyWithResponse Command: cria uma view (documento de layout do editor)
 //
 // Adicionado por GO-019 — persiste o documento que o editor Craft.js (GO-018) produz (`craftToSaltcorn`). Nasce com MinRole = admin (nunca publicada por omissão); publicar é um `updateView` baixando `min_role`. Idempotente por Idempotency-Key (ao contrário de createTable/addField, uma view não é idempotente por definição própria — duas criações com o mesmo nome sem isso colidiriam em `duplicate_name` num retry legítimo).
@@ -2798,7 +3184,7 @@ func (c *ClientWithResponses) GetViewWithResponse(ctx context.Context, tenant Te
 
 // UpdateViewWithBodyWithResponse Command: salva ou publica uma view
 //
-// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key. Desde GO-020, publicar (resultar num `min_role` que não seja admin-only) exige que o layout seja executável pelo runtime novo — 422 caso contrário ("layouts incompatíveis bloqueiam publicação", critério de aceite de GO-020).
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -2813,7 +3199,7 @@ func (c *ClientWithResponses) UpdateViewWithBodyWithResponse(ctx context.Context
 
 // UpdateViewWithResponse Command: salva ou publica uma view
 //
-// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key.
+// A mesma operação serve para "salvar" (corpo com `configuration` nova) e "publicar" (corpo com `min_role` menor) — só campos diferentes do mesmo PATCH. Exige `_version` (o `_version` de uma leitura anterior) para controle de concorrência otimista: se a view mudou desde a leitura, 409 — "conflito de edição é apresentado sem sobrescrever silenciosamente" (critério de aceite de GO-019). Idempotente por Idempotency-Key. Desde GO-020, publicar (resultar num `min_role` que não seja admin-only) exige que o layout seja executável pelo runtime novo — 422 caso contrário ("layouts incompatíveis bloqueiam publicação", critério de aceite de GO-020).
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -2824,6 +3210,21 @@ func (c *ClientWithResponses) UpdateViewWithResponse(ctx context.Context, tenant
 		return nil, err
 	}
 	return ParseUpdateViewResponse(rsp)
+}
+
+// RenderViewWithResponse Query: renderiza uma view List (GO-020)
+//
+// Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas resolvidas contra o catálogo + linhas + paginação) que o BFF/React desenham. Subconjunto suportado desta tarefa: só o template "List", com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`); qualquer view fora desse subconjunto devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/tenants/{tenant}/views/{id}/render (the `RenderView` operationId).
+func (c *ClientWithResponses) RenderViewWithResponse(ctx context.Context, tenant Tenant, id Id, params *RenderViewParams, reqEditors ...RequestEditorFn) (*RenderViewResponse, error) {
+	rsp, err := c.RenderView(ctx, tenant, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRenderViewResponse(rsp)
 }
 
 // ParseGetLivenessResponse parses an HTTP response from a GetLivenessWithResponse call
@@ -3203,6 +3604,46 @@ func ParseUpdateRecordResponse(rsp *http.Response) (*UpdateRecordResponse, error
 	return response, nil
 }
 
+// ParseListViewsResponse parses an HTTP response from a ListViewsWithResponse call
+func ParseListViewsResponse(rsp *http.Response) (*ListViewsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListViewsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []View
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseCreateViewResponse parses an HTTP response from a CreateViewWithResponse call
 func ParseCreateViewResponse(rsp *http.Response) (*CreateViewResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -3338,6 +3779,67 @@ func ParseUpdateViewResponse(rsp *http.Response) (*UpdateViewResponse, error) {
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRenderViewResponse parses an HTTP response from a RenderViewWithResponse call
+func ParseRenderViewResponse(rsp *http.Response) (*RenderViewResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RenderViewResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ViewRenderPlan
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
 
 	}
 

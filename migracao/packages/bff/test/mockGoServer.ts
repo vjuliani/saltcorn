@@ -103,6 +103,13 @@ export class MockGoServer {
       return;
     }
 
+    // GO-020: listViews — sem filtro por tabela no mock (simplificação;
+    // já testado no domínio/HTTP do lado Go).
+    if (req.method === "GET" && url.pathname.endsWith("/views")) {
+      sendJSON(res, 200, Array.from(this.views.values()));
+      return;
+    }
+
     // GO-019: views — createView com Idempotency-Key (mesmo padrão de
     // records); getView/updateView completam o ciclo.
     if (req.method === "POST" && url.pathname.endsWith("/views")) {
@@ -119,6 +126,45 @@ export class MockGoServer {
         };
         this.views.set(id, view);
         return view;
+      });
+      return;
+    }
+
+    // GO-020: render — mock simplificado da mesma classificação de
+    // internal/views/render.go (só template "List" com layout.besides não
+    // vazio é compatível); não reimplementa paginação real por cursor
+    // opaco, só o suficiente para o BFF exercitar propagação de query
+    // params/422 sem duplicar toda a lógica de classificação do Go.
+    const renderMatch = url.pathname.match(/\/views\/(\d+)\/render$/);
+    if (renderMatch && req.method === "GET") {
+      const id = Number(renderMatch[1]);
+      const view = this.views.get(id);
+      if (!view) {
+        sendJSON(res, 404, { error: { code: "not_found", message: "view não encontrada" } });
+        return;
+      }
+      const configuration = view.configuration as { layout?: { besides?: Array<{ header_label?: string; contents?: { type?: string; field_name?: string } }> } };
+      const besides = configuration?.layout?.besides;
+      if (view.template !== "List" || !besides || besides.length === 0) {
+        sendJSON(res, 422, { error: { code: "view_unsupported", message: "layout incompatível com o runtime atual (mock)" } });
+        return;
+      }
+      const allRows = [
+        { id: 1, title: "Dune", pages: 412 },
+        { id: 2, title: "Foundation", pages: 255 },
+        { id: 3, title: "Neuromancer", pages: 271 },
+      ];
+      const limit = Number(url.searchParams.get("limit") ?? "50");
+      const offset = Number(url.searchParams.get("cursor") ?? "0");
+      const page = allRows.slice(offset, offset + limit);
+      const hasMore = offset + limit < allRows.length;
+      sendJSON(res, 200, {
+        view_id: id,
+        columns: besides.map((c) => ({ field_name: c.contents?.field_name ?? "", header_label: c.header_label ?? c.contents?.field_name ?? "" })),
+        rows: page,
+        order_by: "id",
+        descending: false,
+        next_cursor: hasMore ? String(offset + limit) : null,
       });
       return;
     }

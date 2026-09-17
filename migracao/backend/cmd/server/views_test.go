@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -248,8 +249,15 @@ func TestEditorE2E_CreateTableViewSaveReopenPublish(t *testing.T) {
 
 	// 8. Publicar: PATCH baixando min_role para RolePublic — usa a Version
 	// ATUAL (a do passo 5/6), não a obsoleta do passo 7 (que falhou e não
-	// avançou a versão).
-	publishBody := `{"_version":"` + saved.Version + `","min_role":` + strconv.Itoa(int(identity.RolePublic)) + `}`
+	// avançou a versão). Desde GO-020, publicar exige um layout executável
+	// pelo runtime novo (ver internal/views/render.go) — os passos 3/5/7
+	// usam de propósito o layout opaco de mock (`above`, GO-018/019, prova
+	// que o transporte/concorrência não interpretam `configuration`); este
+	// passo troca para o shape real e suportado (`layout.besides` com uma
+	// coluna de campo direto) exatamente no momento de publicar, o
+	// equivalente a "finalizar o layout antes de publicar" no editor real.
+	publishBody := `{"_version":"` + saved.Version + `","min_role":` + strconv.Itoa(int(identity.RolePublic)) +
+		`,"configuration":{"layout":{"besides":[{"contents":{"type":"Field","field_name":"title"}}]}}}`
 	publishReq := httptest.NewRequest(http.MethodPatch, viewPath, bytes.NewBufferString(publishBody))
 	publishReq.SetPathValue("tenant", string(fx.tenant))
 	publishReq.SetPathValue("id", strconv.Itoa(created.ID))
@@ -274,14 +282,20 @@ func TestEditorE2E_CreateTableViewSaveReopenPublish(t *testing.T) {
 	}
 
 	// 10. Confirma, com uma consulta final, que o conteúdo do "ataque" de
-	// conflito (passo 7) nunca persistiu — nem antes nem depois de publicar.
+	// conflito (passo 7) nunca persistiu — nem antes nem depois de
+	// publicar. A publicação (passo 8) trocou `configuration` para o
+	// layout compatível; o conteúdo do passo 7 nunca existiu em nenhuma
+	// versão persistida, então basta confirmar que a view final não é o
+	// shape antigo (`above`) nem contém o texto do conflito em lugar algum.
 	var finalCheck viewResponse
 	if err := json.Unmarshal(getPublicAfterRec.Body.Bytes(), &finalCheck); err != nil {
 		t.Fatalf("decodificar view final: %v", err)
 	}
-	finalAbove, _ := finalCheck.Configuration["above"].([]any)
-	finalSeg, _ := finalAbove[0].(map[string]any)
-	if finalSeg["contents"] == "conflito, nunca deveria persistir" {
+	if _, stillOldShape := finalCheck.Configuration["above"]; stillOldShape {
+		t.Fatalf("configuration final ainda no shape antigo (above) — publicar (passo 8) deveria ter trocado para layout.besides: %+v", finalCheck.Configuration)
+	}
+	rawFinal, _ := json.Marshal(finalCheck.Configuration)
+	if strings.Contains(string(rawFinal), "conflito, nunca deveria persistir") {
 		t.Fatal("o conteúdo do conflito de edição persistiu — sobrescrita silenciosa!")
 	}
 }

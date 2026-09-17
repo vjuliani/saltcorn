@@ -16,8 +16,10 @@ type CreateTableResponse = paths["/api/bff/tables"]["post"]["responses"]["201"][
 type AddFieldResponse =
   paths["/api/bff/tables/{table}/fields"]["post"]["responses"]["201"]["content"]["application/json"];
 type CreateViewResponse = paths["/api/bff/views"]["post"]["responses"]["201"]["content"]["application/json"];
+type ListViewsResponse = paths["/api/bff/views"]["get"]["responses"]["200"]["content"]["application/json"];
 type GetViewResponse = paths["/api/bff/views/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
 type UpdateViewResponse = paths["/api/bff/views/{id}"]["patch"]["responses"]["200"]["content"]["application/json"];
+type RenderViewResponse = paths["/api/bff/views/{id}/render"]["get"]["responses"]["200"]["content"]["application/json"];
 type ErrorResponse = { error: { code: string; message: string } };
 
 /**
@@ -31,6 +33,21 @@ type ErrorResponse = { error: { code: string; message: string } };
 export class ViewConflictError extends Error {
   constructor() {
     super("a view foi modificada por outra transação — releia e tente novamente");
+  }
+}
+
+/**
+ * ViewUnsupportedError distingue o 422 `view_unsupported` (GO-020) de
+ * qualquer outro erro — a mensagem já é o motivo específico que o Go
+ * classificou (ex.: "template \"Show\" não suportado"), nunca uma frase
+ * genérica de erro. É o sinal que a UI usa para "layouts incompatíveis...
+ * seguem rota legada explícita" (critério de aceite): ao ver este erro,
+ * em vez de tentar desenhar uma tabela, mostra o motivo e aponta para o
+ * sistema atual.
+ */
+export class ViewUnsupportedError extends Error {
+  constructor(reason: string) {
+    super(reason);
   }
 }
 
@@ -115,8 +132,34 @@ export class BffClient {
     });
   }
 
+  async listViews(table?: string): Promise<ListViewsResponse> {
+    const url = new URL(`${this.opts.baseUrl}/api/bff/views`);
+    if (table) url.searchParams.set("table", table);
+    return this.request<ListViewsResponse>(url.pathname + url.search, { method: "GET" });
+  }
+
   async getView(id: number): Promise<GetViewResponse> {
     return this.request<GetViewResponse>(`/api/bff/views/${id}`, { method: "GET" });
+  }
+
+  /**
+   * renderView (GO-020) — o DTO de colunas/linhas/paginação que
+   * ListView.tsx desenha. Lança ViewUnsupportedError especificamente em
+   * 422 `view_unsupported`, para o chamador distinguir "esta view não é
+   * suportada ainda" de qualquer outro erro (rede, 404, etc.).
+   */
+  async renderView(id: number, query: { limit?: number; cursor?: string } = {}): Promise<RenderViewResponse> {
+    const url = new URL(`${this.opts.baseUrl}/api/bff/views/${id}/render`);
+    if (query.limit !== undefined) url.searchParams.set("limit", String(query.limit));
+    if (query.cursor !== undefined) url.searchParams.set("cursor", query.cursor);
+    try {
+      return await this.request<RenderViewResponse>(url.pathname + url.search, { method: "GET" });
+    } catch (err) {
+      if (err instanceof BffClientError && err.status === 422 && err.code === "view_unsupported") {
+        throw new ViewUnsupportedError(err.message);
+      }
+      throw err;
+    }
   }
 
   /**
@@ -138,6 +181,9 @@ export class BffClient {
     } catch (err) {
       if (err instanceof BffClientError && err.status === 409 && err.code === "version_conflict") {
         throw new ViewConflictError();
+      }
+      if (err instanceof BffClientError && err.status === 422 && err.code === "view_unsupported") {
+        throw new ViewUnsupportedError(err.message);
       }
       throw err;
     }
