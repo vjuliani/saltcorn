@@ -86,7 +86,7 @@ export class BffClient {
   }
 
   async listRecords(table: string, cursor?: string): Promise<ListRecordsResponse> {
-    const url = new URL(`${this.opts.baseUrl}/api/bff/tables/${encodeURIComponent(table)}/records`);
+    const url = this.buildUrl(`/api/bff/tables/${encodeURIComponent(table)}/records`);
     if (cursor) url.searchParams.set("cursor", cursor);
     return this.request<ListRecordsResponse>(url.pathname + url.search, { method: "GET" });
   }
@@ -133,7 +133,7 @@ export class BffClient {
   }
 
   async listViews(table?: string): Promise<ListViewsResponse> {
-    const url = new URL(`${this.opts.baseUrl}/api/bff/views`);
+    const url = this.buildUrl("/api/bff/views");
     if (table) url.searchParams.set("table", table);
     return this.request<ListViewsResponse>(url.pathname + url.search, { method: "GET" });
   }
@@ -149,7 +149,7 @@ export class BffClient {
    * suportada ainda" de qualquer outro erro (rede, 404, etc.).
    */
   async renderView(id: number, query: { limit?: number; cursor?: string } = {}): Promise<RenderViewResponse> {
-    const url = new URL(`${this.opts.baseUrl}/api/bff/views/${id}/render`);
+    const url = this.buildUrl(`/api/bff/views/${id}/render`);
     if (query.limit !== undefined) url.searchParams.set("limit", String(query.limit));
     if (query.cursor !== undefined) url.searchParams.set("cursor", query.cursor);
     try {
@@ -187,6 +187,22 @@ export class BffClient {
       }
       throw err;
     }
+  }
+
+  /**
+   * Constrói uma URL para manipular query params (`searchParams.set`) —
+   * `new URL(path)` sozinho LANÇA "Invalid URL" quando `path` é relativo
+   * e não há base, exatamente o caso de `baseUrl` vazio (mesma origem via
+   * proxy reverso — a topologia real de produção, ver App.tsx). Achado
+   * pelo E2E de navegador real (GO-021): `listViews`/`renderView` (e o já
+   * existente `listRecords`, de GO-017) quebravam nesse cenário — nenhum
+   * teste anterior usava `baseUrl: ""` com um `URL` de verdade (jsdom/
+   * vitest sempre passavam uma URL absoluta de teste). `window.location.
+   * origin` como base é ignorado quando `baseUrl` já é absoluto (ex.:
+   * testes), então este helper funciona nos dois casos.
+   */
+  private buildUrl(path: string): URL {
+    return new URL(`${this.opts.baseUrl}${path}`, window.location.origin);
   }
 
   private requireCsrf(): string {

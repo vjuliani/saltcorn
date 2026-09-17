@@ -1,0 +1,16 @@
+{
+  "name": "saltcorn-go-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "E2E de navegador (GO-021) do stack novo (Go + BFF Node.js + React) — criar/publicar/operar, teclado, responsividade, sanitização HTML.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "bash run.sh"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

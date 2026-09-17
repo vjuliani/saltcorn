@@ -32,6 +32,8 @@ func main() {
 		fmt.Println(version)
 	case "healthcheck":
 		err = healthcheck()
+	case "e2e-seed":
+		err = e2eSeed(os.Args[2:])
 	default:
 		usage()
 		os.Exit(1)
@@ -44,7 +46,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "uso: cli <version|healthcheck>")
+	fmt.Fprintln(os.Stderr, "uso: cli <version|healthcheck|e2e-seed>")
 }
 
 // healthcheck reutiliza internal/platform/config (o mesmo pacote de

@@ -416,7 +416,7 @@ Execute a task GO-020 — Portar runtime de views e páginas, de docs/migracao-g
 
 ### GO-021 — Validar experiência e compatibilidade web
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — histórico em [execucoes/GO-021.md](execucoes/GO-021.md)
 - **Fase:** F3 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** QA + Frontend
 - **Depende de:** GO-019, GO-020
