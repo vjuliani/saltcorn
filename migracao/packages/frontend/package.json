@@ -1,0 +1,32 @@
+{
+  "name": "saltcorn-go-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Shell React + SB Admin 2 (GO-018) — sidebar/topbar/navegação em React puro (sem scripts imperativos legados no mesmo DOM), builder Craft.js existente reaproveitado como widget isolado, cliente HTTP tipado para o BFF.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-dom": "18.2.0"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.0",
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.0.1",
+    "@types/react": "18.2.0",
+    "@types/react-dom": "18.2.0",
+    "@vitejs/plugin-react": "4.3.4",
+    "jsdom": "25.0.1",
+    "typescript": "5.9.2",
+    "vite": "5.4.21",
+    "vitest": "2.1.9"
+  }
+}
