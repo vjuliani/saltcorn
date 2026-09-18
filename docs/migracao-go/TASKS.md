@@ -511,7 +511,7 @@ Execute a task GO-025 — Portar scheduler e coordenação de workers, de docs/m
 
 ### GO-026 — Portar arquivos e notificações
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — implementação, testes e documentação concluídos; aguardando abertura/revisão do PR; histórico em [execucoes/GO-026.md](execucoes/GO-026.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-008, GO-014
