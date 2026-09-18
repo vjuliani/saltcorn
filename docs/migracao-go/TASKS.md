@@ -473,7 +473,7 @@ Execute a task GO-023 — Portar tipos e expressões prioritários, de docs/migr
 
 ### GO-024 — Portar triggers, ações e workflows
 
-- [ ] **Status:** IN_REVIEW — PR [#27](https://github.com/vjuliani/saltcorn/pull/27) aberto; aguardando revisão e checks; histórico em [execucoes/GO-024.md](execucoes/GO-024.md)
+- [x] **Status:** DONE — integrada via PR [#27](https://github.com/vjuliani/saltcorn/pull/27) (merge `5bc11c72fa100ad134a7881f6997e60b94de2b5f`); histórico em [execucoes/GO-024.md](execucoes/GO-024.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-013, GO-014, GO-023
