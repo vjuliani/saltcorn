@@ -473,7 +473,7 @@ Execute a task GO-023 — Portar tipos e expressões prioritários, de docs/migr
 
 ### GO-024 — Portar triggers, ações e workflows
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — implementação, testes e documentação concluídos; aguardando abertura/revisão do PR; histórico em [execucoes/GO-024.md](execucoes/GO-024.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-013, GO-014, GO-023
