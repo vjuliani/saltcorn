@@ -8,9 +8,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	sqliteDriver "modernc.org/sqlite"
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // Códigos SQLSTATE do Postgres classificados por classifyPgError — nunca a
@@ -22,58 +24,54 @@ const (
 	sqlstateNotNullViolation    = "23502"
 )
 
-// Hooks define pontos de extensão para um sistema de triggers/automação
-// futuro (GO-024/GO-025, que ainda não existem) — "definir pontos de
-// extensão de triggers" do escopo de GO-013. Cada callback roda DENTRO da
-// mesma transação do comando: se um hook retornar erro, a operação inteira
-// desfaz (mesma garantia de "falha desfaz toda a operação" do critério de
-// aceite), nunca só o efeito do hook. Um *Hooks nil, ou qualquer campo
-// nil, é um no-op — nenhuma automação real usa isto ainda.
-type Hooks struct {
-	BeforeInsert func(ctx context.Context, tx pgx.Tx, table metadata.Table, values map[string]any) error
-	AfterInsert  func(ctx context.Context, tx pgx.Tx, table metadata.Table, record map[string]any) error
-	BeforeUpdate func(ctx context.Context, tx pgx.Tx, table metadata.Table, id int, values map[string]any) error
-	AfterUpdate  func(ctx context.Context, tx pgx.Tx, table metadata.Table, record map[string]any) error
-	BeforeDelete func(ctx context.Context, tx pgx.Tx, table metadata.Table, id int) error
-	AfterDelete  func(ctx context.Context, tx pgx.Tx, table metadata.Table, id int) error
+// TxHooks executa callbacks na mesma transação do comando nos dois bancos.
+// O chamador deve propagar erros para que WithTenant reverta toda a operação.
+// Campos nil são no-op; Hooks em postgres.go preserva a API pgx existente.
+type TxHooks struct {
+	BeforeInsert func(ctx context.Context, tx database.Tx, table metadata.Table, values map[string]any) error
+	AfterInsert  func(ctx context.Context, tx database.Tx, table metadata.Table, record map[string]any) error
+	BeforeUpdate func(ctx context.Context, tx database.Tx, table metadata.Table, id int, values map[string]any) error
+	AfterUpdate  func(ctx context.Context, tx database.Tx, table metadata.Table, record map[string]any) error
+	BeforeDelete func(ctx context.Context, tx database.Tx, table metadata.Table, id int) error
+	AfterDelete  func(ctx context.Context, tx database.Tx, table metadata.Table, id int) error
 }
 
-func (h *Hooks) beforeInsert(ctx context.Context, tx pgx.Tx, table metadata.Table, values map[string]any) error {
+func (h *TxHooks) beforeInsert(ctx context.Context, tx database.Tx, table metadata.Table, values map[string]any) error {
 	if h == nil || h.BeforeInsert == nil {
 		return nil
 	}
 	return h.BeforeInsert(ctx, tx, table, values)
 }
 
-func (h *Hooks) afterInsert(ctx context.Context, tx pgx.Tx, table metadata.Table, record map[string]any) error {
+func (h *TxHooks) afterInsert(ctx context.Context, tx database.Tx, table metadata.Table, record map[string]any) error {
 	if h == nil || h.AfterInsert == nil {
 		return nil
 	}
 	return h.AfterInsert(ctx, tx, table, record)
 }
 
-func (h *Hooks) beforeUpdate(ctx context.Context, tx pgx.Tx, table metadata.Table, id int, values map[string]any) error {
+func (h *TxHooks) beforeUpdate(ctx context.Context, tx database.Tx, table metadata.Table, id int, values map[string]any) error {
 	if h == nil || h.BeforeUpdate == nil {
 		return nil
 	}
 	return h.BeforeUpdate(ctx, tx, table, id, values)
 }
 
-func (h *Hooks) afterUpdate(ctx context.Context, tx pgx.Tx, table metadata.Table, record map[string]any) error {
+func (h *TxHooks) afterUpdate(ctx context.Context, tx database.Tx, table metadata.Table, record map[string]any) error {
 	if h == nil || h.AfterUpdate == nil {
 		return nil
 	}
 	return h.AfterUpdate(ctx, tx, table, record)
 }
 
-func (h *Hooks) beforeDelete(ctx context.Context, tx pgx.Tx, table metadata.Table, id int) error {
+func (h *TxHooks) beforeDelete(ctx context.Context, tx database.Tx, table metadata.Table, id int) error {
 	if h == nil || h.BeforeDelete == nil {
 		return nil
 	}
 	return h.BeforeDelete(ctx, tx, table, id)
 }
 
-func (h *Hooks) afterDelete(ctx context.Context, tx pgx.Tx, table metadata.Table, id int) error {
+func (h *TxHooks) afterDelete(ctx context.Context, tx database.Tx, table metadata.Table, id int) error {
 	if h == nil || h.AfterDelete == nil {
 		return nil
 	}
@@ -83,7 +81,7 @@ func (h *Hooks) afterDelete(ctx context.Context, tx pgx.Tx, table metadata.Table
 // resolveTableForWrite resolve tableName contra o catálogo e confere
 // identity.CanWrite(actorRole, table.MinRoleWrite) — o ponto de entrada
 // comum de CreateRecord/UpdateRecord/DeleteRecord.
-func resolveTableForWrite(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableName string) (metadata.Table, map[string]metadata.Field, error) {
+func resolveTableForWrite(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableName string) (metadata.Table, map[string]metadata.Field, error) {
 	table, err := metadata.GetTable(ctx, tx, tableName)
 	if err != nil {
 		if isTableNotFound(err) {
@@ -121,12 +119,12 @@ func validateFieldValues(fieldsByName map[string]metadata.Field, values map[stri
 	return nil
 }
 
-// CreateRecord insere um novo registro em tableName, validando cada campo
+// CreateRecordTx insere um novo registro em tableName, validando cada campo
 // de values contra o catálogo (nome conhecido, tipo compatível) e
 // confirmando que todo campo obrigatório (Field.Required) foi informado.
 // Roda dentro da transação tx já aberta (WithTenant do chamador) — se
 // qualquer etapa falhar, inclusive um hook, a transação inteira desfaz.
-func CreateRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableName string, values map[string]any, hooks *Hooks) (map[string]any, error) {
+func CreateRecordTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableName string, values map[string]any, hooks *TxHooks) (map[string]any, error) {
 	table, fieldsByName, err := resolveTableForWrite(ctx, tx, actorRole, tableName)
 	if err != nil {
 		return nil, err
@@ -156,12 +154,13 @@ func CreateRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tab
 	}
 
 	quotedTable := pgx.Identifier{table.Name}.Sanitize()
+	version := versionExpr(tx.Dialect(), "")
 	var sql string
 	if len(cols) == 0 {
-		sql = fmt.Sprintf(`INSERT INTO %s DEFAULT VALUES RETURNING *, xmin::text AS "_version"`, quotedTable)
+		sql = fmt.Sprintf(`INSERT INTO %s DEFAULT VALUES RETURNING *, %s AS "_version"`, quotedTable, version)
 	} else {
-		sql = fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) RETURNING *, xmin::text AS "_version"`,
-			quotedTable, strings.Join(cols, ", "), strings.Join(placeholders, ", "))
+		sql = fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) RETURNING *, %s AS "_version"`,
+			quotedTable, strings.Join(cols, ", "), strings.Join(placeholders, ", "), version)
 	}
 
 	rows, err := tx.Query(ctx, sql, args...)
@@ -179,13 +178,13 @@ func CreateRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tab
 	return record, nil
 }
 
-// UpdateRecord atualiza o registro id em tableName com values, exigindo
+// UpdateRecordTx atualiza o registro id em tableName com values, exigindo
 // expectedVersion (o `_version`/xmin de uma leitura anterior) para
 // controle de concorrência otimista: se a linha foi modificada por outra
 // transação desde a leitura, retorna ErrVersionConflict — o "erro
 // definido" do critério de aceite de GO-013, nunca uma sobrescrita
 // silenciosa. Se id não existir, retorna ErrRecordNotFound.
-func UpdateRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableName string, id int, expectedVersion string, values map[string]any, hooks *Hooks) (map[string]any, error) {
+func UpdateRecordTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableName string, id int, expectedVersion string, values map[string]any, hooks *TxHooks) (map[string]any, error) {
 	table, fieldsByName, err := resolveTableForWrite(ctx, tx, actorRole, tableName)
 	if err != nil {
 		return nil, err
@@ -213,8 +212,12 @@ func UpdateRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tab
 	versionPos := len(args)
 
 	quotedTable := pgx.Identifier{table.Name}.Sanitize()
-	sql := fmt.Sprintf(`UPDATE %s SET %s WHERE id = $%d AND xmin::text = $%d RETURNING *, xmin::text AS "_version"`,
-		quotedTable, strings.Join(setClauses, ", "), idPos, versionPos)
+	version := versionExpr(tx.Dialect(), "")
+	if tx.Dialect() == database.DialectSQLite {
+		setClauses = append(setClauses, `"_version" = "_version" + 1`)
+	}
+	sql := fmt.Sprintf(`UPDATE %s SET %s WHERE id = $%d AND %s = $%d RETURNING *, %s AS "_version"`,
+		quotedTable, strings.Join(setClauses, ", "), idPos, version, versionPos, version)
 
 	rows, err := tx.Query(ctx, sql, args...)
 	if err != nil {
@@ -222,7 +225,7 @@ func UpdateRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tab
 	}
 	record, err := scanOne(rows)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return nil, conflictOrNotFound(ctx, tx, table.Name, id)
 		}
 		return nil, classifyPgError(err)
@@ -234,9 +237,9 @@ func UpdateRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tab
 	return record, nil
 }
 
-// DeleteRecord remove o registro id em tableName, com o mesmo controle de
+// DeleteRecordTx remove o registro id em tableName, com o mesmo controle de
 // concorrência otimista de UpdateRecord.
-func DeleteRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableName string, id int, expectedVersion string, hooks *Hooks) error {
+func DeleteRecordTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableName string, id int, expectedVersion string, hooks *TxHooks) error {
 	table, _, err := resolveTableForWrite(ctx, tx, actorRole, tableName)
 	if err != nil {
 		return err
@@ -247,12 +250,14 @@ func DeleteRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tab
 	}
 
 	quotedTable := pgx.Identifier{table.Name}.Sanitize()
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = $1 AND xmin::text = $2`, quotedTable), id, expectedVersion)
+	version := versionExpr(tx.Dialect(), "")
+	var deleted int
+	err = tx.QueryRow(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = $1 AND %s = $2 RETURNING id`, quotedTable, version), id, expectedVersion).Scan(&deleted)
+	if errors.Is(err, database.ErrNoRows) {
+		return conflictOrNotFound(ctx, tx, table.Name, id)
+	}
 	if err != nil {
 		return classifyPgError(err)
-	}
-	if tag.RowsAffected() == 0 {
-		return conflictOrNotFound(ctx, tx, table.Name, id)
 	}
 
 	return hooks.afterDelete(ctx, tx, table, id)
@@ -264,7 +269,7 @@ func DeleteRecord(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tab
 // leitura" (ErrVersionConflict) — as duas causas produzem o mesmo "zero
 // linhas afetadas", então precisam de uma segunda consulta para se
 // distinguir uma da outra.
-func conflictOrNotFound(ctx context.Context, tx pgx.Tx, tableName string, id int) error {
+func conflictOrNotFound(ctx context.Context, tx database.Tx, tableName string, id int) error {
 	var exists bool
 	err := tx.QueryRow(ctx,
 		fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM %s WHERE id = $1)`, pgx.Identifier{tableName}.Sanitize()),
@@ -279,13 +284,13 @@ func conflictOrNotFound(ctx context.Context, tx pgx.Tx, tableName string, id int
 	return ErrVersionConflict
 }
 
-func scanOne(rows pgx.Rows) (map[string]any, error) {
-	records, err := pgx.CollectRows(rows, pgx.RowToMap)
+func scanOne(rows database.Rows) (map[string]any, error) {
+	records, err := database.CollectMaps(rows)
 	if err != nil {
 		return nil, err
 	}
 	if len(records) == 0 {
-		return nil, pgx.ErrNoRows
+		return nil, database.ErrNoRows
 	}
 	return records[0], nil
 }
@@ -295,6 +300,17 @@ func scanOne(rows pgx.Rows) (map[string]any, error) {
 // (que pode ecoar um valor de linha, ex.: violação de unicidade
 // mostrando o valor duplicado) escapar como está.
 func classifyPgError(err error) error {
+	var sqliteErr *sqliteDriver.Error
+	if errors.As(err, &sqliteErr) {
+		switch sqliteErr.Code() {
+		case 2067, 1555:
+			return ErrDuplicateValue
+		case 787:
+			return ErrInvalidReference
+		case 1299:
+			return ErrRequiredField
+		}
+	}
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
 		return err
@@ -309,4 +325,12 @@ func classifyPgError(err error) error {
 	default:
 		return err
 	}
+}
+
+// SQLite mantém uma versão explícita; PostgreSQL preserva xmin.
+func versionExpr(d database.Dialect, prefix string) string {
+	if d == database.DialectSQLite {
+		return `CAST(` + prefix + `"_version" AS TEXT)`
+	}
+	return prefix + "xmin::text"
 }

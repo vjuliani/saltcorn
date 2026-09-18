@@ -587,7 +587,7 @@ Execute a task GO-029 — Definir SDK e portar plugins exigidos, de docs/migraca
 
 ### GO-030 — Implementar adapter SQLite
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — entrega consolidada no PR [#33](https://github.com/vjuliani/saltcorn/pull/33) aberto; histórico em [execucoes/GO-030.md](execucoes/GO-030.md)
 - **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-011, GO-012, GO-013, GO-014

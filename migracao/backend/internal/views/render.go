@@ -26,6 +26,7 @@ import (
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/records"
 )
 
@@ -197,11 +198,11 @@ func CompileListPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 	if err != nil {
 		return nil, false, err
 	}
-	table, err := metadata.GetTableByID(ctx, tx, v.TableID)
+	table, err := metadata.GetTableByID(ctx, database.AsTx(tx), v.TableID)
 	if err != nil {
 		return nil, false, err
 	}
-	fields, err := metadata.ListFields(ctx, tx, table.ID)
+	fields, err := metadata.ListFields(ctx, database.AsTx(tx), table.ID)
 	if err != nil {
 		return nil, false, err
 	}

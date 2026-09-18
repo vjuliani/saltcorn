@@ -18,6 +18,7 @@ import (
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/records"
 )
 
@@ -161,11 +162,11 @@ func TestEval_DBReadCallback_RealAuthorization(t *testing.T) {
 	// nega o ator público, propagada pelo callback como erro de runtime.
 	// Prova que o callback não contorna records.Rows de forma nenhuma.
 	if err := db.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
-		secret, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "secrets", metadata.TableOptions{MinRoleRead: identity.RoleAdmin})
+		secret, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "secrets", metadata.TableOptions{MinRoleRead: identity.RoleAdmin})
 		if err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, secret.ID, metadata.FieldDef{Name: "title", Type: metadata.FieldText}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, secret.ID, metadata.FieldDef{Name: "title", Type: metadata.FieldText}); err != nil {
 			return err
 		}
 		_, err = records.CreateRecord(ctx, tx, identity.RoleAdmin, "secrets", map[string]any{"title": "classificado"}, nil)

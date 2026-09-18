@@ -78,7 +78,7 @@ func e2eSeed(args []string) error {
 		if err := identity.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
-		if err := metadata.EnsureSchema(ctx, tx); err != nil {
+		if err := metadata.EnsureSchema(ctx, database.AsTx(tx)); err != nil {
 			return err
 		}
 		if err := outbox.EnsureSchema(ctx, tx); err != nil {

@@ -59,7 +59,7 @@ func testTenant(t *testing.T, db *database.DB) tenancy.Tenant {
 	})
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		return metadata.EnsureSchema(ctx, tx)
+		return metadata.EnsureSchema(ctx, database.AsTx(tx))
 	}); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
@@ -95,33 +95,33 @@ func seedCorpus(t *testing.T, db *database.DB, tenant tenancy.Tenant) corpus {
 	ctx := context.Background()
 	var c corpus
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		pub, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "publisher", metadata.TableOptions{})
+		pub, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "publisher", metadata.TableOptions{})
 		if err != nil {
 			return err
 		}
 		c.publisherID = pub.ID
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, pub.ID, metadata.FieldDef{Name: "name", Type: metadata.FieldText, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, pub.ID, metadata.FieldDef{Name: "name", Type: metadata.FieldText, Required: true}); err != nil {
 			return err
 		}
 
-		books, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "books", metadata.TableOptions{})
+		books, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", metadata.TableOptions{})
 		if err != nil {
 			return err
 		}
 		c.booksID = books.ID
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "author", Type: metadata.FieldText, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "author", Type: metadata.FieldText, Required: true}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger, Required: true}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "publisher", Type: metadata.FieldKey, References: "publisher"}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "publisher", Type: metadata.FieldKey, References: "publisher"}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "assessment_date", Type: metadata.FieldDate}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "assessment_date", Type: metadata.FieldDate}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "available", Type: metadata.FieldBoolean}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "available", Type: metadata.FieldBoolean}); err != nil {
 			return err
 		}
 		return nil
@@ -429,30 +429,30 @@ func TestCompile_JoinAuthorizationDenied(t *testing.T) {
 	ctx := context.Background()
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		pub, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "publisher", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
+		pub, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "publisher", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
 		if err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, pub.ID, metadata.FieldDef{Name: "name", Type: metadata.FieldText, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, pub.ID, metadata.FieldDef{Name: "name", Type: metadata.FieldText, Required: true}); err != nil {
 			return err
 		}
-		books, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "books", metadata.TableOptions{})
+		books, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", metadata.TableOptions{})
 		if err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "author", Type: metadata.FieldText, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "author", Type: metadata.FieldText, Required: true}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger, Required: true}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "assessment_date", Type: metadata.FieldDate}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "assessment_date", Type: metadata.FieldDate}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "available", Type: metadata.FieldBoolean}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "available", Type: metadata.FieldBoolean}); err != nil {
 			return err
 		}
-		_, err = metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "publisher", Type: metadata.FieldKey, References: "publisher"})
+		_, err = metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "publisher", Type: metadata.FieldKey, References: "publisher"})
 		return err
 	}); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -521,30 +521,30 @@ func TestCompile_AggregationAuthorizationDenied(t *testing.T) {
 	ctx := context.Background()
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		pub, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "publisher", metadata.TableOptions{})
+		pub, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "publisher", metadata.TableOptions{})
 		if err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, pub.ID, metadata.FieldDef{Name: "name", Type: metadata.FieldText, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, pub.ID, metadata.FieldDef{Name: "name", Type: metadata.FieldText, Required: true}); err != nil {
 			return err
 		}
-		books, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "books", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
+		books, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
 		if err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "author", Type: metadata.FieldText, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "author", Type: metadata.FieldText, Required: true}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger, Required: true}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "assessment_date", Type: metadata.FieldDate}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "assessment_date", Type: metadata.FieldDate}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "available", Type: metadata.FieldBoolean}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "available", Type: metadata.FieldBoolean}); err != nil {
 			return err
 		}
-		_, err = metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "publisher", Type: metadata.FieldKey, References: "publisher"})
+		_, err = metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "publisher", Type: metadata.FieldKey, References: "publisher"})
 		return err
 	}); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -587,7 +587,7 @@ func TestCompile_RevocationTakesEffectImmediately(t *testing.T) {
 	ctx := context.Background()
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "secrets", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
+		_, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "secrets", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
 		return err
 	}); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -691,7 +691,7 @@ func TestCompile_AuthorizationDenied(t *testing.T) {
 	ctx := context.Background()
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "secrets", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
+		_, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "secrets", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
 		return err
 	}); err != nil {
 		t.Fatalf("setup: %v", err)

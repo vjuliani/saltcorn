@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // lockCatalog serializa toda mutação de catálogo do tenant atual (schema
@@ -21,9 +22,14 @@ import (
 // A chave inclui current_schema() para que tenants diferentes (schemas
 // diferentes) nunca se bloqueiem mutuamente — só operações concorrentes no
 // MESMO tenant serializam entre si.
-func lockCatalog(ctx context.Context, tx pgx.Tx) error {
-	_, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext(current_schema() || ':metadata')::bigint)")
-	if err != nil {
+//
+// SQLite serializa escritores desde BEGIN IMMEDIATE, inclusive entre
+// handles/processos diferentes que compartilham o mesmo arquivo.
+func lockCatalog(ctx context.Context, tx database.Tx) error {
+	if tx.Dialect() == database.DialectSQLite {
+		return nil
+	}
+	if err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext(current_schema() || ':metadata')::bigint)"); err != nil {
 		return fmt.Errorf("metadata: adquirir lock de catálogo: %w", err)
 	}
 	return nil
@@ -38,7 +44,7 @@ func requireAdmin(actorRole identity.RoleID) error {
 
 // GetTable busca uma tabela do catálogo pelo nome (já sanitizado — o mesmo
 // nome usado na criação). Retorna ErrTableNotFound se não existir.
-func GetTable(ctx context.Context, tx pgx.Tx, name string) (*Table, error) {
+func GetTable(ctx context.Context, tx database.Tx, name string) (*Table, error) {
 	t := &Table{}
 	var minRead, minWrite int
 	err := tx.QueryRow(ctx,
@@ -46,7 +52,7 @@ func GetTable(ctx context.Context, tx pgx.Tx, name string) (*Table, error) {
 		name,
 	).Scan(&t.ID, &t.Name, &minRead, &minWrite)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return nil, ErrTableNotFound
 		}
 		return nil, err
@@ -60,7 +66,7 @@ func GetTable(ctx context.Context, tx pgx.Tx, name string) (*Table, error) {
 // criação — usado por internal/pack (GO-027) para exportar a aplicação
 // inteira; nenhum outro chamador precisava disto até aqui (GetTable, por
 // nome, bastava).
-func ListTables(ctx context.Context, tx pgx.Tx) ([]Table, error) {
+func ListTables(ctx context.Context, tx database.Tx) ([]Table, error) {
 	rows, err := tx.Query(ctx, "SELECT id, name, min_role_read, min_role_write FROM _sc_tables ORDER BY id")
 	if err != nil {
 		return nil, err
@@ -82,7 +88,7 @@ func ListTables(ctx context.Context, tx pgx.Tx) ([]Table, error) {
 }
 
 // ListFields retorna os campos de uma tabela, na ordem de criação.
-func ListFields(ctx context.Context, tx pgx.Tx, tableID int) ([]Field, error) {
+func ListFields(ctx context.Context, tx database.Tx, tableID int) ([]Field, error) {
 	rows, err := tx.Query(ctx,
 		"SELECT id, table_id, name, type, required, is_unique, references_table_id FROM _sc_fields WHERE table_id = $1 ORDER BY id",
 		tableID,
@@ -109,7 +115,7 @@ func ListFields(ctx context.Context, tx pgx.Tx, tableID int) ([]Field, error) {
 	return fields, rows.Err()
 }
 
-func getFieldByName(ctx context.Context, tx pgx.Tx, tableID int, name string) (*Field, error) {
+func getFieldByName(ctx context.Context, tx database.Tx, tableID int, name string) (*Field, error) {
 	f := &Field{}
 	var refTable sql.NullInt64
 	var fieldType string
@@ -118,7 +124,7 @@ func getFieldByName(ctx context.Context, tx pgx.Tx, tableID int, name string) (*
 		tableID, name,
 	).Scan(&f.ID, &f.TableID, &f.Name, &fieldType, &f.Required, &f.Unique, &refTable)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return nil, ErrFieldNotFound
 		}
 		return nil, err
@@ -142,7 +148,7 @@ func getFieldByName(ctx context.Context, tx pgx.Tx, tableID int, name string) (*
 // cru em SQL (critério de aceite "nomes maliciosos são cobertos"); o
 // identificador final ainda é citado via pgx.Identifier.Sanitize() na DDL,
 // defesa em profundidade.
-func CreateTable(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name string, opts TableOptions) (*Table, error) {
+func CreateTable(ctx context.Context, tx database.Tx, actorRole identity.RoleID, name string, opts TableOptions) (*Table, error) {
 	if err := requireAdmin(actorRole); err != nil {
 		return nil, err
 	}
@@ -179,8 +185,12 @@ func CreateTable(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name
 		return nil, fmt.Errorf("metadata: inserir tabela no catálogo: %w", err)
 	}
 
-	createDDL := fmt.Sprintf("CREATE TABLE %s (id serial PRIMARY KEY)", pgx.Identifier{sanitized}.Sanitize())
-	if _, err := tx.Exec(ctx, createDDL); err != nil {
+	columns := idColumnDDL(tx.Dialect())
+	if tx.Dialect() == database.DialectSQLite {
+		columns += `, "_version" INTEGER NOT NULL DEFAULT 1`
+	}
+	createDDL := fmt.Sprintf("CREATE TABLE %s (%s)", pgx.Identifier{sanitized}.Sanitize(), columns)
+	if err := tx.Exec(ctx, createDDL); err != nil {
 		return nil, fmt.Errorf("metadata: criar tabela física %q: %w", sanitized, err)
 	}
 
@@ -197,7 +207,7 @@ func CreateTable(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name
 // duplica, e não incrementa a versão (nada mudou de fato). Uma definição
 // com o mesmo nome mas tipo diferente retorna ErrFieldTypeMismatch, nunca
 // altera o tipo silenciosamente.
-func AddField(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableID int, def FieldDef) (*Field, error) {
+func AddField(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableID int, def FieldDef) (*Field, error) {
 	if err := requireAdmin(actorRole); err != nil {
 		return nil, err
 	}
@@ -205,7 +215,7 @@ func AddField(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableID
 		return nil, ErrUnsupportedFieldType
 	}
 	sanitized := SQLSanitize(def.Name)
-	if sanitized == "" {
+	if sanitized == "" || sanitized == "id" || sanitized == "_version" {
 		return nil, ErrInvalidName
 	}
 
@@ -258,27 +268,37 @@ func AddField(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableID
 	}
 
 	var ddl string
+	columnType := def.Type.pgType()
+	if tx.Dialect() == database.DialectSQLite && def.Type == FieldDate {
+		columnType = "timestamp"
+	}
 	quotedTable := pgx.Identifier{tableName}.Sanitize()
 	quotedField := pgx.Identifier{sanitized}.Sanitize()
 	switch {
 	case def.Type == FieldKey:
 		ddl = fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s REFERENCES %s(id)",
-			quotedTable, quotedField, def.Type.pgType(), pgx.Identifier{refTableName}.Sanitize())
+			quotedTable, quotedField, columnType, pgx.Identifier{refTableName}.Sanitize())
 	default:
-		ddl = fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", quotedTable, quotedField, def.Type.pgType())
+		ddl = fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", quotedTable, quotedField, columnType)
 	}
 	if def.Required {
 		ddl += " NOT NULL"
 	}
-	if def.Unique {
+	if def.Unique && tx.Dialect() != database.DialectSQLite {
 		ddl += " UNIQUE"
 	}
-	if _, err := tx.Exec(ctx, ddl); err != nil {
+	if err := tx.Exec(ctx, ddl); err != nil {
 		return nil, fmt.Errorf("metadata: adicionar coluna física %q: %w", sanitized, err)
 	}
 
+	if def.Unique && tx.Dialect() == database.DialectSQLite {
+		index := pgx.Identifier{fmt.Sprintf("_sc_unique_%d_%d", tableID, f.ID)}.Sanitize()
+		if err := tx.Exec(ctx, fmt.Sprintf("CREATE UNIQUE INDEX %s ON %s (%s)", index, quotedTable, quotedField)); err != nil {
+			return nil, err
+		}
+	}
 	if _, err := bumpVersion(ctx, tx); err != nil {
-		return nil, fmt.Errorf("metadata: incrementar versão do catálogo: %w", err)
+		return nil, err
 	}
 	return f, nil
 }
@@ -287,7 +307,7 @@ func AddField(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableID
 // `ALTER TABLE ... DROP COLUMN` na mesma transação. Idempotente: remover um
 // campo que não existe é um no-op bem-sucedido (mesma convenção de
 // internal/identity.RevokeAPIToken), não incrementa a versão.
-func DropField(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableID int, fieldName string) error {
+func DropField(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableID int, fieldName string) error {
 	if err := requireAdmin(actorRole); err != nil {
 		return err
 	}
@@ -310,13 +330,29 @@ func DropField(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableI
 		return err
 	}
 
-	if _, err := tx.Exec(ctx, "DELETE FROM _sc_fields WHERE id = $1", field.ID); err != nil {
+	if err := tx.Exec(ctx, "DELETE FROM _sc_fields WHERE id = $1", field.ID); err != nil {
 		return fmt.Errorf("metadata: remover campo do catálogo: %w", err)
 	}
 
-	ddl := fmt.Sprintf("ALTER TABLE %s DROP COLUMN IF EXISTS %s",
+	// SQLite (GO-030) suporta `ALTER TABLE ... DROP COLUMN` desde a versão
+	// 3.35, mas SEM a cláusula `IF EXISTS` (só Postgres tem essa variante) —
+	// inofensivo aqui: já confirmamos acima, via getFieldByName, que o
+	// campo existe no catálogo; `IF EXISTS` no Postgres é só uma defesa
+	// extra contra drift catálogo/físico, não uma condição que este
+	// caminho normal dependa de fato.
+	if tx.Dialect() == database.DialectSQLite && field.Unique {
+		index := pgx.Identifier{fmt.Sprintf("_sc_unique_%d_%d", tableID, field.ID)}.Sanitize()
+		if err := tx.Exec(ctx, "DROP INDEX IF EXISTS "+index); err != nil {
+			return err
+		}
+	}
+	dropColumnDDL := "ALTER TABLE %s DROP COLUMN IF EXISTS %s"
+	if tx.Dialect() == database.DialectSQLite {
+		dropColumnDDL = "ALTER TABLE %s DROP COLUMN %s"
+	}
+	ddl := fmt.Sprintf(dropColumnDDL,
 		pgx.Identifier{tableName}.Sanitize(), pgx.Identifier{sanitized}.Sanitize())
-	if _, err := tx.Exec(ctx, ddl); err != nil {
+	if err := tx.Exec(ctx, ddl); err != nil {
 		return fmt.Errorf("metadata: remover coluna física %q: %w", sanitized, err)
 	}
 
@@ -329,7 +365,7 @@ func DropField(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableI
 // DropTable remove uma tabela: apaga do catálogo (campos em cascata, ver
 // schema.go) e executa `DROP TABLE` na mesma transação. Idempotente: remover
 // uma tabela que não existe é um no-op bem-sucedido.
-func DropTable(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableID int) error {
+func DropTable(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableID int) error {
 	if err := requireAdmin(actorRole); err != nil {
 		return err
 	}
@@ -346,12 +382,12 @@ func DropTable(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableI
 		return err
 	}
 
-	if _, err := tx.Exec(ctx, "DELETE FROM _sc_tables WHERE id = $1", tableID); err != nil {
+	if err := tx.Exec(ctx, "DELETE FROM _sc_tables WHERE id = $1", tableID); err != nil {
 		return fmt.Errorf("metadata: remover tabela do catálogo: %w", err)
 	}
 
 	ddl := fmt.Sprintf("DROP TABLE IF EXISTS %s", pgx.Identifier{tableName}.Sanitize())
-	if _, err := tx.Exec(ctx, ddl); err != nil {
+	if err := tx.Exec(ctx, ddl); err != nil {
 		return fmt.Errorf("metadata: remover tabela física %q: %w", tableName, err)
 	}
 
@@ -361,11 +397,11 @@ func DropTable(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableI
 	return nil
 }
 
-func tableNameByID(ctx context.Context, tx pgx.Tx, tableID int) (string, error) {
+func tableNameByID(ctx context.Context, tx database.Tx, tableID int) (string, error) {
 	var name string
 	err := tx.QueryRow(ctx, "SELECT name FROM _sc_tables WHERE id = $1", tableID).Scan(&name)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return "", ErrTableNotFound
 		}
 		return "", err
@@ -377,7 +413,7 @@ func tableNameByID(ctx context.Context, tx pgx.Tx, tableID int) (string, error) 
 // (que busca por nome). Usado por GO-012 (compilador de consultas) para
 // resolver a tabela referenciada por um campo do tipo FieldKey
 // (Field.ReferencesTable é um ID, não um nome) ao montar um join.
-func GetTableByID(ctx context.Context, tx pgx.Tx, id int) (*Table, error) {
+func GetTableByID(ctx context.Context, tx database.Tx, id int) (*Table, error) {
 	t := &Table{}
 	var minRead, minWrite int
 	err := tx.QueryRow(ctx,
@@ -385,7 +421,7 @@ func GetTableByID(ctx context.Context, tx pgx.Tx, id int) (*Table, error) {
 		id,
 	).Scan(&t.ID, &t.Name, &minRead, &minWrite)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return nil, ErrTableNotFound
 		}
 		return nil, err

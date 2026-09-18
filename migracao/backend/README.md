@@ -482,6 +482,67 @@ Mesma decisão de escopo já aplicada por GO-023/024/026: o catálogo de ações
 
 Tipo `Color` (`internal/types`, o 6º tipo básico do legado) — sem uso pelo piloto `guitars` (que só exercita text/integer/boolean/float/date), adicioná-lo tocaria `internal/metadata.FieldType`, `internal/records.validateValue` e `internal/pack` simultaneamente; deixado para quando um consumidor real do tipo existir. Views Edit/Show/Feed/Filter/ListShowList/Room/WorkflowRoom (item 3 da lista de bloqueadores acima). CRUD dirigido por trigger (item 4). `run_js_code` como `ActionFunc` (item 1).
 
+## Adapter SQLite (GO-030)
+
+`internal/platform/sqlite` oferece um arquivo por tenant para uso desktop. O driver
+`modernc.org/sqlite v1.36.0` é puro Go e compatível com a toolchain deste módulo.
+`metadata`, consultas/comandos de `records` e idempotência/outbox usam a mesma
+lógica de domínio nos dois bancos, através de `database.Tx`.
+
+As entradas `records.{Compile,Rows,CreateRecord,UpdateRecord,DeleteRecord}Tx`
+recebem essa interface e `TxHooks`. As entradas sem sufixo continuam compatíveis
+com `pgx.Tx`/`Hooks`. A outbox segue o mesmo padrão: `EnsureSchemaTx`, `DoTx`,
+`ListPendingTx`, `ListFailedTx`, `ProcessPendingTx` e `TxHandler`. Os callbacks devem
+propagar erros para `WithTenant`, responsável pelo commit/rollback externo.
+
+```go
+err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx database.Tx) error {
+    if err := metadata.EnsureSchema(ctx, tx); err != nil { return err }
+    if err := outbox.EnsureSchemaTx(ctx, tx); err != nil { return err }
+    _, _, err := outbox.DoTx(ctx, tx, requestKey, values,
+        func(ctx context.Context, tx database.Tx) (any, []outbox.Event, error) {
+            row, err := records.CreateRecordTx(ctx, tx, role, "items", values, nil)
+            if err != nil { return nil, nil, err }
+            return row, []outbox.Event{{Type: "created", Payload: row}}, nil
+        })
+    return err
+})
+```
+
+| Comportamento | PostgreSQL | SQLite |
+| --- | --- | --- |
+| Tenant | Schema em pool compartilhado | Arquivo dedicado; uma conexão por instância/tenant |
+| Escritor concorrente | Advisory locks e locks de linha | `BEGIN IMMEDIATE` reserva escritor; `busy_timeout(5000)` limita espera entre processos |
+| Versão de registro | `xmin::text` | Coluna `_version`, incrementada pelos comandos de atualização |
+| Unicidade de campo adicionado | Constraint na coluna | Índice único removido junto com o campo |
+| Datas | `timestamptz` | `timestamp`, valores UTC com precisão de microssegundos |
+| Outbox | `FOR UPDATE SKIP LOCKED` | Serialização do escritor na transação inteira |
+| Tentativa de handler | Savepoint na transação | Savepoint na transação |
+
+`metadata.EnsureSchema` acrescenta `_version` às tabelas de arquivos SQLite do
+primeiro checkpoint, preservando dados existentes. Um campo de usuário chamado
+`_version` impede a atualização e exige resolução explícita. Toda aplicação que
+escreva registros deve usar os comandos para manter o token de concorrência.
+Rollback em erro, cancelamento ou panic preserva atomicidade; o callback não deve
+suprimir um erro de uma operação parcial e retornar sucesso.
+
+Diferenças deliberadas: inteiros retornam como `int64` no SQLite e `int32` no
+PostgreSQL para colunas integer (mesma representação JSON); datas representam o
+mesmo instante, mas PostgreSQL pode retornar outro timezone; `Like` no SQLite usa
+case folding ASCII, enquanto `ILIKE` no PostgreSQL segue a collation do banco.
+Ordenação de NULL foi alinhada ao padrão PostgreSQL. SQLite não oferece RLS nativa:
+a autorização de papel dos comandos/consultas e o isolamento por arquivo são
+cobertos, mas o servidor, identidade, triggers e módulos posteriores continuam
+com integração PostgreSQL. Esta entrega não habilita servidor HTTP ou mobile
+SQLite; empacotamento e sync pertencem a GO-031/032.
+
+As fixtures compartilhadas estão em `internal/platform/sqlite/parity_test.go`.
+Com `SALTCORN_GO_TEST_DATABASE_URL` definido, executam nos dois adapters. Incluem
+CRUD/tipos, erros de autorização/constraint, conflito de versão, injeção, joins,
+paginação, idempotência concorrente entre handles, retries/savepoints e falha
+terminal. Testes SQLite adicionais encerram um subprocesso antes/depois do commit
+e verificam recuperação, replay e preservação de dados locais no upgrade.
+
 ## Encerramento gracioso
 
 `cmd/server` e `cmd/worker` capturam `SIGINT`/`SIGTERM`, param de aceitar trabalho novo, e esperam o trabalho já em curso terminar (via `internal/platform/shutdown.Tracker`) antes de sair — dentro do prazo de `SALTCORN_GO_SHUTDOWN_TIMEOUT_SECONDS`. Se o prazo estourar, o processo registra um aviso e sai mesmo assim; isso é uma decisão operacional explícita, não um bug — ver `shutdown.Tracker.Drain`.

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // TestCreateTable_ConcurrentDistinctNames é a metade "concorrência normal"
@@ -30,7 +31,7 @@ func TestCreateTable_ConcurrentDistinctNames(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-				_, err := CreateTable(ctx, tx, identity.RoleAdmin, fmt.Sprintf("table_%d", i), TableOptions{})
+				_, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, fmt.Sprintf("table_%d", i), TableOptions{})
 				return err
 			})
 			if err != nil {
@@ -47,7 +48,7 @@ func TestCreateTable_ConcurrentDistinctNames(t *testing.T) {
 	var version int64
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		version, err = CurrentVersion(ctx, tx)
+		version, err = CurrentVersion(ctx, database.AsTx(tx))
 		return err
 	}); err != nil {
 		t.Fatalf("CurrentVersion: %v", err)
@@ -83,7 +84,7 @@ func TestCreateTable_ConcurrentSameNameIsSerializedAndIdempotent(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-				tbl, err := CreateTable(ctx, tx, identity.RoleAdmin, "shared_table", TableOptions{})
+				tbl, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "shared_table", TableOptions{})
 				if err != nil {
 					return err
 				}
@@ -111,7 +112,7 @@ func TestCreateTable_ConcurrentSameNameIsSerializedAndIdempotent(t *testing.T) {
 	var version int64
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		version, err = CurrentVersion(ctx, tx)
+		version, err = CurrentVersion(ctx, database.AsTx(tx))
 		return err
 	}); err != nil {
 		t.Fatalf("CurrentVersion: %v", err)
@@ -130,7 +131,7 @@ func TestAddField_ConcurrentSameFieldIsSerializedAndIdempotent(t *testing.T) {
 
 	var tableID int
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tbl, err := CreateTable(ctx, tx, identity.RoleAdmin, "books", TableOptions{})
+		tbl, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", TableOptions{})
 		tableID = tbl.ID
 		return err
 	}); err != nil {
@@ -145,7 +146,7 @@ func TestAddField_ConcurrentSameFieldIsSerializedAndIdempotent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-				_, err := AddField(ctx, tx, identity.RoleAdmin, tableID, FieldDef{Name: "title", Type: FieldText})
+				_, err := AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, FieldDef{Name: "title", Type: FieldText})
 				return err
 			})
 			if err != nil {

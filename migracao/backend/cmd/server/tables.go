@@ -88,7 +88,7 @@ func createTableHandler(tracker *shutdown.Tracker, db *database.DB) http.Handler
 			if req.MinRoleWrite != nil {
 				opts.MinRoleWrite = identity.RoleID(*req.MinRoleWrite)
 			}
-			table, err := metadata.CreateTable(ctx, tx, role, req.Name, opts)
+			table, err := metadata.CreateTable(ctx, database.AsTx(tx), role, req.Name, opts)
 			if err != nil {
 				return err
 			}
@@ -165,11 +165,11 @@ func addFieldHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFun
 			if !ok {
 				return errHandled
 			}
-			table, err := metadata.GetTable(ctx, tx, tableName)
+			table, err := metadata.GetTable(ctx, database.AsTx(tx), tableName)
 			if err != nil {
 				return err
 			}
-			field, err := metadata.AddField(ctx, tx, role, table.ID, metadata.FieldDef{
+			field, err := metadata.AddField(ctx, database.AsTx(tx), role, table.ID, metadata.FieldDef{
 				Name: req.Name, Type: metadata.FieldType(req.Type),
 				Required: req.Required, Unique: req.Unique, References: req.References,
 			})

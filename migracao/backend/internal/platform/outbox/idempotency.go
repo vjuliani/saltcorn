@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // Event é um evento de domínio a gravar na tabela outbox na mesma
@@ -39,7 +39,7 @@ type Event struct {
 // tentativas concorrentes com a MESMA chave — sem isso, duas chamadas
 // concorrentes poderiam ambas ver "não existe" e rodar fn duas vezes,
 // exatamente o que a idempotência existe para impedir.
-func Do(ctx context.Context, tx pgx.Tx, key string, payload any, fn func(ctx context.Context, tx pgx.Tx) (result any, events []Event, err error)) (result any, replayed bool, err error) {
+func DoTx(ctx context.Context, tx database.Tx, key string, payload any, fn func(ctx context.Context, tx database.Tx) (result any, events []Event, err error)) (result any, replayed bool, err error) {
 	if err := lockKey(ctx, tx, key); err != nil {
 		return nil, false, err
 	}
@@ -86,18 +86,21 @@ func Do(ctx context.Context, tx pgx.Tx, key string, payload any, fn func(ctx con
 	return result, false, nil
 }
 
-func lockKey(ctx context.Context, tx pgx.Tx, key string) error {
-	_, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext(current_schema() || ':idempotency:' || $1)::bigint)", key)
+func lockKey(ctx context.Context, tx database.Tx, key string) error {
+	if tx.Dialect() == database.DialectSQLite {
+		return nil
+	} // BEGIN IMMEDIATE já reserva o escritor.
+	err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext(current_schema() || ':idempotency:' || $1)::bigint)", key)
 	if err != nil {
 		return fmt.Errorf("outbox: adquirir lock de chave de idempotência: %w", err)
 	}
 	return nil
 }
 
-func getKey(ctx context.Context, tx pgx.Tx, key string) (payloadHash string, resultJSON []byte, err error) {
+func getKey(ctx context.Context, tx database.Tx, key string) (payloadHash string, resultJSON []byte, err error) {
 	err = tx.QueryRow(ctx, "SELECT payload_hash, result_json FROM _sc_idempotency_keys WHERE key = $1", key).Scan(&payloadHash, &resultJSON)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return "", nil, errKeyNotFound
 		}
 		return "", nil, err
@@ -105,22 +108,22 @@ func getKey(ctx context.Context, tx pgx.Tx, key string) (payloadHash string, res
 	return payloadHash, resultJSON, nil
 }
 
-func insertKey(ctx context.Context, tx pgx.Tx, key, payloadHash string, resultJSON []byte) error {
-	_, err := tx.Exec(ctx,
+func insertKey(ctx context.Context, tx database.Tx, key, payloadHash string, resultJSON []byte) error {
+	err := tx.Exec(ctx,
 		"INSERT INTO _sc_idempotency_keys (key, payload_hash, result_json) VALUES ($1, $2, $3)",
-		key, payloadHash, resultJSON,
+		key, payloadHash, string(resultJSON),
 	)
 	return err
 }
 
-func insertOutboxEvent(ctx context.Context, tx pgx.Tx, key string, ev Event) error {
+func insertOutboxEvent(ctx context.Context, tx database.Tx, key string, ev Event) error {
 	payloadJSON, err := json.Marshal(ev.Payload)
 	if err != nil {
 		return fmt.Errorf("outbox: codificar payload do evento: %w", err)
 	}
-	_, err = tx.Exec(ctx,
+	err = tx.Exec(ctx,
 		"INSERT INTO _sc_outbox (idempotency_key, event_type, payload_json) VALUES ($1, $2, $3)",
-		key, ev.Type, payloadJSON,
+		key, ev.Type, string(payloadJSON),
 	)
 	return err
 }

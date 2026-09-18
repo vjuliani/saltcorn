@@ -10,6 +10,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/library"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/scheduler"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
@@ -23,14 +24,14 @@ import (
 // existe inventário real de plugins de terceiro para Export descobrir
 // sozinho, ver comentário de PluginDependency).
 func Export(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, plugins []PluginDependency) (Pack, error) {
-	tables, err := metadata.ListTables(ctx, tx)
+	tables, err := metadata.ListTables(ctx, database.AsTx(tx))
 	if err != nil {
 		return Pack{}, fmt.Errorf("pack: listar tabelas: %w", err)
 	}
 
 	var tablePacks []TablePack
 	for _, t := range tables {
-		fields, err := metadata.ListFields(ctx, tx, t.ID)
+		fields, err := metadata.ListFields(ctx, database.AsTx(tx), t.ID)
 		if err != nil {
 			return Pack{}, fmt.Errorf("pack: listar campos de %q: %w", t.Name, err)
 		}
@@ -38,7 +39,7 @@ func Export(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, plugins [
 		for _, f := range fields {
 			fp := FieldPack{Name: f.Name, Type: f.Type, Required: f.Required, Unique: f.Unique}
 			if f.Type == metadata.FieldKey {
-				refTable, err := metadata.GetTableByID(ctx, tx, f.ReferencesTable)
+				refTable, err := metadata.GetTableByID(ctx, database.AsTx(tx), f.ReferencesTable)
 				if err != nil {
 					return Pack{}, fmt.Errorf("pack: resolver tabela referenciada pelo campo %q.%q: %w", t.Name, f.Name, err)
 				}
@@ -57,7 +58,7 @@ func Export(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, plugins [
 	}
 	var viewPacks []ViewPack
 	for _, v := range viewList {
-		table, err := metadata.GetTableByID(ctx, tx, v.TableID)
+		table, err := metadata.GetTableByID(ctx, database.AsTx(tx), v.TableID)
 		if err != nil {
 			return Pack{}, fmt.Errorf("pack: resolver tabela da view %q: %w", v.Name, err)
 		}
@@ -72,7 +73,7 @@ func Export(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, plugins [
 	}
 	var triggerPacks []TriggerPack
 	for _, tr := range triggerList {
-		table, err := metadata.GetTableByID(ctx, tx, tr.TableID)
+		table, err := metadata.GetTableByID(ctx, database.AsTx(tx), tr.TableID)
 		if err != nil {
 			return Pack{}, fmt.Errorf("pack: resolver tabela do trigger: %w", err)
 		}

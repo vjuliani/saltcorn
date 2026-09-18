@@ -3,7 +3,7 @@ package records
 import (
 	"context"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 )
@@ -15,8 +15,8 @@ import (
 // internal/metadata). Cada linha do resultado é um mapa nome-de-coluna →
 // valor, incluindo colunas trazidas por Join (`"<campo>__<coluna>"`) e
 // Aggregation (a chave é o Alias).
-func Rows(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query) ([]map[string]any, error) {
-	sql, args, err := Compile(ctx, tx, actorRole, q)
+func RowsTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, q Query) ([]map[string]any, error) {
+	sql, args, err := CompileTx(ctx, tx, actorRole, q)
 	if err != nil {
 		return nil, err
 	}
@@ -24,5 +24,5 @@ func Rows(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query) ([
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowToMap)
+	return database.CollectMaps(rows)
 }

@@ -126,17 +126,7 @@ func (db *DB) withTenantTx(ctx context.Context, t tenancy.Tenant, fn func(ctx co
 		return err
 	}
 
-	defer func() {
-		if err != nil {
-			// Rollback em melhor esforço com um contexto próprio: se ctx já
-			// foi cancelado (a causa mais comum de err aqui), usar ctx para
-			// o rollback poderia falhar silenciosamente e deixar a
-			// transação pendurada até o servidor detectar a conexão caída.
-			_ = tx.Rollback(context.Background())
-			return
-		}
-		err = tx.Commit(ctx)
-	}()
+	defer tx.Rollback(context.Background())
 
 	schema := tenancy.SchemaName(t)
 	setSearchPath := fmt.Sprintf("SET LOCAL search_path TO %s", pgx.Identifier{schema}.Sanitize())
@@ -149,7 +139,7 @@ func (db *DB) withTenantTx(ctx context.Context, t tenancy.Tenant, fn func(ctx co
 		err = fnErr
 		return err
 	}
-	return nil
+	return tx.Commit(ctx)
 }
 
 // instrument loga e mede uma transação concluída (GO-010) — nunca inclui

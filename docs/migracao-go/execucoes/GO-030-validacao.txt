@@ -1,0 +1,35 @@
+GO-030 — validação local da retomada (2026-09-18 UTC)
+Go 1.22.2 linux/amd64; PostgreSQL 16.15; SQLite modernc.org/sqlite v1.36.0
+Diretório: migracao/backend
+Comando: go test -race -count=1 ./...
+DSNs descartáveis PG/RLS configuradas conforme GO-030.md. Exit code: 0.
+
+?   	github.com/vjuliani/saltcorn/migracao/backend/cmd/worker	[no test files]
+ok  	github.com/vjuliani/saltcorn/migracao/backend/cmd/cli	7.493s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/cmd/server	36.577s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/config	1.527s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/expression	3.350s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/files	1.845s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/identity	26.279s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/library	1.234s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/metadata	4.693s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/notify	2.789s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/pack	2.397s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config	1.026s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover	1.730s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database	2.627s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/health	1.025s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/lease	1.847s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox	2.210s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown	1.196s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/sqlite	3.411s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/telemetry	1.081s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy	1.081s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/pluginhost	3.030s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/realtime	2.161s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/records	6.337s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/scheduler	1.846s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/triggers	3.553s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/types	1.041s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/views	2.676s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/workflow	2.468s

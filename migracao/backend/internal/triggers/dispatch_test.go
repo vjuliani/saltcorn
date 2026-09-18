@@ -15,6 +15,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/records"
 )
@@ -289,7 +290,7 @@ func TestAfterCommit_RetryDoesNotDuplicateEvent(t *testing.T) {
 	}}
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tbl, err := metadata.GetTable(ctx, tx, "posts")
+		tbl, err := metadata.GetTable(ctx, database.AsTx(tx), "posts")
 		if err != nil {
 			return err
 		}

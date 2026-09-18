@@ -71,7 +71,7 @@ func newEditorFixture(t *testing.T, db *database.DB) editorFixture {
 		if err := identity.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
-		if err := metadata.EnsureSchema(ctx, tx); err != nil {
+		if err := metadata.EnsureSchema(ctx, database.AsTx(tx)); err != nil {
 			return err
 		}
 		if err := outbox.EnsureSchema(ctx, tx); err != nil {
@@ -325,7 +325,7 @@ func TestCreateViewHandler_RetryDoesNotDuplicate(t *testing.T) {
 	fx := newEditorFixture(t, db)
 	ctx := context.Background()
 	if err := db.WithTenant(ctx, fx.tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "books", metadata.TableOptions{})
+		_, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", metadata.TableOptions{})
 		return err
 	}); err != nil {
 		t.Fatalf("criar tabela books: %v", err)
