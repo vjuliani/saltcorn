@@ -78,10 +78,19 @@ func CreateTrigger(ctx context.Context, tx pgx.Tx, t Trigger) (Trigger, error) {
 // TriggersFor lê, em ordem de criação, os triggers registrados para
 // tableID+when — a consulta que Dispatcher faz a cada escrita.
 func TriggersFor(ctx context.Context, tx pgx.Tx, tableID int, when WhenTrigger) ([]Trigger, error) {
-	rows, err := tx.Query(ctx,
-		`SELECT id, table_id, when_trigger, action, only_if, after_commit FROM _sc_triggers WHERE table_id = $1 AND when_trigger = $2 ORDER BY id`,
-		tableID, string(when),
-	)
+	return queryTriggers(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit FROM _sc_triggers WHERE table_id = $1 AND when_trigger = $2 ORDER BY id`, tableID, string(when))
+}
+
+// ListAll lê TODOS os triggers do tenant, em ordem de criação — usado por
+// internal/pack (GO-027) para exportar a aplicação inteira; nenhum outro
+// chamador precisava de uma visão não filtrada por tabela+evento até
+// aqui.
+func ListAll(ctx context.Context, tx pgx.Tx) ([]Trigger, error) {
+	return queryTriggers(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit FROM _sc_triggers ORDER BY id`)
+}
+
+func queryTriggers(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]Trigger, error) {
+	rows, err := tx.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}

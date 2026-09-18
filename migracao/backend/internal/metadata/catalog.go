@@ -56,6 +56,31 @@ func GetTable(ctx context.Context, tx pgx.Tx, name string) (*Table, error) {
 	return t, nil
 }
 
+// ListTables retorna todas as tabelas do catálogo do tenant, na ordem de
+// criação — usado por internal/pack (GO-027) para exportar a aplicação
+// inteira; nenhum outro chamador precisava disto até aqui (GetTable, por
+// nome, bastava).
+func ListTables(ctx context.Context, tx pgx.Tx) ([]Table, error) {
+	rows, err := tx.Query(ctx, "SELECT id, name, min_role_read, min_role_write FROM _sc_tables ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tables []Table
+	for rows.Next() {
+		var t Table
+		var minRead, minWrite int
+		if err := rows.Scan(&t.ID, &t.Name, &minRead, &minWrite); err != nil {
+			return nil, err
+		}
+		t.MinRoleRead = identity.RoleID(minRead)
+		t.MinRoleWrite = identity.RoleID(minWrite)
+		tables = append(tables, t)
+	}
+	return tables, rows.Err()
+}
+
 // ListFields retorna os campos de uma tabela, na ordem de criação.
 func ListFields(ctx context.Context, tx pgx.Tx, tableID int) ([]Field, error) {
 	rows, err := tx.Query(ctx,
