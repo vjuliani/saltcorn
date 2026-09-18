@@ -44,6 +44,20 @@ type Config struct {
 	// LogLevel controla o nível mínimo de log estruturado (GO-010) —
 	// "DEBUG", "INFO", "WARN" ou "ERROR" (case-insensitive). Padrão INFO.
 	LogLevel slog.Level
+	// SMTPHost/SMTPPort/SMTPUsername/SMTPPassword/SMTPFrom configuram o
+	// envio de e-mail de internal/notify (GO-026) — SMTPHost vazio
+	// significa "não configurado"; um evento de e-mail enfileirado ainda
+	// assim entra na fila de retry normal (falha explícita, nunca
+	// silenciosa), até alguém configurar um servidor real.
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+	// FilesRootDir é o diretório de armazenamento local de arquivos
+	// (internal/files, GO-026) — vazio significa "sem armazenamento de
+	// arquivo configurado nesta instância".
+	FilesRootDir string
 }
 
 const (
@@ -54,11 +68,18 @@ const (
 	envWorkerTenants         = "SALTCORN_GO_WORKER_TENANTS"
 	envServiceIdentitySecret = "SALTCORN_GO_SERVICE_IDENTITY_SECRET"
 	envLogLevel              = "SALTCORN_GO_LOG_LEVEL"
+	envSMTPHost              = "SALTCORN_GO_SMTP_HOST"
+	envSMTPPort              = "SALTCORN_GO_SMTP_PORT"
+	envSMTPUsername          = "SALTCORN_GO_SMTP_USERNAME"
+	envSMTPPassword          = "SALTCORN_GO_SMTP_PASSWORD"
+	envSMTPFrom              = "SALTCORN_GO_SMTP_FROM"
+	envFilesRootDir          = "SALTCORN_GO_FILES_ROOT_DIR"
 
 	defaultHTTPAddr        = ":8090"
 	defaultShutdownTimeout = 15 * time.Second
 	defaultEnvironment     = "development"
 	defaultLogLevel        = slog.LevelInfo
+	defaultSMTPPort        = 587
 )
 
 // Load lê a configuração do ambiente, aplicando padrões razoáveis quando uma
@@ -72,6 +93,12 @@ func Load() (Config, error) {
 		DatabaseURL:           getEnv(envDatabaseURL, ""),
 		ServiceIdentitySecret: getEnv(envServiceIdentitySecret, ""),
 		LogLevel:              defaultLogLevel,
+		SMTPHost:              getEnv(envSMTPHost, ""),
+		SMTPPort:              defaultSMTPPort,
+		SMTPUsername:          getEnv(envSMTPUsername, ""),
+		SMTPPassword:          getEnv(envSMTPPassword, ""),
+		SMTPFrom:              getEnv(envSMTPFrom, ""),
+		FilesRootDir:          getEnv(envFilesRootDir, ""),
 	}
 
 	if v, ok := os.LookupEnv(envShutdownTimeout); ok && v != "" {
@@ -92,6 +119,17 @@ func Load() (Config, error) {
 				cfg.WorkerTenants = append(cfg.WorkerTenants, t)
 			}
 		}
+	}
+
+	if v, ok := os.LookupEnv(envSMTPPort); ok && v != "" {
+		port, err := strconv.Atoi(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("%s inválido (%q): %w", envSMTPPort, v, err)
+		}
+		if port <= 0 {
+			return Config{}, fmt.Errorf("%s deve ser positivo, recebido %d", envSMTPPort, port)
+		}
+		cfg.SMTPPort = port
 	}
 
 	if v, ok := os.LookupEnv(envLogLevel); ok && v != "" {

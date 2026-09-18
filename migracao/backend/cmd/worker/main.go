@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -34,6 +35,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/files"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/notify"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
@@ -62,6 +65,16 @@ const placeholderJobCapability = "worker.placeholder_job"
 // capacidade servida pelo job de processamento de outbox (GO-014) — mesma
 // convenção do placeholder acima.
 const outboxJobCapability = "worker.outbox_processor"
+
+// fileCleanupJobCapability identifica a capacidade servida pelo job de
+// limpeza de uploads órfãos (internal/files, GO-026).
+const fileCleanupJobCapability = "worker.file_cleanup"
+
+// fileCleanupOrphanAge é a idade mínima de um arquivo de staging para ser
+// considerado órfão (ver files.LocalBackend.CleanupOrphans) — bem maior
+// que jobInterval, para nunca remover um upload legitimamente em
+// andamento.
+const fileCleanupOrphanAge = 1 * time.Hour
 
 // outboxBatchLimit e outboxMaxAttempts são fixos nesta fundação, como
 // jobInterval — configuráveis quando houver operação real.
@@ -142,6 +155,34 @@ func main() {
 		},
 	}}
 
+	// notifyHandler (GO-026) é o primeiro consumidor REAL de
+	// outbox.ProcessPending desde GO-014 — antes disso, todo evento só era
+	// logado ("sem consumidor real ainda"). SMTPHost vazio não impede o
+	// job de rodar: um evento de e-mail enfileirado sem servidor
+	// configurado falha explicitamente (entra no retry normal do outbox),
+	// nunca é descartado silenciosamente. O fallback preserva o
+	// comportamento de log de qualquer tipo de evento que não seja
+	// e-mail/webhook — nenhum consumidor futuro perde esse log só por
+	// GO-026 ter sido implementada.
+	smtpCfg := notify.SMTPConfig{
+		Host: cfg.SMTPHost, Port: cfg.SMTPPort,
+		Username: cfg.SMTPUsername, Password: cfg.SMTPPassword, From: cfg.SMTPFrom,
+	}
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	notifyHandler := notify.Handler(smtpCfg, httpClient, func(ctx context.Context, tx pgx.Tx, ev outbox.OutboxEvent) error {
+		telemetry.LoggerFor(ctx).Info("evento de outbox processado (demonstração, sem consumidor real)",
+			"event_type", ev.Type, "attempts", ev.Attempts)
+		return nil
+	})
+
+	// filesBackend (GO-026) só existe se um diretório de armazenamento
+	// foi configurado — sem isso, runFileCleanupJob é um no-op (mesmo
+	// espírito de "sem banco configurado" para os demais jobs).
+	var filesBackend *files.LocalBackend
+	if cfg.FilesRootDir != "" {
+		filesBackend = files.NewLocalBackend(cfg.FilesRootDir)
+	}
+
 	logger.Info("saltcorn-go worker iniciado", "ambiente", cfg.Environment, "intervalo", jobInterval.String(), "tenants", cfg.WorkerTenants, "worker_id", workerInstanceID)
 
 runLoop:
@@ -155,7 +196,7 @@ runLoop:
 				// Shutdown já em andamento: não inicia mais um ciclo.
 				continue
 			}
-			runCycle(baseCtx, cfg.WorkerTenants, db, guard, jobMetrics, workerInstanceID, schedulerDispatcher)
+			runCycle(baseCtx, cfg.WorkerTenants, db, guard, jobMetrics, workerInstanceID, schedulerDispatcher, notifyHandler, filesBackend)
 			end()
 		}
 	}
@@ -175,15 +216,16 @@ runLoop:
 // que o tenant é propagado ao trabalho de background, não só a requisições
 // HTTP. Sem SALTCORN_GO_WORKER_TENANTS configurada, roda um único ciclo sem
 // tenant nem banco (comportamento idêntico ao da fundação GO-005).
-func runCycle(ctx context.Context, tenants []string, db *database.DB, guard *cutover.Guard, metrics *telemetry.JobMetrics, workerID string, dispatcher *scheduler.Dispatcher) {
+func runCycle(ctx context.Context, tenants []string, db *database.DB, guard *cutover.Guard, metrics *telemetry.JobMetrics, workerID string, dispatcher *scheduler.Dispatcher, notifyHandler outbox.Handler, filesBackend *files.LocalBackend) {
 	if len(tenants) == 0 {
 		runPlaceholderJob(ctx, "", db, guard, metrics)
 		return
 	}
 	for _, t := range tenants {
 		runPlaceholderJob(ctx, t, db, guard, metrics)
-		runOutboxJob(ctx, t, db, guard, metrics)
+		runOutboxJob(ctx, t, db, guard, metrics, notifyHandler)
 		runScheduledTriggersJob(ctx, t, db, guard, metrics, workerID, dispatcher)
+		runFileCleanupJob(ctx, t, db, guard, metrics, filesBackend)
 	}
 }
 
@@ -258,7 +300,7 @@ func runPlaceholderJob(ctx context.Context, tenant string, db *database.DB, guar
 // aqui só loga o evento (nenhum consumidor real de eventos de trigger
 // AfterCommit de GO-024 foi conectado ainda; runScheduledTriggersJob, mais
 // abaixo, segue o MESMO padrão para os triggers agendados de GO-025).
-func runOutboxJob(ctx context.Context, tenant string, db *database.DB, guard *cutover.Guard, metrics *telemetry.JobMetrics) {
+func runOutboxJob(ctx context.Context, tenant string, db *database.DB, guard *cutover.Guard, metrics *telemetry.JobMetrics, handler outbox.Handler) {
 	if db == nil || tenant == "" {
 		return
 	}
@@ -287,12 +329,7 @@ func runOutboxJob(ctx context.Context, tenant string, db *database.DB, guard *cu
 	var processed, failed int
 	err = db.WithTenant(jobCtx, tenancy.Tenant(tenant), func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		processed, failed, err = outbox.ProcessPending(ctx, tx, outboxBatchLimit, outboxMaxAttempts,
-			func(ctx context.Context, tx pgx.Tx, ev outbox.OutboxEvent) error {
-				telemetry.LoggerFor(ctx).Info("evento de outbox processado (demonstração, sem consumidor real)",
-					"event_type", ev.Type, "attempts", ev.Attempts)
-				return nil
-			})
+		processed, failed, err = outbox.ProcessPending(ctx, tx, outboxBatchLimit, outboxMaxAttempts, handler)
 		return err
 	})
 	elapsed := time.Since(start)
@@ -385,4 +422,51 @@ func runScheduledTriggersJob(ctx context.Context, tenant string, db *database.DB
 // do outro), só duas instâncias de worker cuidando do MESMO tenant.
 func schedulerLeaseName(tenant string) string {
 	return "scheduler:" + tenant
+}
+
+// runFileCleanupJob varre o backend de armazenamento local por uploads
+// interrompidos (internal/files.LocalBackend.CleanupOrphans, GO-026) — a
+// rede de segurança contra uma queda ABRUPTA do processo NO MEIO de um
+// upload, que nenhum defer de Backend.Save intercepta. No-op se nenhum
+// diretório de armazenamento foi configurado (SALTCORN_GO_FILES_ROOT_DIR
+// vazia) — mesmo espírito de "sem banco configurado" para os demais jobs.
+// Não depende de banco/tenant para a limpeza física em si, mas ainda
+// passa pela guarda de ownership (GO-009) e telemetria (GO-010) como
+// qualquer outro job, para que "quem está limpando o quê" seja
+// observável e sujeito ao mesmo corte gradual dos demais.
+func runFileCleanupJob(ctx context.Context, tenant string, db *database.DB, guard *cutover.Guard, metrics *telemetry.JobMetrics, backend *files.LocalBackend) {
+	if backend == nil || tenant == "" {
+		return
+	}
+
+	jobCtx := telemetry.WithTraceID(ctx, telemetry.NewTraceID())
+	jobCtx = telemetry.WithSpanID(jobCtx, telemetry.NewSpanID())
+	jobCtx = tenancy.WithTenant(jobCtx, tenancy.Tenant(tenant))
+	logger := telemetry.LoggerFor(jobCtx)
+	start := time.Now()
+
+	end, err := cutover.Acquire(guard, tenancy.Tenant(tenant), fileCleanupJobCapability)
+	if err != nil {
+		result := "skipped_error"
+		switch {
+		case errors.Is(err, cutover.ErrNotOwner):
+			result = "skipped_not_owner"
+		case errors.Is(err, cutover.ErrRouteDraining):
+			result = "skipped_draining"
+		}
+		logger.Info("job de limpeza de arquivos pulado", "result", result)
+		metrics.Observe(time.Since(start), result)
+		return
+	}
+	defer end()
+
+	removed, err := backend.CleanupOrphans(fileCleanupOrphanAge)
+	elapsed := time.Since(start)
+	if err != nil {
+		logger.Warn("job de limpeza de arquivos falhou", "result", "error")
+		metrics.Observe(elapsed, "error")
+		return
+	}
+	logger.Debug("job de limpeza de arquivos concluído", "result", "ok", "removed", removed)
+	metrics.Observe(elapsed, "ok")
 }

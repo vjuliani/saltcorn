@@ -124,3 +124,54 @@ func TestLoad_EmptyEnvValueFallsBackToDefault(t *testing.T) {
 		t.Errorf("HTTPAddr = %q, esperado o padrão %q", cfg.HTTPAddr, defaultHTTPAddr)
 	}
 }
+
+func TestLoad_SMTPAndFilesDefaults(t *testing.T) {
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() erro inesperado: %v", err)
+	}
+	if cfg.SMTPHost != "" {
+		t.Errorf("SMTPHost = %q, esperado vazio por padrão (não configurado)", cfg.SMTPHost)
+	}
+	if cfg.SMTPPort != defaultSMTPPort {
+		t.Errorf("SMTPPort = %d, esperado %d", cfg.SMTPPort, defaultSMTPPort)
+	}
+	if cfg.FilesRootDir != "" {
+		t.Errorf("FilesRootDir = %q, esperado vazio por padrão", cfg.FilesRootDir)
+	}
+}
+
+func TestLoad_SMTPOverridesFromEnv(t *testing.T) {
+	t.Setenv(envSMTPHost, "smtp.example.com")
+	t.Setenv(envSMTPPort, "465")
+	t.Setenv(envSMTPUsername, "usuario")
+	t.Setenv(envSMTPPassword, "senha")
+	t.Setenv(envSMTPFrom, "no-reply@example.com")
+	t.Setenv(envFilesRootDir, "/var/lib/saltcorn-go/files")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() erro inesperado: %v", err)
+	}
+	if cfg.SMTPHost != "smtp.example.com" || cfg.SMTPPort != 465 || cfg.SMTPUsername != "usuario" ||
+		cfg.SMTPPassword != "senha" || cfg.SMTPFrom != "no-reply@example.com" {
+		t.Errorf("configuração SMTP = %+v, não bateu com o esperado", cfg)
+	}
+	if cfg.FilesRootDir != "/var/lib/saltcorn-go/files" {
+		t.Errorf("FilesRootDir = %q, esperado /var/lib/saltcorn-go/files", cfg.FilesRootDir)
+	}
+}
+
+func TestLoad_InvalidSMTPPort(t *testing.T) {
+	t.Setenv(envSMTPPort, "nao-e-um-numero")
+	if _, err := Load(); err == nil {
+		t.Error("esperava erro para porta SMTP não numérica, obteve nil")
+	}
+}
+
+func TestLoad_NonPositiveSMTPPort(t *testing.T) {
+	t.Setenv(envSMTPPort, "0")
+	if _, err := Load(); err == nil {
+		t.Error("esperava erro para porta SMTP não positiva, obteve nil")
+	}
+}
