@@ -2,26 +2,30 @@
 // trouxe o loop periódico e o encerramento gracioso. GO-007 acrescenta
 // propagação de tenant por job (internal/platform/tenancy) e, quando
 // SALTCORN_GO_DATABASE_URL está configurada, executa cada ciclo dentro de
-// internal/platform/database.WithTenant, isolado por schema — a automação
-// real (triggers/workflow/scheduler) entra em GO-024/GO-025, reutilizando o
-// mesmo internal/platform/* usado aqui (ADR-0001: "CLI e worker reutilizam
-// os mesmos serviços"). GO-009 acrescenta a mesma guarda de ownership de
-// escrita usada por cmd/server (internal/platform/cutover): um job só roda
-// para um tenant se este backend for o proprietário registrado dessa
-// capacidade — "bloquear caminhos alternativos, inclusive jobs" não é uma
-// checagem duplicada por processo, é a mesma checagem reutilizada. GO-010
-// acrescenta log estruturado, métricas de job e um trace novo por execução
+// internal/platform/database.WithTenant, isolado por schema. GO-009
+// acrescenta a mesma guarda de ownership de escrita usada por cmd/server
+// (internal/platform/cutover): um job só roda para um tenant se este
+// backend for o proprietário registrado dessa capacidade — "bloquear
+// caminhos alternativos, inclusive jobs" não é uma checagem duplicada por
+// processo, é a mesma checagem reutilizada. GO-010 acrescenta log
+// estruturado, métricas de job e um trace novo por execução
 // (internal/platform/telemetry) — cada job é uma operação correlacionável
 // como uma requisição HTTP seria, com seu próprio trace_id. GO-014
 // acrescenta um segundo job por tenant, de processamento de outbox
 // (internal/platform/outbox.ProcessPending) — o worker real que drena os
 // eventos gravados por escritas idempotentes (internal/records + GO-013),
-// com retries e falhas inspecionáveis via _sc_outbox.
+// com retries e falhas inspecionáveis via _sc_outbox. GO-025 acrescenta um
+// terceiro job, de disparo de triggers agendados (internal/scheduler) —
+// serializado entre MÚLTIPLAS instâncias deste processo por
+// internal/platform/lease (arrendamento com expiração real em banco,
+// distinto de cutover.Guard, que só coordena legado↔Go dentro de UM
+// processo, nunca entre processos concorrentes).
 package main
 
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -33,14 +37,20 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/lease"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/telemetry"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/scheduler"
 )
 
-// jobInterval é fixo nesta fundação; vira configurável quando houver jobs
-// reais com frequências próprias (GO-025).
+// jobInterval é fixo nesta fundação — permanece assim mesmo após GO-025:
+// a granularidade de "está na hora?" dos triggers agendados vem de
+// internal/scheduler (cron por minuto, com next_run_at próprio por
+// trigger, ver internal/scheduler/cron.go), não da frequência do tick do
+// worker. Configurável por frequência de PROCESSO (não por job) fica como
+// extensão futura, não fabricada aqui.
 const jobInterval = 5 * time.Second
 
 // placeholderJobCapability identifica, para o registro de ownership
@@ -54,11 +64,23 @@ const placeholderJobCapability = "worker.placeholder_job"
 const outboxJobCapability = "worker.outbox_processor"
 
 // outboxBatchLimit e outboxMaxAttempts são fixos nesta fundação, como
-// jobInterval — configuráveis quando houver operação real (GO-025).
+// jobInterval — configuráveis quando houver operação real.
 const (
 	outboxBatchLimit  = 20
 	outboxMaxAttempts = 5
 )
+
+// schedulerLeaseTTL é o prazo do arrendamento (internal/platform/lease,
+// GO-025) que serializa o job de scheduler entre múltiplas instâncias do
+// processo worker — maior que jobInterval para que o MESMO worker sempre
+// consiga renovar antes de expirar em operação normal (o lease só deveria
+// expirar de verdade se o worker que o detém morrer ou travar), mas curto
+// o bastante para que um failover não demore muito: se o dono do lease
+// cair, outro worker assume no próximo tick após a expiração, nunca
+// esperando o encerramento gracioso de uma conexão morta (ao contrário de
+// um pg_advisory_lock, que soltaria só quando a conexão TCP cair — sem
+// TTL, sem prazo determinístico).
+const schedulerLeaseTTL = 3 * jobInterval
 
 func main() {
 	cfg, err := config.Load()
@@ -100,7 +122,27 @@ func main() {
 	ticker := time.NewTicker(jobInterval)
 	defer ticker.Stop()
 
-	logger.Info("saltcorn-go worker iniciado", "ambiente", cfg.Environment, "intervalo", jobInterval.String(), "tenants", cfg.WorkerTenants)
+	// workerInstanceID identifica ESTE processo de forma única entre
+	// reinícios e entre instâncias concorrentes — o "owner" que
+	// internal/platform/lease usa para decidir quem detém o arrendamento
+	// do job de scheduler (GO-025). Não precisa de aleatoriedade
+	// criptográfica: só precisa ser, na prática, distinto de qualquer
+	// outra instância viva ao mesmo tempo.
+	workerInstanceID := fmt.Sprintf("%s-%d-%d", hostnameOrUnknown(), os.Getpid(), time.Now().UnixNano())
+
+	// scheduler é o mecanismo de disparo de triggers agendados (GO-025) —
+	// registro de ações nativas, mesmo espírito de registeredFunctions em
+	// migracao/packages/pluginhost (demonstração do MECANISMO, não um
+	// catálogo de produção: nenhum trigger agendado real existe neste
+	// checkout ainda).
+	schedulerDispatcher := &scheduler.Dispatcher{Actions: map[string]scheduler.ActionFunc{
+		"log": func(ctx context.Context, tx pgx.Tx) error {
+			telemetry.LoggerFor(ctx).Info("trigger agendado executado (demonstração, sem catálogo real ainda)")
+			return nil
+		},
+	}}
+
+	logger.Info("saltcorn-go worker iniciado", "ambiente", cfg.Environment, "intervalo", jobInterval.String(), "tenants", cfg.WorkerTenants, "worker_id", workerInstanceID)
 
 runLoop:
 	for {
@@ -113,7 +155,7 @@ runLoop:
 				// Shutdown já em andamento: não inicia mais um ciclo.
 				continue
 			}
-			runCycle(baseCtx, cfg.WorkerTenants, db, guard, jobMetrics)
+			runCycle(baseCtx, cfg.WorkerTenants, db, guard, jobMetrics, workerInstanceID, schedulerDispatcher)
 			end()
 		}
 	}
@@ -133,7 +175,7 @@ runLoop:
 // que o tenant é propagado ao trabalho de background, não só a requisições
 // HTTP. Sem SALTCORN_GO_WORKER_TENANTS configurada, roda um único ciclo sem
 // tenant nem banco (comportamento idêntico ao da fundação GO-005).
-func runCycle(ctx context.Context, tenants []string, db *database.DB, guard *cutover.Guard, metrics *telemetry.JobMetrics) {
+func runCycle(ctx context.Context, tenants []string, db *database.DB, guard *cutover.Guard, metrics *telemetry.JobMetrics, workerID string, dispatcher *scheduler.Dispatcher) {
 	if len(tenants) == 0 {
 		runPlaceholderJob(ctx, "", db, guard, metrics)
 		return
@@ -141,7 +183,19 @@ func runCycle(ctx context.Context, tenants []string, db *database.DB, guard *cut
 	for _, t := range tenants {
 		runPlaceholderJob(ctx, t, db, guard, metrics)
 		runOutboxJob(ctx, t, db, guard, metrics)
+		runScheduledTriggersJob(ctx, t, db, guard, metrics, workerID, dispatcher)
 	}
+}
+
+// hostnameOrUnknown devolve os.Hostname(), ou "unknown" se indisponível —
+// só compõe workerInstanceID (um identificador de diagnóstico, nunca uma
+// chave de segurança), então uma falha aqui não deveria impedir o worker
+// de subir.
+func hostnameOrUnknown() string {
+	if h, err := os.Hostname(); err == nil {
+		return h
+	}
+	return "unknown"
 }
 
 // runPlaceholderJob simula uma unidade de trabalho ("transação") com
@@ -200,11 +254,10 @@ func runPlaceholderJob(ctx context.Context, tenant string, db *database.DB, guar
 
 // runOutboxJob drena até outboxBatchLimit eventos pendentes de
 // _sc_outbox por ciclo (GO-014), reaproveitando a mesma guarda de
-// ownership (GO-009) e telemetria (GO-010) do job placeholder — a
-// automação real (GO-024/025) reusará este mesmo padrão para os handlers
-// de evento que ainda não existem; o handler aqui só loga o evento
-// (nenhum consumidor real existe ainda, mesmo espírito do metadata.Cache
-// sem consumidor real de GO-011 e dos Hooks sem automação real de GO-013).
+// ownership (GO-009) e telemetria (GO-010) do job placeholder — o handler
+// aqui só loga o evento (nenhum consumidor real de eventos de trigger
+// AfterCommit de GO-024 foi conectado ainda; runScheduledTriggersJob, mais
+// abaixo, segue o MESMO padrão para os triggers agendados de GO-025).
 func runOutboxJob(ctx context.Context, tenant string, db *database.DB, guard *cutover.Guard, metrics *telemetry.JobMetrics) {
 	if db == nil || tenant == "" {
 		return
@@ -250,4 +303,86 @@ func runOutboxJob(ctx context.Context, tenant string, db *database.DB, guard *cu
 	}
 	logger.Debug("job de outbox concluído", "result", "ok", "processed", processed, "failed", failed)
 	metrics.Observe(elapsed, "ok")
+}
+
+// runScheduledTriggersJob dispara os triggers agendados (GO-025) cujo
+// horário já passou, para tenant. Dois portões, nesta ordem:
+//
+//  1. cutover.Acquire(scheduler.Capability) — o mesmo padrão de
+//     ownership de GO-009 usado pelos outros jobs: "scheduler antigo é
+//     desativado por escopo" (critério de aceite) vale por construção —
+//     enquanto ninguém chamar cutover.SwitchOwner para esta capacidade e
+//     este tenant, o owner em cache nunca é OwnerGo, e este job NUNCA
+//     chega a tocar _sc_scheduled_triggers.
+//  2. lease.Acquire — cutover.Guard é uma guarda EM MEMÓRIA de UM
+//     processo (não impede duas instâncias diferentes do worker, ambas
+//     "Go owner", de rodarem o MESMO job ao mesmo tempo); o lease
+//     (internal/platform/lease, com expiração real em banco) é o que de
+//     fato serializa entre PROCESSOS — "dois workers não executam
+//     simultaneamente job exclusivo" (critério de aceite) depende deste
+//     segundo portão, não do primeiro.
+//
+// Perder a disputa pelo lease (lease.ErrLeaseHeld) é um resultado normal
+// em operação com mais de um worker, não um erro — outro processo já
+// está cuidando deste tenant neste instante.
+func runScheduledTriggersJob(ctx context.Context, tenant string, db *database.DB, guard *cutover.Guard, metrics *telemetry.JobMetrics, workerID string, dispatcher *scheduler.Dispatcher) {
+	if db == nil || tenant == "" {
+		return
+	}
+
+	jobCtx := telemetry.WithTraceID(ctx, telemetry.NewTraceID())
+	jobCtx = telemetry.WithSpanID(jobCtx, telemetry.NewSpanID())
+	jobCtx = tenancy.WithTenant(jobCtx, tenancy.Tenant(tenant))
+	logger := telemetry.LoggerFor(jobCtx)
+	start := time.Now()
+
+	end, err := cutover.Acquire(guard, tenancy.Tenant(tenant), scheduler.Capability)
+	if err != nil {
+		result := "skipped_error"
+		switch {
+		case errors.Is(err, cutover.ErrNotOwner):
+			result = "skipped_not_owner"
+		case errors.Is(err, cutover.ErrRouteDraining):
+			result = "skipped_draining"
+		}
+		logger.Info("job de scheduler pulado", "result", result)
+		metrics.Observe(time.Since(start), result)
+		return
+	}
+	defer end()
+
+	leaseErr := db.WithTenant(jobCtx, tenancy.Tenant(tenant), func(ctx context.Context, tx pgx.Tx) error {
+		return lease.Acquire(ctx, tx, schedulerLeaseName(tenant), workerID, schedulerLeaseTTL)
+	})
+	if leaseErr != nil {
+		result := "skipped_error"
+		if errors.Is(leaseErr, lease.ErrLeaseHeld) {
+			result = "skipped_lease_held"
+		}
+		logger.Debug("job de scheduler pulado", "result", result)
+		metrics.Observe(time.Since(start), result)
+		return
+	}
+
+	var ran, failed int
+	err = db.WithTenant(jobCtx, tenancy.Tenant(tenant), func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		ran, failed, err = dispatcher.RunDue(ctx, tx, time.Now())
+		return err
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		logger.Warn("job de scheduler falhou", "result", "error")
+		metrics.Observe(elapsed, "error")
+		return
+	}
+	logger.Debug("job de scheduler concluído", "result", "ok", "ran", ran, "failed", failed)
+	metrics.Observe(elapsed, "ok")
+}
+
+// schedulerLeaseName isola o lease por tenant — dois tenants diferentes
+// nunca disputam o mesmo lease (o scheduler de um não deveria esperar o
+// do outro), só duas instâncias de worker cuidando do MESMO tenant.
+func schedulerLeaseName(tenant string) string {
+	return "scheduler:" + tenant
 }

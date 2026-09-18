@@ -492,7 +492,7 @@ Execute a task GO-024 — Portar triggers, ações e workflows, de docs/migracao
 
 ### GO-025 — Portar scheduler e coordenação de workers
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — PR [#28](https://github.com/vjuliani/saltcorn/pull/28) aberto; aguardando revisão e checks; histórico em [execucoes/GO-025.md](execucoes/GO-025.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-014, GO-024
