@@ -96,7 +96,7 @@ func createViewHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerF
 			if !ok {
 				return errHandled
 			}
-			table, err := metadata.GetTable(ctx, tx, req.TableName)
+			table, err := metadata.GetTable(ctx, database.AsTx(tx), req.TableName)
 			if err != nil {
 				return err
 			}
@@ -165,7 +165,7 @@ func listViewsHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFu
 			}
 			tableID := 0
 			if tableName != "" {
-				table, err := metadata.GetTable(ctx, tx, tableName)
+				table, err := metadata.GetTable(ctx, database.AsTx(tx), tableName)
 				if err != nil {
 					return err
 				}

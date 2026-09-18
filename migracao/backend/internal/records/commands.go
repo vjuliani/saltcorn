@@ -11,6 +11,7 @@ import (
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // Códigos SQLSTATE do Postgres classificados por classifyPgError — nunca a
@@ -84,7 +85,7 @@ func (h *Hooks) afterDelete(ctx context.Context, tx pgx.Tx, table metadata.Table
 // identity.CanWrite(actorRole, table.MinRoleWrite) — o ponto de entrada
 // comum de CreateRecord/UpdateRecord/DeleteRecord.
 func resolveTableForWrite(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableName string) (metadata.Table, map[string]metadata.Field, error) {
-	table, err := metadata.GetTable(ctx, tx, tableName)
+	table, err := metadata.GetTable(ctx, database.AsTx(tx), tableName)
 	if err != nil {
 		if isTableNotFound(err) {
 			return metadata.Table{}, nil, fmt.Errorf("%w: %q", ErrUnknownTable, tableName)
@@ -94,7 +95,7 @@ func resolveTableForWrite(ctx context.Context, tx pgx.Tx, actorRole identity.Rol
 	if !identity.CanWrite(actorRole, table.MinRoleWrite) {
 		return metadata.Table{}, nil, ErrNotAuthorized
 	}
-	fields, err := metadata.ListFields(ctx, tx, table.ID)
+	fields, err := metadata.ListFields(ctx, database.AsTx(tx), table.ID)
 	if err != nil {
 		return metadata.Table{}, nil, err
 	}

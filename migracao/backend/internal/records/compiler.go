@@ -11,6 +11,7 @@ import (
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 var idField = metadata.Field{Name: "id", Type: metadata.FieldInteger}
@@ -23,7 +24,7 @@ var idField = metadata.Field{Name: "id", Type: metadata.FieldInteger}
 // leitura da tabela — nos dois casos, nenhum SQL chega a ser montado com o
 // identificador inválido.
 func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query) (string, []any, error) {
-	table, err := metadata.GetTable(ctx, tx, q.Table)
+	table, err := metadata.GetTable(ctx, database.AsTx(tx), q.Table)
 	if err != nil {
 		if isTableNotFound(err) {
 			return "", nil, fmt.Errorf("%w: %q", ErrUnknownTable, q.Table)
@@ -34,7 +35,7 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 		return "", nil, ErrNotAuthorized
 	}
 
-	fields, err := metadata.ListFields(ctx, tx, table.ID)
+	fields, err := metadata.ListFields(ctx, database.AsTx(tx), table.ID)
 	if err != nil {
 		return "", nil, err
 	}
@@ -67,7 +68,7 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 		if jf.Type != metadata.FieldKey {
 			return "", nil, fmt.Errorf("%w: campo %q não é do tipo key", ErrInvalidJoin, j.Field)
 		}
-		refTable, err := metadata.GetTableByID(ctx, tx, jf.ReferencesTable)
+		refTable, err := metadata.GetTableByID(ctx, database.AsTx(tx), jf.ReferencesTable)
 		if err != nil {
 			return "", nil, err
 		}
@@ -79,7 +80,7 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 		if !identity.CanRead(actorRole, refTable.MinRoleRead) {
 			return "", nil, ErrNotAuthorized
 		}
-		refFields, err := metadata.ListFields(ctx, tx, refTable.ID)
+		refFields, err := metadata.ListFields(ctx, database.AsTx(tx), refTable.ID)
 		if err != nil {
 			return "", nil, err
 		}
@@ -150,7 +151,7 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 }
 
 func compileAggregation(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, agg Aggregation) (string, error) {
-	childTable, err := metadata.GetTable(ctx, tx, agg.ChildTable)
+	childTable, err := metadata.GetTable(ctx, database.AsTx(tx), agg.ChildTable)
 	if err != nil {
 		if isTableNotFound(err) {
 			return "", fmt.Errorf("%w: %q", ErrUnknownTable, agg.ChildTable)
@@ -164,7 +165,7 @@ func compileAggregation(ctx context.Context, tx pgx.Tx, actorRole identity.RoleI
 	if !identity.CanRead(actorRole, childTable.MinRoleRead) {
 		return "", ErrNotAuthorized
 	}
-	childFields, err := metadata.ListFields(ctx, tx, childTable.ID)
+	childFields, err := metadata.ListFields(ctx, database.AsTx(tx), childTable.ID)
 	if err != nil {
 		return "", err
 	}

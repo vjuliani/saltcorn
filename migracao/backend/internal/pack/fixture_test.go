@@ -84,7 +84,7 @@ func newTenant(t *testing.T, db *database.DB, suffix string) tenancy.Tenant {
 	})
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if err := metadata.EnsureSchema(ctx, tx); err != nil {
+		if err := metadata.EnsureSchema(ctx, database.AsTx(tx)); err != nil {
 			return err
 		}
 		if err := views.EnsureSchema(ctx, tx); err != nil {

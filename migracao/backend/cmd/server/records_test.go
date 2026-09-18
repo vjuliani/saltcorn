@@ -97,7 +97,7 @@ func newTestFixture(t *testing.T, db *database.DB, actorRole identity.RoleID) te
 		if err := identity.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
-		if err := metadata.EnsureSchema(ctx, tx); err != nil {
+		if err := metadata.EnsureSchema(ctx, database.AsTx(tx)); err != nil {
 			return err
 		}
 		if err := outbox.EnsureSchema(ctx, tx); err != nil {
@@ -111,11 +111,11 @@ func newTestFixture(t *testing.T, db *database.DB, actorRole identity.RoleID) te
 		if err != nil {
 			return err
 		}
-		widgets, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "widgets", metadata.TableOptions{})
+		widgets, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "widgets", metadata.TableOptions{})
 		if err != nil {
 			return err
 		}
-		_, err = metadata.AddField(ctx, tx, identity.RoleAdmin, widgets.ID, metadata.FieldDef{Name: "label", Type: metadata.FieldText, Required: true})
+		_, err = metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, widgets.ID, metadata.FieldDef{Name: "label", Type: metadata.FieldText, Required: true})
 		return err
 	}); err != nil {
 		t.Fatalf("setup do fixture: %v", err)
@@ -408,7 +408,7 @@ func TestListRecordsHandler_UnauthorizedTableRejected(t *testing.T) {
 	ctx := context.Background()
 
 	if err := db.WithTenant(ctx, fx.tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "secrets", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
+		_, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "secrets", metadata.TableOptions{MinRoleRead: identity.RoleAdmin, MinRoleWrite: identity.RoleAdmin})
 		return err
 	}); err != nil {
 		t.Fatalf("criar tabela secrets: %v", err)

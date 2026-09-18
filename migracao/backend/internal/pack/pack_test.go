@@ -30,26 +30,26 @@ func buildSampleApp(t *testing.T, db *database.DB, tenant tenancy.Tenant) {
 	t.Helper()
 	ctx := context.Background()
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		authors, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "authors", metadata.TableOptions{
+		authors, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "authors", metadata.TableOptions{
 			MinRoleRead: identity.RolePublic, MinRoleWrite: identity.RoleAdmin,
 		})
 		if err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, authors.ID, metadata.FieldDef{Name: "name", Type: metadata.FieldText, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, authors.ID, metadata.FieldDef{Name: "name", Type: metadata.FieldText, Required: true}); err != nil {
 			return err
 		}
 
-		books, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "books", metadata.TableOptions{
+		books, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", metadata.TableOptions{
 			MinRoleRead: identity.RolePublic, MinRoleWrite: identity.RoleAdmin,
 		})
 		if err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "author", Type: metadata.FieldKey, References: "authors"}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "author", Type: metadata.FieldKey, References: "authors"}); err != nil {
 			return err
 		}
 
@@ -173,7 +173,7 @@ func TestImport_MissingPlugin_ReportsBeforeApplying_NothingCreated(t *testing.T)
 	}
 
 	if err := db.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tables, err := metadata.ListTables(ctx, tx)
+		tables, err := metadata.ListTables(ctx, database.AsTx(tx))
 		if err != nil {
 			return err
 		}
@@ -225,7 +225,7 @@ func TestImport_AtomicFailure_RollsBackEverything(t *testing.T) {
 	}
 
 	if err := db.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tables, err := metadata.ListTables(ctx, tx)
+		tables, err := metadata.ListTables(ctx, database.AsTx(tx))
 		if err != nil {
 			return err
 		}
@@ -251,7 +251,7 @@ func TestImport_UnknownVersion_Rejected(t *testing.T) {
 	}
 
 	if err := db.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tables, err := metadata.ListTables(ctx, tx)
+		tables, err := metadata.ListTables(ctx, database.AsTx(tx))
 		if err != nil {
 			return err
 		}

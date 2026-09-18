@@ -11,6 +11,7 @@ import (
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 const sqlstateUniqueViolation = "23505"
@@ -72,7 +73,7 @@ func CreateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name 
 		minRole = identity.RoleAdmin
 	}
 	if minRole != identity.RoleAdmin {
-		fields, err := metadata.ListFields(ctx, tx, tableID)
+		fields, err := metadata.ListFields(ctx, database.AsTx(tx), tableID)
 		if err != nil {
 			return View{}, err
 		}
@@ -193,7 +194,7 @@ func UpdateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, id in
 	// Nunca uma sobrescrita silenciosa de uma view incompatível "meio
 	// publicada": ou passa por inteiro, ou falha com o motivo específico.
 	if minRole != identity.RoleAdmin {
-		fields, err := metadata.ListFields(ctx, tx, current.TableID)
+		fields, err := metadata.ListFields(ctx, database.AsTx(tx), current.TableID)
 		if err != nil {
 			return View{}, err
 		}

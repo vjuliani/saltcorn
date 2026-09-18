@@ -54,7 +54,7 @@ func testTenant(t *testing.T, db *database.DB) tenancy.Tenant {
 	})
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		return EnsureSchema(ctx, tx)
+		return EnsureSchema(ctx, database.AsTx(tx))
 	}); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestCreateTable_CatalogAndDDLAgree(t *testing.T) {
 	var created *Table
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		created, err = CreateTable(ctx, tx, identity.RoleAdmin, "guitars", TableOptions{})
+		created, err = CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "guitars", TableOptions{})
 		return err
 	}); err != nil {
 		t.Fatalf("CreateTable: %v", err)
@@ -140,7 +140,7 @@ func TestCreateTable_Idempotent(t *testing.T) {
 		var tbl *Table
 		if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 			var err error
-			tbl, err = CreateTable(ctx, tx, identity.RoleAdmin, "books", TableOptions{})
+			tbl, err = CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", TableOptions{})
 			return err
 		}); err != nil {
 			t.Fatalf("CreateTable: %v", err)
@@ -157,7 +157,7 @@ func TestCreateTable_Idempotent(t *testing.T) {
 	var version int64
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		version, err = CurrentVersion(ctx, tx)
+		version, err = CurrentVersion(ctx, database.AsTx(tx))
 		return err
 	}); err != nil {
 		t.Fatalf("CurrentVersion: %v", err)
@@ -175,7 +175,7 @@ func TestCreateTable_MaliciousNameSanitizedSafely(t *testing.T) {
 	var created *Table
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		created, err = CreateTable(ctx, tx, identity.RoleAdmin, "students; DROP TABLE _sc_tables;--", TableOptions{})
+		created, err = CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "students; DROP TABLE _sc_tables;--", TableOptions{})
 		return err
 	}); err != nil {
 		t.Fatalf("CreateTable com nome malicioso: %v", err)
@@ -195,7 +195,7 @@ func TestCreateTable_EmptyNameAfterSanitizationFails(t *testing.T) {
 	ctx := context.Background()
 
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := CreateTable(ctx, tx, identity.RoleAdmin, ";;;---", TableOptions{})
+		_, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, ";;;---", TableOptions{})
 		return err
 	})
 	if !errors.Is(err, ErrInvalidName) {
@@ -211,7 +211,7 @@ func TestCreateTable_RequiresAdmin(t *testing.T) {
 	ctx := context.Background()
 
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := CreateTable(ctx, tx, identity.RolePublic, "should_not_exist", TableOptions{})
+		_, err := CreateTable(ctx, database.AsTx(tx), identity.RolePublic, "should_not_exist", TableOptions{})
 		return err
 	})
 	if !errors.Is(err, ErrNotAuthorized) {
@@ -229,12 +229,12 @@ func TestAddField_CatalogAndDDLAgree(t *testing.T) {
 
 	var tableID int
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tbl, err := CreateTable(ctx, tx, identity.RoleAdmin, "books", TableOptions{})
+		tbl, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", TableOptions{})
 		if err != nil {
 			return err
 		}
 		tableID = tbl.ID
-		_, err = AddField(ctx, tx, identity.RoleAdmin, tableID, FieldDef{Name: "title", Type: FieldText, Required: true})
+		_, err = AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, FieldDef{Name: "title", Type: FieldText, Required: true})
 		return err
 	}); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -252,7 +252,7 @@ func TestAddField_Idempotent(t *testing.T) {
 
 	var tableID int
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tbl, err := CreateTable(ctx, tx, identity.RoleAdmin, "books", TableOptions{})
+		tbl, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", TableOptions{})
 		tableID = tbl.ID
 		return err
 	}); err != nil {
@@ -263,7 +263,7 @@ func TestAddField_Idempotent(t *testing.T) {
 		var f *Field
 		if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 			var err error
-			f, err = AddField(ctx, tx, identity.RoleAdmin, tableID, FieldDef{Name: "title", Type: FieldText})
+			f, err = AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, FieldDef{Name: "title", Type: FieldText})
 			return err
 		}); err != nil {
 			t.Fatalf("AddField: %v", err)
@@ -285,19 +285,19 @@ func TestAddField_TypeMismatchRejected(t *testing.T) {
 
 	var tableID int
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tbl, err := CreateTable(ctx, tx, identity.RoleAdmin, "books", TableOptions{})
+		tbl, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", TableOptions{})
 		tableID = tbl.ID
 		if err != nil {
 			return err
 		}
-		_, err = AddField(ctx, tx, identity.RoleAdmin, tableID, FieldDef{Name: "pages", Type: FieldInteger})
+		_, err = AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, FieldDef{Name: "pages", Type: FieldInteger})
 		return err
 	}); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := AddField(ctx, tx, identity.RoleAdmin, tableID, FieldDef{Name: "pages", Type: FieldText})
+		_, err := AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, FieldDef{Name: "pages", Type: FieldText})
 		return err
 	})
 	if !errors.Is(err, ErrFieldTypeMismatch) {
@@ -314,15 +314,15 @@ func TestAddField_KeyRelation(t *testing.T) {
 
 	var bookID int
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := CreateTable(ctx, tx, identity.RoleAdmin, "publisher", TableOptions{}); err != nil {
+		if _, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "publisher", TableOptions{}); err != nil {
 			return err
 		}
-		book, err := CreateTable(ctx, tx, identity.RoleAdmin, "books", TableOptions{})
+		book, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", TableOptions{})
 		if err != nil {
 			return err
 		}
 		bookID = book.ID
-		_, err = AddField(ctx, tx, identity.RoleAdmin, bookID, FieldDef{Name: "publisher", Type: FieldKey, References: "publisher"})
+		_, err = AddField(ctx, database.AsTx(tx), identity.RoleAdmin, bookID, FieldDef{Name: "publisher", Type: FieldKey, References: "publisher"})
 		return err
 	}); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -362,7 +362,7 @@ func TestAddField_ReferencedTableNotFound(t *testing.T) {
 
 	var tableID int
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tbl, err := CreateTable(ctx, tx, identity.RoleAdmin, "books", TableOptions{})
+		tbl, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", TableOptions{})
 		tableID = tbl.ID
 		return err
 	}); err != nil {
@@ -370,7 +370,7 @@ func TestAddField_ReferencedTableNotFound(t *testing.T) {
 	}
 
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := AddField(ctx, tx, identity.RoleAdmin, tableID, FieldDef{Name: "publisher", Type: FieldKey, References: "nao_existe"})
+		_, err := AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, FieldDef{Name: "publisher", Type: FieldKey, References: "nao_existe"})
 		return err
 	})
 	if !errors.Is(err, ErrReferencedTableNotFound) {
@@ -390,7 +390,7 @@ func TestAddField_IntermediateFailureIsRecoverable(t *testing.T) {
 
 	var tableID int
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tbl, err := CreateTable(ctx, tx, identity.RoleAdmin, "books", TableOptions{})
+		tbl, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", TableOptions{})
 		tableID = tbl.ID
 		return err
 	}); err != nil {
@@ -409,7 +409,7 @@ func TestAddField_IntermediateFailureIsRecoverable(t *testing.T) {
 	}
 
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := AddField(ctx, tx, identity.RoleAdmin, tableID, FieldDef{Name: "isbn", Type: FieldText})
+		_, err := AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, FieldDef{Name: "isbn", Type: FieldText})
 		return err
 	})
 	if err == nil {
@@ -418,7 +418,7 @@ func TestAddField_IntermediateFailureIsRecoverable(t *testing.T) {
 
 	// A linha de catálogo NÃO deveria ter sobrevivido — rollback completo.
 	err = db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := getFieldByName(ctx, tx, tableID, "isbn")
+		_, err := getFieldByName(ctx, database.AsTx(tx), tableID, "isbn")
 		return err
 	})
 	if !errors.Is(err, ErrFieldNotFound) {
@@ -428,7 +428,7 @@ func TestAddField_IntermediateFailureIsRecoverable(t *testing.T) {
 	var version int64
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		version, err = CurrentVersion(ctx, tx)
+		version, err = CurrentVersion(ctx, database.AsTx(tx))
 		return err
 	}); err != nil {
 		t.Fatalf("CurrentVersion: %v", err)
@@ -445,12 +445,12 @@ func TestDropField_IdempotentAndRemovesPhysically(t *testing.T) {
 
 	var tableID int
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tbl, err := CreateTable(ctx, tx, identity.RoleAdmin, "books", TableOptions{})
+		tbl, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", TableOptions{})
 		if err != nil {
 			return err
 		}
 		tableID = tbl.ID
-		_, err = AddField(ctx, tx, identity.RoleAdmin, tableID, FieldDef{Name: "title", Type: FieldText})
+		_, err = AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, FieldDef{Name: "title", Type: FieldText})
 		return err
 	}); err != nil {
 		t.Fatalf("setup: %v", err)
@@ -458,7 +458,7 @@ func TestDropField_IdempotentAndRemovesPhysically(t *testing.T) {
 
 	drop := func() {
 		if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-			return DropField(ctx, tx, identity.RoleAdmin, tableID, "title")
+			return DropField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, "title")
 		}); err != nil {
 			t.Fatalf("DropField: %v", err)
 		}
@@ -477,7 +477,7 @@ func TestDropTable_IdempotentAndRemovesPhysically(t *testing.T) {
 
 	var tableID int
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tbl, err := CreateTable(ctx, tx, identity.RoleAdmin, "temp_table", TableOptions{})
+		tbl, err := CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "temp_table", TableOptions{})
 		tableID = tbl.ID
 		return err
 	}); err != nil {
@@ -486,7 +486,7 @@ func TestDropTable_IdempotentAndRemovesPhysically(t *testing.T) {
 
 	drop := func() {
 		if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-			return DropTable(ctx, tx, identity.RoleAdmin, tableID)
+			return DropTable(ctx, database.AsTx(tx), identity.RoleAdmin, tableID)
 		}); err != nil {
 			t.Fatalf("DropTable: %v", err)
 		}
@@ -506,7 +506,7 @@ func TestGetTableByID(t *testing.T) {
 	var created *Table
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		created, err = CreateTable(ctx, tx, identity.RoleAdmin, "guitars", TableOptions{})
+		created, err = CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "guitars", TableOptions{})
 		return err
 	}); err != nil {
 		t.Fatalf("CreateTable: %v", err)
@@ -515,7 +515,7 @@ func TestGetTableByID(t *testing.T) {
 	var got *Table
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		got, err = GetTableByID(ctx, tx, created.ID)
+		got, err = GetTableByID(ctx, database.AsTx(tx), created.ID)
 		return err
 	}); err != nil {
 		t.Fatalf("GetTableByID: %v", err)
@@ -531,7 +531,7 @@ func TestGetTableByID_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := GetTableByID(ctx, tx, 999999)
+		_, err := GetTableByID(ctx, database.AsTx(tx), 999999)
 		return err
 	})
 	if !errors.Is(err, ErrTableNotFound) {

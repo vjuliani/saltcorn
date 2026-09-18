@@ -96,7 +96,7 @@ func triggerFixture(t *testing.T) (db *database.DB, tenant tenancy.Tenant, table
 	})
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if err := metadata.EnsureSchema(ctx, tx); err != nil {
+		if err := metadata.EnsureSchema(ctx, database.AsTx(tx)); err != nil {
 			return err
 		}
 		if err := outbox.EnsureSchema(ctx, tx); err != nil {
@@ -105,15 +105,15 @@ func triggerFixture(t *testing.T) (db *database.DB, tenant tenancy.Tenant, table
 		if err := EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
-		posts, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "posts", metadata.TableOptions{})
+		posts, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "posts", metadata.TableOptions{})
 		if err != nil {
 			return err
 		}
 		tableID = posts.ID
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true}); err != nil {
 			return err
 		}
-		_, err = metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "published", Type: metadata.FieldBoolean})
+		_, err = metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, metadata.FieldDef{Name: "published", Type: metadata.FieldBoolean})
 		return err
 	}); err != nil {
 		t.Fatalf("setup do fixture de domínio: %v", err)

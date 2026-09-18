@@ -26,10 +26,10 @@ func booksWithFields(t *testing.T, db *database.DB, tenant tenancy.Tenant, table
 	t.Helper()
 	ctx := context.Background()
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger}); err != nil {
 			return err
 		}
 		for _, book := range []map[string]any{

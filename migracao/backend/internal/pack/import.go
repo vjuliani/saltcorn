@@ -10,6 +10,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/library"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/scheduler"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
@@ -43,7 +44,7 @@ func Import(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, p Pack, a
 	}
 
 	for _, tp := range p.Tables {
-		if _, err := metadata.CreateTable(ctx, tx, actorRole, tp.Name, metadata.TableOptions{
+		if _, err := metadata.CreateTable(ctx, database.AsTx(tx), actorRole, tp.Name, metadata.TableOptions{
 			MinRoleRead: tp.MinRoleRead, MinRoleWrite: tp.MinRoleWrite,
 		}); err != nil {
 			return fmt.Errorf("pack: criar tabela %q: %w", tp.Name, err)
@@ -51,12 +52,12 @@ func Import(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, p Pack, a
 	}
 
 	for _, tp := range p.Tables {
-		table, err := metadata.GetTable(ctx, tx, tp.Name)
+		table, err := metadata.GetTable(ctx, database.AsTx(tx), tp.Name)
 		if err != nil {
 			return fmt.Errorf("pack: reler tabela %q recém-criada: %w", tp.Name, err)
 		}
 		for _, fp := range tp.Fields {
-			if _, err := metadata.AddField(ctx, tx, actorRole, table.ID, metadata.FieldDef{
+			if _, err := metadata.AddField(ctx, database.AsTx(tx), actorRole, table.ID, metadata.FieldDef{
 				Name: fp.Name, Type: fp.Type, Required: fp.Required, Unique: fp.Unique, References: fp.References,
 			}); err != nil {
 				return fmt.Errorf("pack: adicionar campo %q.%q: %w", tp.Name, fp.Name, err)
@@ -77,7 +78,7 @@ func Import(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, p Pack, a
 	}
 
 	for _, vp := range p.Views {
-		table, err := metadata.GetTable(ctx, tx, vp.TableName)
+		table, err := metadata.GetTable(ctx, database.AsTx(tx), vp.TableName)
 		if err != nil {
 			return fmt.Errorf("pack: view %q referencia tabela desconhecida %q: %w", vp.Name, vp.TableName, err)
 		}
@@ -87,7 +88,7 @@ func Import(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, p Pack, a
 	}
 
 	for _, tp := range p.Triggers {
-		table, err := metadata.GetTable(ctx, tx, tp.TableName)
+		table, err := metadata.GetTable(ctx, database.AsTx(tx), tp.TableName)
 		if err != nil {
 			return fmt.Errorf("pack: trigger em %q referencia tabela desconhecida: %w", tp.TableName, err)
 		}

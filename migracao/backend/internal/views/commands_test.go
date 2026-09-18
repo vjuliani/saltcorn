@@ -68,13 +68,13 @@ func testFixture(t *testing.T, db *database.DB) (tenancy.Tenant, int) {
 
 	var tableID int
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if err := metadata.EnsureSchema(ctx, tx); err != nil {
+		if err := metadata.EnsureSchema(ctx, database.AsTx(tx)); err != nil {
 			return err
 		}
 		if err := EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
-		books, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "books", metadata.TableOptions{})
+		books, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", metadata.TableOptions{})
 		if err != nil {
 			return err
 		}
@@ -163,11 +163,11 @@ func TestGetView_PublishWithTwoRoles(t *testing.T) {
 	// classify_test.go) para o passo de publicar não ser bloqueado por um
 	// motivo alheio ao que o teste verifica.
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText})
+		_, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText})
 		if err != nil {
 			return err
 		}
-		_, err = metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger})
+		_, err = metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger})
 		return err
 	}); err != nil {
 		t.Fatalf("preparar campos title/pages: %v", err)
@@ -305,10 +305,10 @@ func TestListViews_FiltersByRoleAndTable(t *testing.T) {
 	// CreateView); "draft" fica admin-only e por isso pode ter
 	// configuration vazia sem ser bloqueada.
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText}); err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tableID, metadata.FieldDef{Name: "pages", Type: metadata.FieldInteger}); err != nil {
 			return err
 		}
 		if _, err := CreateView(ctx, tx, identity.RoleAdmin, "published", tableID, "List", compatibleConfiguration(), ViewOptions{MinRole: identity.RolePublic}); err != nil {

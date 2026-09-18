@@ -104,14 +104,14 @@ func testFixture(t *testing.T, db *database.DB) (tenancy.Tenant, *cutover.Guard)
 	})
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if err := metadata.EnsureSchema(ctx, tx); err != nil {
+		if err := metadata.EnsureSchema(ctx, database.AsTx(tx)); err != nil {
 			return err
 		}
-		books, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "books", metadata.TableOptions{})
+		books, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "books", metadata.TableOptions{})
 		if err != nil {
 			return err
 		}
-		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true}); err != nil {
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, books.ID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true}); err != nil {
 			return err
 		}
 		_, err = records.CreateRecord(ctx, tx, identity.RoleAdmin, "books", map[string]any{"title": "Dune"}, nil)

@@ -25,12 +25,12 @@ func seedUniqueTable(t *testing.T, db *database.DB, tenant tenancy.Tenant) int {
 	t.Helper()
 	var tableID int
 	if err := db.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
-		tbl, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "authors", metadata.TableOptions{})
+		tbl, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "authors", metadata.TableOptions{})
 		if err != nil {
 			return err
 		}
 		tableID = tbl.ID
-		_, err = metadata.AddField(ctx, tx, identity.RoleAdmin, tbl.ID, metadata.FieldDef{Name: "email", Type: metadata.FieldText, Required: true, Unique: true})
+		_, err = metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, tbl.ID, metadata.FieldDef{Name: "email", Type: metadata.FieldText, Required: true, Unique: true})
 		return err
 	}); err != nil {
 		t.Fatalf("seedUniqueTable: %v", err)
@@ -151,7 +151,7 @@ func TestCreateRecord_NotAuthorized(t *testing.T) {
 	ctx := context.Background()
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "secrets", metadata.TableOptions{MinRoleWrite: identity.RoleAdmin})
+		_, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "secrets", metadata.TableOptions{MinRoleWrite: identity.RoleAdmin})
 		return err
 	}); err != nil {
 		t.Fatalf("setup: %v", err)
