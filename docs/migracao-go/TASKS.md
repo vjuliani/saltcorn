@@ -511,7 +511,7 @@ Execute a task GO-025 — Portar scheduler e coordenação de workers, de docs/m
 
 ### GO-026 — Portar arquivos e notificações
 
-- [ ] **Status:** IN_REVIEW — PR [#29](https://github.com/vjuliani/saltcorn/pull/29) aberto; aguardando revisão e checks; histórico em [execucoes/GO-026.md](execucoes/GO-026.md)
+- [x] **Status:** DONE — integrada via PR [#29](https://github.com/vjuliani/saltcorn/pull/29) (merge `2e178aee7d157799a82a833b26d6a0b688dff9bd`); histórico em [execucoes/GO-026.md](execucoes/GO-026.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-008, GO-014
