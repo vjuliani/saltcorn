@@ -60,6 +60,14 @@ const tablesSchemaRoute = "tenant_tables_schema"
 const viewsCapability = "tables.views"
 const viewsRoute = "tenant_views"
 
+// realtimeCapability (GO-028) identifica a capacidade de servir o poll de
+// eventos em tempo real ao BFF — sujeita ao mesmo corte gradual Node/Go
+// que qualquer outra capacidade de domínio: enquanto não for OwnerGo para
+// um tenant, o BFF simplesmente não tem nenhum evento para relayar por
+// Socket.IO àquele tenant (nunca um comportamento "quebrado", só ausente).
+const realtimeCapability = "realtime.events"
+const realtimeRoute = "tenant_realtime_events"
+
 func main() {
 	cfg, err := config.Load()
 	logger := slog.New(telemetry.NewHandler(os.Stdout, cfg.LogLevel))
@@ -180,6 +188,13 @@ func main() {
 		mux.Handle("GET /v1/tenants/{tenant}/views/{id}/render",
 			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, viewsCapability, renderListHandler(tracker, db)))))
+
+		// GO-028: o BFF faz polling desta rota (uma vez por socket
+		// conectado) para saber o que relayar por Socket.IO — ver
+		// realtime.go e docs/migracao-go/execucoes/GO-028.md.
+		mux.Handle("GET /v1/tenants/{tenant}/realtime/events",
+			tenancy.Middleware(verifier, telemetry.Middleware(realtimeRoute, httpMetrics,
+				cutover.RequireOwnership(guard, realtimeCapability, realtimeEventsHandler(tracker, db)))))
 	}
 
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux, BaseContext: func(net.Listener) context.Context {

@@ -14,16 +14,22 @@ import react from "@vitejs/plugin-react";
 // documentada no README do BFF.
 const bffProxyTarget = process.env.SALTCORN_DEV_BFF_PROXY_TARGET ?? "http://localhost:3100";
 
+// /socket.io também precisa do proxy (GO-028) — mesmo motivo de /api/bff
+// acima, mais `ws: true`: sem isso o Vite não faz upgrade da conexão
+// HTTP para WebSocket, e o cliente cairia só no fallback de polling
+// (ainda funcional, mas nunca exercitaria o transporte que produção usa).
 export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
       "/api/bff": { target: bffProxyTarget, changeOrigin: true },
+      "/socket.io": { target: bffProxyTarget, changeOrigin: true, ws: true },
     },
   },
   preview: {
     proxy: {
       "/api/bff": { target: bffProxyTarget, changeOrigin: true },
+      "/socket.io": { target: bffProxyTarget, changeOrigin: true, ws: true },
     },
   },
   test: {

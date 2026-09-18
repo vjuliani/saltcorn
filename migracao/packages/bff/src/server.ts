@@ -7,6 +7,7 @@ import { loadConfig } from "./config.js";
 import { GoClient } from "./goClient.js";
 import { InMemorySessionStore } from "./session.js";
 import { buildRouter, createRequestListener } from "./app.js";
+import { attachRealtime } from "./realtime.js";
 
 function parseAddr(addr: string): { host?: string; port: number } {
   const [maybeHost, maybePort] = addr.split(":");
@@ -38,6 +39,8 @@ export function main(): void {
     }
     void listener(req, res);
   });
+
+  attachRealtime(server, { config, sessionStore, goClient });
 
   const { host, port } = parseAddr(config.httpAddr);
   server.listen(port, host, () => {

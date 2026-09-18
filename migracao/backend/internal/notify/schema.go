@@ -28,11 +28,13 @@ import (
 )
 
 // _sc_notifications é o equivalente reduzido de _sc_notifications do
-// legado — sem os canais push nativo (Web Push/FCM/APNS) nem
-// atualização dinâmica in-app: exigem credenciais externas (VAPID/FCM/
-// APNS) e bibliotecas pesadas sem exercício no piloto deste checkout,
-// fora de escopo desta tarefa (ver README/execução para a lista
-// completa de decisões de escopo).
+// legado — sem o canal push nativo (Web Push/FCM/APNS): exige credenciais
+// externas e bibliotecas pesadas sem exercício no piloto deste checkout,
+// fora de escopo desta tarefa (ver README/execução para a lista completa
+// de decisões de escopo). A atualização dinâmica in-app, que esta tarefa
+// (GO-026) tinha deixado explicitamente de fora, é coberta por GO-028
+// (internal/realtime) — Create publica um evento em tempo real na MESMA
+// transação da notificação, ver notifications.go.
 const createNotificationsTableSQL = `
 CREATE TABLE IF NOT EXISTS _sc_notifications (
 	id serial PRIMARY KEY,
