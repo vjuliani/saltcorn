@@ -89,6 +89,30 @@ func DueTriggers(ctx context.Context, tx pgx.Tx, now time.Time) ([]ScheduledTrig
 	return out, rows.Err()
 }
 
+// ListAll lê TODOS os triggers agendados do tenant, em ordem de criação —
+// usado por internal/pack (GO-027) para exportar a aplicação inteira
+// (nunca filtrando por "está na hora", ao contrário de DueTriggers).
+func ListAll(ctx context.Context, tx pgx.Tx) ([]ScheduledTrigger, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT id, name, action, cron_expr, timezone, next_run_at, last_run_at, COALESCE(last_error, '')
+		 FROM _sc_scheduled_triggers ORDER BY id`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ScheduledTrigger
+	for rows.Next() {
+		var st ScheduledTrigger
+		if err := rows.Scan(&st.ID, &st.Name, &st.Action, &st.CronExpr, &st.Timezone, &st.NextRunAt, &st.LastRunAt, &st.LastError); err != nil {
+			return nil, err
+		}
+		out = append(out, st)
+	}
+	return out, rows.Err()
+}
+
 func advanceSchedule(ctx context.Context, tx pgx.Tx, id int, nextRunAt time.Time, lastErr string) error {
 	var errArg any
 	if lastErr != "" {
