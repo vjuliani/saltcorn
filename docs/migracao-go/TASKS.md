@@ -530,7 +530,7 @@ Execute a task GO-026 — Portar arquivos e notificações, de docs/migracao-go/
 
 ### GO-027 — Portar configuração, packs e biblioteca
 
-- [ ] **Status:** IN_REVIEW — PR [#30](https://github.com/vjuliani/saltcorn/pull/30) aberto; aguardando revisão e checks; histórico em [execucoes/GO-027.md](execucoes/GO-027.md)
+- [x] **Status:** DONE — integrada via PR [#30](https://github.com/vjuliani/saltcorn/pull/30) (merge `514dfb4de27c14c72d77df925810d274bf0aa4a2`); histórico em [execucoes/GO-027.md](execucoes/GO-027.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-011, GO-020, GO-023
