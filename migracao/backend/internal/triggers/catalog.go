@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -51,6 +52,12 @@ type Trigger struct {
 	// AfterCommit espelha `configuration._after_commit` do legado — ver
 	// Dispatcher.enqueueAfterCommit para a diferença deliberada de garantia.
 	AfterCommit bool
+	// Configuration (GO-029) são os parâmetros PRÓPRIOS desta instância de
+	// trigger, passados para a ActionFunc no disparo (ex.: `to`/`subject`/
+	// `body` de um `send_email`, `url` de um `webhook`) — ver actions.go.
+	// nil/vazio é válido para ações que não precisam de parâmetro (ex.:
+	// ações de teste que ignoram config).
+	Configuration map[string]any
 }
 
 // CreateTrigger insere uma nova entrada no catálogo. Não valida se
@@ -65,20 +72,29 @@ func CreateTrigger(ctx context.Context, tx pgx.Tx, t Trigger) (Trigger, error) {
 	if t.OnlyIf != "" {
 		onlyIf = &t.OnlyIf
 	}
-	err := tx.QueryRow(ctx,
-		`INSERT INTO _sc_triggers (table_id, when_trigger, action, only_if, after_commit) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		t.TableID, string(t.When), t.Action, onlyIf, t.AfterCommit,
+	config := t.Configuration
+	if config == nil {
+		config = map[string]any{}
+	}
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return Trigger{}, err
+	}
+	err = tx.QueryRow(ctx,
+		`INSERT INTO _sc_triggers (table_id, when_trigger, action, only_if, after_commit, configuration) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		t.TableID, string(t.When), t.Action, onlyIf, t.AfterCommit, configJSON,
 	).Scan(&t.ID)
 	if err != nil {
 		return Trigger{}, err
 	}
+	t.Configuration = config
 	return t, nil
 }
 
 // TriggersFor lê, em ordem de criação, os triggers registrados para
 // tableID+when — a consulta que Dispatcher faz a cada escrita.
 func TriggersFor(ctx context.Context, tx pgx.Tx, tableID int, when WhenTrigger) ([]Trigger, error) {
-	return queryTriggers(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit FROM _sc_triggers WHERE table_id = $1 AND when_trigger = $2 ORDER BY id`, tableID, string(when))
+	return queryTriggers(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers WHERE table_id = $1 AND when_trigger = $2 ORDER BY id`, tableID, string(when))
 }
 
 // ListAll lê TODOS os triggers do tenant, em ordem de criação — usado por
@@ -86,7 +102,7 @@ func TriggersFor(ctx context.Context, tx pgx.Tx, tableID int, when WhenTrigger) 
 // chamador precisava de uma visão não filtrada por tabela+evento até
 // aqui.
 func ListAll(ctx context.Context, tx pgx.Tx) ([]Trigger, error) {
-	return queryTriggers(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit FROM _sc_triggers ORDER BY id`)
+	return queryTriggers(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers ORDER BY id`)
 }
 
 func queryTriggers(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]Trigger, error) {
@@ -101,12 +117,18 @@ func queryTriggers(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]T
 		var t Trigger
 		var whenStr string
 		var onlyIf *string
-		if err := rows.Scan(&t.ID, &t.TableID, &whenStr, &t.Action, &onlyIf, &t.AfterCommit); err != nil {
+		var configJSON []byte
+		if err := rows.Scan(&t.ID, &t.TableID, &whenStr, &t.Action, &onlyIf, &t.AfterCommit, &configJSON); err != nil {
 			return nil, err
 		}
 		t.When = WhenTrigger(whenStr)
 		if onlyIf != nil {
 			t.OnlyIf = *onlyIf
+		}
+		if len(configJSON) > 0 {
+			if err := json.Unmarshal(configJSON, &t.Configuration); err != nil {
+				return nil, err
+			}
 		}
 		out = append(out, t)
 	}

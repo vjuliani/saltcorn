@@ -33,7 +33,7 @@ func TestValidate_AbortsWrite(t *testing.T) {
 	}
 
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"reject": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any) error {
+		"reject": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			return errRejected
 		},
 	}}
@@ -73,7 +73,7 @@ func TestOnlyIf_GatesAction(t *testing.T) {
 
 	called := 0
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"mark": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any) error {
+		"mark": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			called++
 			return nil
 		},
@@ -115,7 +115,7 @@ func TestAfterInsert_RunsInSameTransaction(t *testing.T) {
 	}
 
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"log": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any) error {
+		"log": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			_, err := tx.Exec(ctx, `INSERT INTO post_log (title) VALUES ($1)`, row["title"])
 			return err
 		},
@@ -171,7 +171,7 @@ func TestAfterCommit_EnqueuesOutboxEvent_NeverRunsSynchronously(t *testing.T) {
 
 	calledSynchronously := false
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"slow_effect": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any) error {
+		"slow_effect": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			calledSynchronously = true
 			return nil
 		},
@@ -227,7 +227,9 @@ func TestAfterCommit_RollbackNeverEnqueuesEvent(t *testing.T) {
 	}
 
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"noop": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any) error { return nil },
+		"noop": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+			return nil
+		},
 	}}
 
 	errDeliberateRollback := errors.New("rollback deliberado do teste")
@@ -281,7 +283,9 @@ func TestAfterCommit_RetryDoesNotDuplicateEvent(t *testing.T) {
 	}
 
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"noop": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any) error { return nil },
+		"noop": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+			return nil
+		},
 	}}
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
@@ -359,7 +363,9 @@ func TestOnlyIf_LegacyOwner_FailsClosed(t *testing.T) {
 
 	d := &Dispatcher{
 		Expression: coldEvaluator,
-		Actions:    map[string]ActionFunc{"noop": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any) error { return nil }},
+		Actions: map[string]ActionFunc{"noop": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+			return nil
+		}},
 	}
 
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {

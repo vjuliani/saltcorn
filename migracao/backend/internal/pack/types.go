@@ -64,11 +64,12 @@ type ViewPack struct {
 // TriggerPack é um trigger ligado a comando de registro (GO-024) —
 // TableName é o nome da tabela associada.
 type TriggerPack struct {
-	TableName   string
-	When        triggers.WhenTrigger
-	Action      string
-	OnlyIf      string
-	AfterCommit bool
+	TableName     string
+	When          triggers.WhenTrigger
+	Action        string
+	OnlyIf        string
+	AfterCommit   bool
+	Configuration map[string]any
 }
 
 // ScheduledTriggerPack é um trigger agendado (GO-025) — só a DEFINIÇÃO

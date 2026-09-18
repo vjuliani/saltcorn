@@ -64,7 +64,10 @@ func buildSampleApp(t *testing.T, db *database.DB, tenant tenancy.Tenant) {
 			return err
 		}
 
-		if _, err := triggers.CreateTrigger(ctx, tx, triggers.Trigger{TableID: books.ID, When: triggers.WhenInsert, Action: "log"}); err != nil {
+		if _, err := triggers.CreateTrigger(ctx, tx, triggers.Trigger{
+			TableID: books.ID, When: triggers.WhenInsert, Action: "log",
+			Configuration: map[string]any{"note": "trigger com configuration não vazia — GO-029 exercita o round-trip deste campo"},
+		}); err != nil {
 			return err
 		}
 
