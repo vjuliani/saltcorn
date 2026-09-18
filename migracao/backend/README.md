@@ -484,31 +484,64 @@ Tipo `Color` (`internal/types`, o 6º tipo básico do legado) — sem uso pelo p
 
 ## Adapter SQLite (GO-030)
 
-Um adapter novo (`internal/platform/sqlite`) mais uma fronteira nova (`internal/platform/database.Tx`) que permite a **`internal/metadata`** (GO-011 — catálogo de tabelas/campos) rodar contra Postgres OU SQLite sem duplicar lógica. Ver `docs/migracao-go/execucoes/GO-030.md` para as decisões de escopo completas (por que só `internal/metadata`, não `internal/records`/`internal/platform/outbox`).
+`internal/platform/sqlite` oferece um arquivo por tenant para uso desktop. O driver
+`modernc.org/sqlite v1.36.0` é puro Go e compatível com a toolchain deste módulo.
+`metadata`, consultas/comandos de `records` e idempotência/outbox usam a mesma
+lógica de domínio nos dois bancos, através de `database.Tx`.
 
-### `database.Tx` — a fronteira mínima, não uma reescrita de `WithTenant`
+As entradas `records.{Compile,Rows,CreateRecord,UpdateRecord,DeleteRecord}Tx`
+recebem essa interface e `TxHooks`. As entradas sem sufixo continuam compatíveis
+com `pgx.Tx`/`Hooks`. A outbox segue o mesmo padrão: `EnsureSchemaTx`, `DoTx`,
+`ListPendingTx`, `ListFailedTx`, `ProcessPendingTx` e `TxHandler`. Os callbacks devem
+propagar erros para `WithTenant`, responsável pelo commit/rollback externo.
 
-`internal/platform/database/tx.go` define `Tx`/`Row`/`Rows` — só os métodos que `internal/metadata` de fato usa (`Exec`/`Query`/`QueryRow`, nunca `Begin`/`Commit`/`Rollback`, que continuam sendo responsabilidade exclusiva de `WithTenant`). `database.AsTx(tx pgx.Tx) Tx` adapta uma transação Postgres JÁ ABERTA por `WithTenant`/`WithTenantAndActor` (nenhum dos dois mudou) — todo chamador de `internal/metadata` (records, pack, views, triggers, cmd/server, cmd/cli — ~24 arquivos) só precisou envolver o `tx` já existente em `database.AsTx(tx)` no ponto de chamada; nenhuma outra função de nenhum outro pacote mudou de assinatura. Confirmado: a suíte inteira do backend (Postgres) permanece verde, byte a byte igual ao comportamento anterior.
+```go
+err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx database.Tx) error {
+    if err := metadata.EnsureSchema(ctx, tx); err != nil { return err }
+    if err := outbox.EnsureSchemaTx(ctx, tx); err != nil { return err }
+    _, _, err := outbox.DoTx(ctx, tx, requestKey, values,
+        func(ctx context.Context, tx database.Tx) (any, []outbox.Event, error) {
+            row, err := records.CreateRecordTx(ctx, tx, role, "items", values, nil)
+            if err != nil { return nil, nil, err }
+            return row, []outbox.Event{{Type: "created", Payload: row}}, nil
+        })
+    return err
+})
+```
 
-### `internal/platform/sqlite` — "modo desktop", um arquivo por tenant
+| Comportamento | PostgreSQL | SQLite |
+| --- | --- | --- |
+| Tenant | Schema em pool compartilhado | Arquivo dedicado; uma conexão por instância/tenant |
+| Escritor concorrente | Advisory locks e locks de linha | `BEGIN IMMEDIATE` reserva escritor; `busy_timeout(5000)` limita espera entre processos |
+| Versão de registro | `xmin::text` | Coluna `_version`, incrementada pelos comandos de atualização |
+| Unicidade de campo adicionado | Constraint na coluna | Índice único removido junto com o campo |
+| Datas | `timestamptz` | `timestamp`, valores UTC com precisão de microssegundos |
+| Outbox | `FOR UPDATE SKIP LOCKED` | Serialização do escritor na transação inteira |
+| Tentativa de handler | Savepoint na transação | Savepoint na transação |
 
-Replica a decisão do legado (`packages/sqlite/sqlite.ts`, matriz GO-001 §2.2: "um arquivo por tenant, sem pool") — cada tenant é um arquivo `.sqlite` próprio, e `internal/platform/sqlite.DB` nunca abre mais de UMA conexão física por arquivo (`SetMaxOpenConns(1)`). Driver: `modernc.org/sqlite` (puro Go, sem cgo — mesma exceção deliberada já usada para `jsonwebtoken`/`socket.io` no BFF: superfície pequena, mas escrever um parser/driver SQLite à mão seria pior). Pinado em `v1.36.0` (não a última) — a mais recente exige Go ≥1.25, e este módulo fixa a toolchain em `go 1.22` deliberadamente (ver topo deste README).
+`metadata.EnsureSchema` acrescenta `_version` às tabelas de arquivos SQLite do
+primeiro checkpoint, preservando dados existentes. Um campo de usuário chamado
+`_version` impede a atualização e exige resolução explícita. Toda aplicação que
+escreva registros deve usar os comandos para manter o token de concorrência.
+Rollback em erro, cancelamento ou panic preserva atomicidade; o callback não deve
+suprimir um erro de uma operação parcial e retornar sucesso.
 
-### Divergências de sintaxe reais — só 2, confirmadas empiricamente
+Diferenças deliberadas: inteiros retornam como `int64` no SQLite e `int32` no
+PostgreSQL para colunas integer (mesma representação JSON); datas representam o
+mesmo instante, mas PostgreSQL pode retornar outro timezone; `Like` no SQLite usa
+case folding ASCII, enquanto `ILIKE` no PostgreSQL segue a collation do banco.
+Ordenação de NULL foi alinhada ao padrão PostgreSQL. SQLite não oferece RLS nativa:
+a autorização de papel dos comandos/consultas e o isolamento por arquivo são
+cobertos, mas o servidor, identidade, triggers e módulos posteriores continuam
+com integração PostgreSQL. Esta entrega não habilita servidor HTTP ou mobile
+SQLite; empacotamento e sync pertencem a GO-031/032.
 
-A hipótese inicial era de uma divergência de sintaxe ampla entre Postgres e SQLite; a investigação (incluindo um smoke test isolado antes de qualquer código de produção) mostrou o oposto — `$N` (placeholders posicionais), `RETURNING`, `ON CONFLICT ... DO NOTHING`, e nomes de tipo (`text`/`int`/`boolean`/`smallint`/`bigint`, que o SQLite aceita como qualquer identificador e só usa para inferir afinidade, nunca rejeita) funcionam SEM NENHUMA MUDANÇA nos dois SGBDs. Só dois pontos precisaram de um branch por `tx.Dialect()`:
-
-1. **Coluna de id autoincrementada**: `id serial PRIMARY KEY` (Postgres) vs `id INTEGER PRIMARY KEY AUTOINCREMENT` (SQLite — o literal exato `INTEGER` é o único jeito de ganhar o comportamento de autoincremento do SQLite; `serial` como nome de coluna seria aceito sintaticamente mas NUNCA geraria um valor sozinho). Confirmado por regressão deliberada: sem o branch, `CreateTable` falha de verdade (`converting NULL to int is unsupported`) já na primeira linha de `_sc_tables`.
-2. **`ALTER TABLE ... DROP COLUMN`**: SQLite suporta desde a versão 3.35, mas SEM a cláusula `IF EXISTS` (só Postgres tem essa variante) — achado real durante a implementação (não uma regressão deliberada; o primeiro corpus de teste SQLite já pegou isso na primeira rodada): `DropField` falhava com `SQL logic error: near "EXISTS": syntax error`. Corrigido com um branch de dialeto na string de DDL.
-
-`lockCatalog` (serialização de mutação de catálogo) também diverge, mas por DESIGN, não por sintaxe: no Postgres usa `pg_advisory_xact_lock`; no SQLite é um no-op deliberado, porque `SetMaxOpenConns(1)` já serializa estruturalmente qualquer mutação do MESMO tenant antes mesmo de chegar ali — testado com 10 `CreateTable` concorrentes sobre o MESMO arquivo, `_sc_metadata_version` termina em exatamente 10, nenhum incremento perdido (confirmado por regressão deliberada removendo `SetMaxOpenConns(1)`: as mesmas 10 goroutines falham de verdade com `SQLITE_BUSY`).
-
-### Fora de escopo desta entrega — por que não `internal/records`/`internal/platform/outbox`
-
-- **`internal/records`** (GO-012/013) está estruturalmente acoplado a `xmin`, a coluna de sistema do Postgres que todo o mecanismo de concorrência otimista (`_version`) usa — SQLite não tem NENHUM equivalente. Portar exigiria desenhar um token de concorrência alternativo (ex.: coluna `version integer` explícita, incrementada em cada `UPDATE`) — uma decisão de arquitetura própria, não uma generalização mecânica como a de `internal/metadata`.
-- **`internal/platform/outbox`** (GO-014) usa `pg_advisory_xact_lock` (idempotência) e `FOR UPDATE SKIP LOCKED` (processamento concorrente de pendências) — ambos sem equivalente direto no modelo de escritor único do SQLite; precisaria de um mecanismo de fila próprio para "modo desktop".
-- Todo pacote construído sobre `internal/records`/`internal/platform/outbox` (triggers, scheduler, notify, files, library, config, pack, views, realtime) permanece Postgres-only, sem nenhuma mudança nesta entrega.
-- **`distinguir tenancy disponível e modo desktop`** (escopo da tarefa): cumprido pela própria existência de `internal/platform/sqlite` como um pacote SEPARADO com semântica de tenancy estruturalmente diferente (arquivo, não schema) — não uma flag de configuração dentro do mesmo `internal/platform/database`.
+As fixtures compartilhadas estão em `internal/platform/sqlite/parity_test.go`.
+Com `SALTCORN_GO_TEST_DATABASE_URL` definido, executam nos dois adapters. Incluem
+CRUD/tipos, erros de autorização/constraint, conflito de versão, injeção, joins,
+paginação, idempotência concorrente entre handles, retries/savepoints e falha
+terminal. Testes SQLite adicionais encerram um subprocesso antes/depois do commit
+e verificam recuperação, replay e preservação de dados locais no upgrade.
 
 ## Encerramento gracioso
 

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // OutboxEvent é um evento pendente lido de _sc_outbox para processamento.
@@ -17,26 +17,29 @@ type OutboxEvent struct {
 	Attempts int
 }
 
-// Handler processa um OutboxEvent — roda dentro de uma savepoint própria
+// TxHandler processa um OutboxEvent — roda dentro de uma savepoint própria
 // (ver ProcessPending): se retornar erro, só o efeito do handler é
 // desfeito, o lote inteiro não é abortado.
-type Handler func(ctx context.Context, tx pgx.Tx, event OutboxEvent) error
+type TxHandler func(ctx context.Context, tx database.Tx, event OutboxEvent) error
 
-// ListPending lê até limit eventos com status='pending', mais antigos
+// ListPendingTx lê até limit eventos com status='pending', mais antigos
 // primeiro, travando as linhas escolhidas com `FOR UPDATE SKIP LOCKED` —
 // o mecanismo que garante que dois workers concorrentes (duas transações
 // diferentes chamando ListPending ao mesmo tempo) nunca peguem o mesmo
 // evento: cada um pula silenciosamente as linhas que o outro já travou,
 // em vez de bloquear esperando ou processar em duplicado.
-func ListPending(ctx context.Context, tx pgx.Tx, limit int) ([]OutboxEvent, error) {
-	rows, err := tx.Query(ctx, `
+func ListPendingTx(ctx context.Context, tx database.Tx, limit int) ([]OutboxEvent, error) {
+	query := `
 		SELECT id, idempotency_key, event_type, payload_json, attempts
 		FROM _sc_outbox
 		WHERE status = 'pending'
 		ORDER BY id
 		LIMIT $1
-		FOR UPDATE SKIP LOCKED
-	`, limit)
+	`
+	if tx.Dialect() == database.DialectPostgres {
+		query += " FOR UPDATE SKIP LOCKED"
+	}
+	rows, err := tx.Query(ctx, query, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -59,10 +62,10 @@ func ListPending(ctx context.Context, tx pgx.Tx, limit int) ([]OutboxEvent, erro
 	return events, rows.Err()
 }
 
-// ListFailed lê até limit eventos com status='failed' — "falhas
+// ListFailedTx lê até limit eventos com status='failed' — "falhas
 // inspecionáveis" do critério de aceite: um operador (ou um teste) consulta
 // isto para ver o que esgotou as tentativas, com o último erro registrado.
-func ListFailed(ctx context.Context, tx pgx.Tx, limit int) ([]OutboxEvent, error) {
+func ListFailedTx(ctx context.Context, tx database.Tx, limit int) ([]OutboxEvent, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT id, idempotency_key, event_type, payload_json, attempts
 		FROM _sc_outbox
@@ -92,8 +95,8 @@ func ListFailed(ctx context.Context, tx pgx.Tx, limit int) ([]OutboxEvent, error
 	return events, rows.Err()
 }
 
-func markDone(ctx context.Context, tx pgx.Tx, id int64) error {
-	_, err := tx.Exec(ctx, "UPDATE _sc_outbox SET status = 'done', processed_at = now() WHERE id = $1", id)
+func markDone(ctx context.Context, tx database.Tx, id int64) error {
+	err := tx.Exec(ctx, "UPDATE _sc_outbox SET status = 'done', processed_at = CURRENT_TIMESTAMP WHERE id = $1", id)
 	return err
 }
 
@@ -102,8 +105,8 @@ func markDone(ctx context.Context, tx pgx.Tx, id int64) error {
 // ou 'failed' (terminal, inspecionável) se atingiu — nunca fica
 // eternamente "pending" para um evento que já provou não conseguir
 // processar.
-func markFailed(ctx context.Context, tx pgx.Tx, id int64, errMsg string, maxAttempts int) error {
-	_, err := tx.Exec(ctx, `
+func markFailed(ctx context.Context, tx database.Tx, id int64, errMsg string, maxAttempts int) error {
+	err := tx.Exec(ctx, `
 		UPDATE _sc_outbox
 		SET attempts = attempts + 1,
 			last_error = $2,
@@ -113,23 +116,22 @@ func markFailed(ctx context.Context, tx pgx.Tx, id int64, errMsg string, maxAtte
 	return err
 }
 
-// ProcessPending lê até limit eventos pendentes (ListPending) e roda
+// ProcessPendingTx lê até limit eventos pendentes (ListPending) e roda
 // handler para cada um, DENTRO da transação tx já aberta pelo chamador —
-// mas cada evento roda em sua PRÓPRIA savepoint (uma "transação aninhada"
-// do pgx, tx.Begin() sobre uma pgx.Tx já aberta): se handler falhar para
+// mas cada evento roda em sua própria savepoint SQL: se handler falhar para
 // um evento, só o efeito DELE é desfeito (ROLLBACK TO SAVEPOINT) e ele é
 // marcado para nova tentativa ou como falha terminal — os demais eventos
 // do lote continuam sendo processados normalmente. maxAttempts limita
 // quantas vezes um evento é tentado antes de virar 'failed' (retries com
 // corte, não infinitos).
-func ProcessPending(ctx context.Context, tx pgx.Tx, limit, maxAttempts int, handler Handler) (processed, failed int, err error) {
-	events, err := ListPending(ctx, tx, limit)
+func ProcessPendingTx(ctx context.Context, tx database.Tx, limit, maxAttempts int, handler TxHandler) (processed, failed int, err error) {
+	events, err := ListPendingTx(ctx, tx, limit)
 	if err != nil {
 		return 0, 0, err
 	}
 
 	for _, ev := range events {
-		attemptErr := runInSavepoint(ctx, tx, func(sp pgx.Tx) error {
+		attemptErr := runInSavepoint(ctx, tx, func(sp database.Tx) error {
 			return handler(ctx, sp, ev)
 		})
 		if attemptErr != nil {
@@ -147,19 +149,21 @@ func ProcessPending(ctx context.Context, tx pgx.Tx, limit, maxAttempts int, hand
 	return processed, failed, nil
 }
 
-// runInSavepoint executa fn dentro de uma savepoint de tx (tx.Begin() numa
-// pgx.Tx já aberta é uma transação aninhada simulada via SAVEPOINT, não
-// uma conexão nova) — se fn falhar, a savepoint é desfeita sem afetar tx;
-// se suceder, a savepoint é liberada (RELEASE SAVEPOINT, via Commit) e o
-// efeito de fn permanece dentro de tx, pendente do commit externo.
-func runInSavepoint(ctx context.Context, tx pgx.Tx, fn func(sp pgx.Tx) error) error {
-	sp, err := tx.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("outbox: abrir savepoint: %w", err)
-	}
-	if err := fn(sp); err != nil {
-		_ = sp.Rollback(ctx)
+// runInSavepoint isola os efeitos de uma tentativa sem abrir conexão nova.
+// O sucesso permanece pendente do commit da transação externa.
+func runInSavepoint(ctx context.Context, tx database.Tx, fn func(sp database.Tx) error) error {
+	// Nome privado; uma tentativa termina antes de começar a próxima.
+	if err := tx.Exec(ctx, "SAVEPOINT sc_outbox_attempt"); err != nil {
 		return err
 	}
-	return sp.Commit(ctx)
+	if err := fn(tx); err != nil {
+		if rollbackErr := tx.Exec(ctx, "ROLLBACK TO SAVEPOINT sc_outbox_attempt"); rollbackErr != nil {
+			return fmt.Errorf("outbox: rollback: %w", rollbackErr)
+		}
+		if releaseErr := tx.Exec(ctx, "RELEASE SAVEPOINT sc_outbox_attempt"); releaseErr != nil {
+			return releaseErr
+		}
+		return err
+	}
+	return tx.Exec(ctx, "RELEASE SAVEPOINT sc_outbox_attempt")
 }

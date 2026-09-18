@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
@@ -98,6 +100,58 @@ func EnsureSchema(ctx context.Context, tx database.Tx) error {
 	}
 	if err := tx.Exec(ctx, seedVersionRowSQL); err != nil {
 		return err
+	}
+	if d == database.DialectSQLite {
+		return ensureSQLiteRecordVersions(ctx, tx)
+	}
+	return nil
+}
+
+// Atualiza arquivos criados pelo primeiro checkpoint de GO-030 sem apagar
+// registros locais. O DDL e a verificação rodam sob BEGIN IMMEDIATE.
+func ensureSQLiteRecordVersions(ctx context.Context, tx database.Tx) error {
+	tables, err := ListTables(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, table := range tables {
+		fields, err := ListFields(ctx, tx, table.ID)
+		if err != nil {
+			return err
+		}
+		for _, field := range fields {
+			if field.Name == "_version" {
+				return fmt.Errorf("metadata: campo reservado _version em %s exige migração explícita", table.Name)
+			}
+		}
+		quoted := pgx.Identifier{table.Name}.Sanitize()
+		rows, err := tx.Query(ctx, "PRAGMA table_info("+quoted+")")
+		if err != nil {
+			return err
+		}
+		found := false
+		for rows.Next() {
+			var cid, required, pk int
+			var name, columnType string
+			var defaultValue any
+			if err := rows.Scan(&cid, &name, &columnType, &required, &defaultValue, &pk); err != nil {
+				rows.Close()
+				return err
+			}
+			if name == "_version" {
+				found = true
+			}
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return err
+		}
+		if !found {
+			if err := tx.Exec(ctx, "ALTER TABLE "+quoted+` ADD COLUMN "_version" INTEGER NOT NULL DEFAULT 1`); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

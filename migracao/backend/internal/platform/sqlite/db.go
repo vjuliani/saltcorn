@@ -21,6 +21,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -53,7 +54,11 @@ func Open(dir string) (*DB, error) {
 	if !info.IsDir() {
 		return nil, fmt.Errorf("sqlite: %q não é um diretório", dir)
 	}
-	return &DB{dir: dir, open: make(map[string]*sql.DB)}, nil
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	return &DB{dir: absDir, open: make(map[string]*sql.DB)}, nil
 }
 
 // Close fecha toda conexão de tenant ainda aberta.
@@ -94,28 +99,18 @@ func (db *DB) WithTenant(ctx context.Context, t tenancy.Tenant, fn func(ctx cont
 	if err != nil {
 		return fmt.Errorf("sqlite: iniciar transação: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-			return
-		}
-		err = tx.Commit()
-	}()
-
-	if fnErr := fn(ctx, Tx{tx}); fnErr != nil {
-		err = fnErr
+	// Rollback também roda em panic/Goexit; commit só após retorno normal.
+	defer tx.Rollback()
+	if err := fn(ctx, Tx{tx}); err != nil {
 		return err
 	}
-	return nil
+	return tx.Commit()
 }
 
-// connFor abre a conexão do tenant na primeira chamada e a reusa depois —
-// SetMaxOpenConns(1) é a decisão central deste pacote: nunca duas
-// conexões físicas simultâneas para o MESMO arquivo, eliminando de
-// propósito a classe de erro `SQLITE_BUSY` por contenção entre conexões
-// deste PRÓPRIO processo (contenção entre PROCESSOS diferentes abrindo o
-// mesmo arquivo continua possível — SQLite trata isso com locking de
-// arquivo do SO, fora do controle deste pacote).
+// connFor mantém uma conexão por tenant em cada instância. BEGIN IMMEDIATE
+// reserva o escritor antes de qualquer leitura; busy_timeout limita a espera
+// entre instâncias/processos que compartilham o arquivo. Assim, metadata e
+// outbox não dependem de advisory locks nem de SKIP LOCKED no SQLite.
 func (db *DB) connFor(t tenancy.Tenant) (*sql.DB, error) {
 	key := tenancy.SchemaName(t)
 
@@ -126,7 +121,13 @@ func (db *DB) connFor(t tenancy.Tenant) (*sql.DB, error) {
 	}
 
 	path := filepath.Join(db.dir, key+".sqlite")
-	conn, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)")
+	uri := url.URL{Scheme: "file", Path: path}
+	query := url.Values{}
+	query.Add("_pragma", "foreign_keys(1)")
+	query.Add("_pragma", "busy_timeout(5000)")
+	query.Set("_txlock", "immediate")
+	uri.RawQuery = query.Encode()
+	conn, err := sql.Open("sqlite", uri.String())
 	if err != nil {
 		return nil, fmt.Errorf("sqlite: abrir %q: %w", path, err)
 	}

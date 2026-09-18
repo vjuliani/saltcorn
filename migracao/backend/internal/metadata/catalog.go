@@ -23,12 +23,8 @@ import (
 // diferentes) nunca se bloqueiem mutuamente — só operações concorrentes no
 // MESMO tenant serializam entre si.
 //
-// SQLite (GO-030) não tem advisory lock — e não precisa: internal/platform/
-// sqlite.DB nunca abre mais de UMA conexão física por arquivo de tenant
-// (SetMaxOpenConns(1)), então duas mutações de catálogo do MESMO tenant já
-// são serializadas pelo próprio *sql.DB antes de chegar aqui — a exclusão
-// mútua é estrutural (uma conexão só), não uma instrução SQL que poderia
-// ser esquecida.
+// SQLite serializa escritores desde BEGIN IMMEDIATE, inclusive entre
+// handles/processos diferentes que compartilham o mesmo arquivo.
 func lockCatalog(ctx context.Context, tx database.Tx) error {
 	if tx.Dialect() == database.DialectSQLite {
 		return nil
@@ -189,7 +185,11 @@ func CreateTable(ctx context.Context, tx database.Tx, actorRole identity.RoleID,
 		return nil, fmt.Errorf("metadata: inserir tabela no catálogo: %w", err)
 	}
 
-	createDDL := fmt.Sprintf("CREATE TABLE %s (%s)", pgx.Identifier{sanitized}.Sanitize(), idColumnDDL(tx.Dialect()))
+	columns := idColumnDDL(tx.Dialect())
+	if tx.Dialect() == database.DialectSQLite {
+		columns += `, "_version" INTEGER NOT NULL DEFAULT 1`
+	}
+	createDDL := fmt.Sprintf("CREATE TABLE %s (%s)", pgx.Identifier{sanitized}.Sanitize(), columns)
 	if err := tx.Exec(ctx, createDDL); err != nil {
 		return nil, fmt.Errorf("metadata: criar tabela física %q: %w", sanitized, err)
 	}
@@ -215,7 +215,7 @@ func AddField(ctx context.Context, tx database.Tx, actorRole identity.RoleID, ta
 		return nil, ErrUnsupportedFieldType
 	}
 	sanitized := SQLSanitize(def.Name)
-	if sanitized == "" {
+	if sanitized == "" || sanitized == "id" || sanitized == "_version" {
 		return nil, ErrInvalidName
 	}
 
@@ -268,27 +268,37 @@ func AddField(ctx context.Context, tx database.Tx, actorRole identity.RoleID, ta
 	}
 
 	var ddl string
+	columnType := def.Type.pgType()
+	if tx.Dialect() == database.DialectSQLite && def.Type == FieldDate {
+		columnType = "timestamp"
+	}
 	quotedTable := pgx.Identifier{tableName}.Sanitize()
 	quotedField := pgx.Identifier{sanitized}.Sanitize()
 	switch {
 	case def.Type == FieldKey:
 		ddl = fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s REFERENCES %s(id)",
-			quotedTable, quotedField, def.Type.pgType(), pgx.Identifier{refTableName}.Sanitize())
+			quotedTable, quotedField, columnType, pgx.Identifier{refTableName}.Sanitize())
 	default:
-		ddl = fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", quotedTable, quotedField, def.Type.pgType())
+		ddl = fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", quotedTable, quotedField, columnType)
 	}
 	if def.Required {
 		ddl += " NOT NULL"
 	}
-	if def.Unique {
+	if def.Unique && tx.Dialect() != database.DialectSQLite {
 		ddl += " UNIQUE"
 	}
 	if err := tx.Exec(ctx, ddl); err != nil {
 		return nil, fmt.Errorf("metadata: adicionar coluna física %q: %w", sanitized, err)
 	}
 
+	if def.Unique && tx.Dialect() == database.DialectSQLite {
+		index := pgx.Identifier{fmt.Sprintf("_sc_unique_%d_%d", tableID, f.ID)}.Sanitize()
+		if err := tx.Exec(ctx, fmt.Sprintf("CREATE UNIQUE INDEX %s ON %s (%s)", index, quotedTable, quotedField)); err != nil {
+			return nil, err
+		}
+	}
 	if _, err := bumpVersion(ctx, tx); err != nil {
-		return nil, fmt.Errorf("metadata: incrementar versão do catálogo: %w", err)
+		return nil, err
 	}
 	return f, nil
 }
@@ -330,6 +340,12 @@ func DropField(ctx context.Context, tx database.Tx, actorRole identity.RoleID, t
 	// campo existe no catálogo; `IF EXISTS` no Postgres é só uma defesa
 	// extra contra drift catálogo/físico, não uma condição que este
 	// caminho normal dependa de fato.
+	if tx.Dialect() == database.DialectSQLite && field.Unique {
+		index := pgx.Identifier{fmt.Sprintf("_sc_unique_%d_%d", tableID, field.ID)}.Sanitize()
+		if err := tx.Exec(ctx, "DROP INDEX IF EXISTS "+index); err != nil {
+			return err
+		}
+	}
 	dropColumnDDL := "ALTER TABLE %s DROP COLUMN IF EXISTS %s"
 	if tx.Dialect() == database.DialectSQLite {
 		dropColumnDDL = "ALTER TABLE %s DROP COLUMN %s"

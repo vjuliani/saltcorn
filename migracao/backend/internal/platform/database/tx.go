@@ -1,22 +1,3 @@
-// Tx/Row/Rows/Dialect (GO-030) são a fronteira mínima e neutra de dialeto
-// que permite a UM pacote de domínio (por ora, só internal/metadata) rodar
-// contra Postgres OU SQLite sem depender do tipo concreto `pgx.Tx`. Não é
-// uma reescrita de `WithTenant`/`WithTenantAndActor` (que continuam
-// devolvendo `pgx.Tx` de verdade, sem NENHUMA mudança de comportamento
-// para o caminho Postgres já existente) — é um adaptador OPCIONAL, usado
-// no ponto de chamada de quem quer que sua transação também sirva a um
-// pacote escrito contra esta interface: `metadata.CreateTable(ctx,
-// database.AsTx(tx), ...)` em vez de `metadata.CreateTable(ctx, tx, ...)`.
-//
-// Divergência deliberada de escopo (ver docs/migracao-go/execucoes/GO-030.md):
-// só o subconjunto de métodos que internal/metadata de fato usa
-// (Exec/Query/QueryRow, nunca Begin/Commit/Rollback — quem abre/fecha a
-// transação continua sendo WithTenant) é generalizado aqui. Estender
-// outros pacotes (internal/records, internal/platform/outbox, etc.) para
-// esta mesma interface fica para tarefas futuras — cada um tem
-// dependências de SQL específicas de Postgres mais profundas (`xmin`,
-// `pg_advisory_xact_lock`, `FOR UPDATE SKIP LOCKED`) que exigem decisão de
-// design própria, não uma generalização mecânica.
 package database
 
 import (
@@ -32,13 +13,7 @@ import (
 // traduzem para este erro antes de devolver ao chamador.
 var ErrNoRows = errors.New("database: nenhuma linha encontrada")
 
-// Dialect identifica o SGBD por trás de um Tx — internal/metadata usa
-// isto só nos poucos pontos onde a sintaxe realmente diverge (tipo da
-// coluna de id autoincrementada, valor padrão de timestamp, mecanismo de
-// serialização de mutação de catálogo); todo o resto (placeholders `$N`,
-// `RETURNING`, `ON CONFLICT`, citação de identificador via
-// `pgx.Identifier.Sanitize()`) é sintaxe compartilhada entre os dois SGBDs
-// e não precisa de nenhum branch.
+// Dialect identifica o SGBD para DDL, concorrência e consultas de domínio.
 type Dialect int
 
 const (
@@ -52,18 +27,18 @@ type Row interface {
 	Scan(dest ...any) error
 }
 
-// Rows é o subconjunto de pgx.Rows/sql.Rows que internal/metadata usa —
-// qualquer um dos dois já satisfaz esta interface estruturalmente.
+// Rows permite scans tipados e mapas de registros nos dois drivers.
 type Rows interface {
+	Columns() ([]string, error)
+	Values() ([]any, error)
 	Row
 	Next() bool
 	Close()
 	Err() error
 }
 
-// Tx é a fronteira mínima que internal/metadata consome — nunca o pgx.Tx
-// inteiro (que também tem Begin/Commit/Rollback/CopyFrom/LargeObjects,
-// nada disso é usado por um pacote de catálogo).
+// Tx é a transação usada por metadata, records e outbox. WithTenant
+// continua responsável pelo commit/rollback da transação externa.
 type Tx interface {
 	Exec(ctx context.Context, sql string, args ...any) error
 	Query(ctx context.Context, sql string, args ...any) (Rows, error)
@@ -113,4 +88,36 @@ func translatePgxErr(err error) error {
 		return ErrNoRows
 	}
 	return err
+}
+
+func (r pgxRows) Columns() ([]string, error) {
+	fields := r.rows.FieldDescriptions()
+	names := make([]string, len(fields))
+	for i, f := range fields {
+		names[i] = f.Name
+	}
+	return names, nil
+}
+func (r pgxRows) Values() ([]any, error) { return r.rows.Values() }
+
+// CollectMaps lê e fecha rows, preservando os valores do driver.
+func CollectMaps(rows Rows) ([]map[string]any, error) {
+	defer rows.Close()
+	names, err := rows.Columns()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]map[string]any, 0)
+	for rows.Next() {
+		values, err := rows.Values()
+		if err != nil {
+			return nil, err
+		}
+		row := make(map[string]any, len(names))
+		for i, name := range names {
+			row[name] = values[i]
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
 }

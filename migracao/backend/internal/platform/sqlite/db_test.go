@@ -208,3 +208,40 @@ func TestWithTenant_QueryRow_SemLinhas_DevolveErrNoRowsNeutro(t *testing.T) {
 		t.Fatalf("err = %v, esperado database.ErrNoRows (mesmo sentinel neutro que o adapter Postgres usa)", err)
 	}
 }
+
+func TestWithTenant_PanicDesfazTransacao(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+	tenant := tenancy.Tenant("acme")
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx database.Tx) error {
+		return tx.Exec(ctx, "CREATE TABLE panic_test (id INTEGER PRIMARY KEY)")
+	}); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := errors.New("panic do callback")
+	func() {
+		defer func() {
+			if got := recover(); got != sentinel {
+				t.Errorf("panic = %v", got)
+			}
+		}()
+		_ = db.WithTenant(ctx, tenant, func(ctx context.Context, tx database.Tx) error {
+			if err := tx.Exec(ctx, "INSERT INTO panic_test VALUES (1)"); err != nil {
+				t.Fatal(err)
+			}
+			panic(sentinel)
+		})
+	}()
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx database.Tx) error {
+		var count int
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM panic_test").Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			t.Errorf("panic persistiu %d registros", count)
+		}
+		return tx.Exec(ctx, "INSERT INTO panic_test VALUES (2)")
+	}); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -20,8 +20,9 @@ package outbox
 
 import (
 	"context"
+	"strings"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 const createIdempotencyKeysTableSQL = `
@@ -55,14 +56,19 @@ CREATE INDEX IF NOT EXISTS idx_sc_outbox_status ON _sc_outbox (status, id)`
 // EnsureSchema cria as tabelas de framework de idempotência/outbox,
 // idempotente — chamar dentro de db.WithTenant, uma por tenant (mesmo
 // padrão de internal/identity, internal/metadata).
-func EnsureSchema(ctx context.Context, tx pgx.Tx) error {
-	if _, err := tx.Exec(ctx, createIdempotencyKeysTableSQL); err != nil {
+func EnsureSchemaTx(ctx context.Context, tx database.Tx) error {
+	keys, events := createIdempotencyKeysTableSQL, createOutboxTableSQL
+	if tx.Dialect() == database.DialectSQLite {
+		rewrite := strings.NewReplacer("bigserial PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT", "jsonb", "text", "timestamptz", "timestamp", "now()", "CURRENT_TIMESTAMP")
+		keys, events = rewrite.Replace(keys), rewrite.Replace(events)
+	}
+	if err := tx.Exec(ctx, keys); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, createOutboxTableSQL); err != nil {
+	if err := tx.Exec(ctx, events); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, createOutboxStatusIndexSQL); err != nil {
+	if err := tx.Exec(ctx, createOutboxStatusIndexSQL); err != nil {
 		return err
 	}
 	return nil

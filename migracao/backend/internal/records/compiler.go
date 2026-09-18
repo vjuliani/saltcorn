@@ -23,8 +23,8 @@ var idField = metadata.Field{Name: "id", Type: metadata.FieldInteger}
 // catalogado, e ErrNotAuthorized se o ator não tiver o papel mínimo de
 // leitura da tabela — nos dois casos, nenhum SQL chega a ser montado com o
 // identificador inválido.
-func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query) (string, []any, error) {
-	table, err := metadata.GetTable(ctx, database.AsTx(tx), q.Table)
+func CompileTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, q Query) (string, []any, error) {
+	table, err := metadata.GetTable(ctx, tx, q.Table)
 	if err != nil {
 		if isTableNotFound(err) {
 			return "", nil, fmt.Errorf("%w: %q", ErrUnknownTable, q.Table)
@@ -35,21 +35,17 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 		return "", nil, ErrNotAuthorized
 	}
 
-	fields, err := metadata.ListFields(ctx, database.AsTx(tx), table.ID)
+	fields, err := metadata.ListFields(ctx, tx, table.ID)
 	if err != nil {
 		return "", nil, err
 	}
 	fieldsByName := fieldMap(fields)
 
-	c := &compiler{fields: fieldsByName}
+	c := &compiler{fields: fieldsByName, dialect: tx.Dialect()}
 
-	// _version (xmin::text) acompanha toda leitura desde GO-013: é o token
-	// de controle de concorrência otimista que CreateRecord/UpdateRecord/
-	// DeleteRecord exigem para uma escrita subsequente saber se a linha
-	// mudou entre a leitura e a escrita — nunca uma coluna de schema
-	// própria (evita alterar o DDL já testado de GO-011), sempre a coluna
-	// de sistema que o Postgres já mantém.
-	cols := []string{`t."id"`, `t.xmin::text AS "_version"`}
+	// O token de concorrência vem de xmin no PostgreSQL e da coluna
+	// explícita _version no SQLite.
+	cols := []string{`t."id"`, versionExpr(tx.Dialect(), "t.") + ` AS "_version"`}
 	names := make([]string, 0, len(fields))
 	for _, f := range fields {
 		names = append(names, f.Name)
@@ -68,7 +64,7 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 		if jf.Type != metadata.FieldKey {
 			return "", nil, fmt.Errorf("%w: campo %q não é do tipo key", ErrInvalidJoin, j.Field)
 		}
-		refTable, err := metadata.GetTableByID(ctx, database.AsTx(tx), jf.ReferencesTable)
+		refTable, err := metadata.GetTableByID(ctx, tx, jf.ReferencesTable)
 		if err != nil {
 			return "", nil, err
 		}
@@ -80,7 +76,7 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 		if !identity.CanRead(actorRole, refTable.MinRoleRead) {
 			return "", nil, ErrNotAuthorized
 		}
-		refFields, err := metadata.ListFields(ctx, database.AsTx(tx), refTable.ID)
+		refFields, err := metadata.ListFields(ctx, tx, refTable.ID)
 		if err != nil {
 			return "", nil, err
 		}
@@ -134,6 +130,13 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 			if ot.Desc {
 				dir = "DESC"
 			}
+			if tx.Dialect() == database.DialectSQLite {
+				if ot.Desc {
+					dir += " NULLS FIRST"
+				} else {
+					dir += " NULLS LAST"
+				}
+			}
 			terms[i] = fmt.Sprintf("t.%s %s", pgx.Identifier{ot.Field}.Sanitize(), dir)
 		}
 		sb.WriteString(" ORDER BY ")
@@ -144,14 +147,17 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 		sb.WriteString(" LIMIT " + c.push(q.Limit))
 	}
 	if q.Offset > 0 {
+		if q.Limit <= 0 && tx.Dialect() == database.DialectSQLite {
+			sb.WriteString(" LIMIT -1")
+		}
 		sb.WriteString(" OFFSET " + c.push(q.Offset))
 	}
 
 	return sb.String(), c.args, nil
 }
 
-func compileAggregation(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, agg Aggregation) (string, error) {
-	childTable, err := metadata.GetTable(ctx, database.AsTx(tx), agg.ChildTable)
+func compileAggregation(ctx context.Context, tx database.Tx, actorRole identity.RoleID, agg Aggregation) (string, error) {
+	childTable, err := metadata.GetTable(ctx, tx, agg.ChildTable)
 	if err != nil {
 		if isTableNotFound(err) {
 			return "", fmt.Errorf("%w: %q", ErrUnknownTable, agg.ChildTable)
@@ -165,7 +171,7 @@ func compileAggregation(ctx context.Context, tx pgx.Tx, actorRole identity.RoleI
 	if !identity.CanRead(actorRole, childTable.MinRoleRead) {
 		return "", ErrNotAuthorized
 	}
-	childFields, err := metadata.ListFields(ctx, database.AsTx(tx), childTable.ID)
+	childFields, err := metadata.ListFields(ctx, tx, childTable.ID)
 	if err != nil {
 		return "", err
 	}
@@ -209,8 +215,9 @@ func isTableNotFound(err error) bool {
 // percorre uma árvore Where — um por Query.Compile, nunca reutilizado
 // entre consultas.
 type compiler struct {
-	fields map[string]metadata.Field
-	args   []any
+	dialect database.Dialect
+	fields  map[string]metadata.Field
+	args    []any
 }
 
 func (c *compiler) push(v any) string {
@@ -282,6 +289,9 @@ func (c *compiler) compileWhere(w Where) (string, error) {
 		}
 		if field.Type != metadata.FieldText {
 			return "", fmt.Errorf("%w: Like só é válido em campo text, %q é %s", ErrTypeMismatch, v.Field, field.Type)
+		}
+		if c.dialect == database.DialectSQLite {
+			return col + " LIKE '%' || " + c.push(v.Substring) + " || '%'", nil
 		}
 		return col + " ILIKE '%' || " + c.push(v.Substring) + " || '%'", nil
 
