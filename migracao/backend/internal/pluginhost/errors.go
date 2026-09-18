@@ -13,6 +13,14 @@ var (
 	ErrCapabilityDenied = errors.New("pluginhost: capacidade não concedida")
 	ErrRuntime          = errors.New("pluginhost: erro de execução no host")
 	ErrInvalidRequest   = errors.New("pluginhost: requisição inválida")
+	// ErrUnsupportedReference (GO-023) é o lado Go de ErrCodeUnsupportedReference
+	// — uma expressão referenciou um singleton de domínio (Table/File/View)
+	// sem canal de callback explícito. Distinto de ErrRuntime de propósito:
+	// o chamador (internal/expression) precisa diferenciar "a expressão tem
+	// um bug" de "a expressão usa uma classe de recurso que este host nunca
+	// vai suportar" — só o segundo caso é um bloqueador de migração
+	// permanente (ADR-0005), não um erro a corrigir na fórmula.
+	ErrUnsupportedReference = errors.New("pluginhost: referência a singleton de domínio não suportada nesta fronteira")
 )
 
 // errorForCode traduz o ErrorCode do envelope de erro do host (RpcError)
@@ -28,6 +36,8 @@ func errorForCode(code ErrorCode) error {
 		return ErrCapabilityDenied
 	case ErrCodeInvalidRequest:
 		return ErrInvalidRequest
+	case ErrCodeUnsupportedReference:
+		return ErrUnsupportedReference
 	default:
 		return ErrRuntime
 	}
