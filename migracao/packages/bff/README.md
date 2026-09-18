@@ -4,11 +4,12 @@ BFF web em Node.js/TypeScript ([ADR-0003](../../../docs/migracao-go/adr/0003-bff
 
 ## Dependências mínimas, deliberadamente
 
-Só `jsonwebtoken` como dependência de produção — mesmo espírito de `migracao/backend` (pgx/jwt/otp pinados, nada supérfluo) e de [ADR-0009](../../../docs/migracao-go/adr/0009-observabilidade-sem-sdk-externo.md) (preferir a biblioteca padrão quando a superfície é pequena e bem entendida):
+`jsonwebtoken` e, desde GO-028, `socket.io` — duas exceções deliberadas, mesmo espírito de `migracao/backend` (pgx/jwt/otp pinados, nada supérfluo) e de [ADR-0009](../../../docs/migracao-go/adr/0009-observabilidade-sem-sdk-externo.md) (preferir a biblioteca padrão quando a superfície é pequena e bem entendida):
 
 - **Sem framework web** (Express etc.): 5 rotas, um roteador de ~50 linhas (`src/router.ts`) sobre `node:http` é mais simples de auditar do que integrar e manter atualizado um framework inteiro.
 - **Sem biblioteca de sessão/CSRF**: os mecanismos (`src/session.ts`, `src/csrf.ts`) são pequenos e bem entendidos (cookie opaco + store, duplo-envio) — implementados à mão com `node:crypto` (`randomBytes`, `timingSafeEqual`), mesmo cuidado de `identity.VerifyAPIToken` no Go.
 - **`jsonwebtoken` é a exceção deliberada**: verificação de JWT tem histórico conhecido de bugs de segurança (confusão de algoritmo, etc.) — o próprio backend Go usa uma biblioteca madura para o mesmo motivo (`golang-jwt/jwt/v5`, GO-008), não HMAC hand-rolled.
+- **`socket.io` é a segunda exceção deliberada (GO-028)**: o critério de aceite da tarefa proíbe explicitamente tratar WebSocket puro como substituto compatível de Socket.IO (reconexão com backoff, handshake com upgrade, acks fazem parte do protocolo real) — reimplementar isso à mão seria exatamente o tipo de superfície grande e mal compreendida que este pacote evita. Versão pinada (`4.8.1`) igual à do legado (`packages/server/package.json`), pela mesma razão de compatibilidade que já guiou outras escolhas de versão nesta migração.
 - **Testes com `node:test`** (nativo do Node 22) — sem Jest/Vitest/Supertest.
 
 ## Estrutura
@@ -28,7 +29,11 @@ src/
   router.ts          roteador mínimo (GET/POST/PATCH, sem dependência externa)
   httpHelpers.ts      leitura de corpo JSON com limite, envio de resposta
   app.ts             composição das rotas de bff-api.yaml
-  server.ts          entrypoint: configuração, servidor HTTP, encerramento gracioso
+  realtime.ts        servidor Socket.IO real (GO-028) — handshake autenticado pela
+                     MESMA sessão de navegador, poll a .../realtime/events (Go) por
+                     socket conectado, reemissão em ordem
+  server.ts          entrypoint: configuração, servidor HTTP, encerramento gracioso,
+                     anexa realtime.ts ao mesmo http.Server
 test/
   *.test.ts          unitários (sessão, CSRF, idempotência, ServiceIdentity)
   mockGoServer.ts    réplica mínima da verificação de identidade delegada do Go real,
@@ -38,6 +43,9 @@ test/
   app.test.ts        integração: app real + servidor HTTP real contra o mock do Go
   editor.test.ts     integração do ciclo do editor (GO-019): criar tabela/campo/view,
                      salvar, reabrir, conflito de edição concorrente propagado (409)
+  realtime.test.ts   integração (GO-028) contra um servidor Socket.IO real: os 4
+                     critérios de aceite — reconexão, sessão expirada, ordenação,
+                     isolamento por tenant
 ```
 
 ## Rotas (`bff-api.yaml`)
@@ -80,6 +88,18 @@ npm run dev         # roda src/server.ts direto via type-stripping nativo do Nod
 | `SALTCORN_BFF_SERVICE_IDENTITY_TTL_SECONDS` | `30` | Vida útil do JWT de identidade delegada assinado pelo BFF |
 | `SALTCORN_BFF_GO_REQUEST_TIMEOUT_MS` | `5000` | Timeout de toda chamada ao backend Go |
 | `SALTCORN_BFF_SHUTDOWN_TIMEOUT_MS` | `15000` | Tempo máximo esperando requisições em curso antes de forçar a saída |
+| `SALTCORN_BFF_REALTIME_POLL_INTERVAL_MS` | `500` | Intervalo de polling de `realtime.ts` a `.../realtime/events`, por socket conectado — também o atraso máximo para desconectar um socket cuja sessão expirou (GO-028) |
+
+## Comunicação em tempo real (GO-028)
+
+Ver `docs/migracao-go/execucoes/GO-028.md` para o levantamento completo do legado (Socket.IO em `packages/server/serve.js`) e a decisão de arquitetura. Resumo:
+
+- **O protocolo Socket.IO roda inteiramente aqui, nunca no backend Go** (ADR-0003/ADR-0007: sessão e borda web são sempre BFF) — `src/realtime.ts` anexa um `socket.io.Server` real ao MESMO `http.Server` das rotas REST (`server.ts`).
+- **Handshake autenticado pela sessão de navegador** (o MESMO cookie `sc_session`, nunca um token/tenant vindo do cliente) — fail-closed: sem sessão válida, a conexão é recusada antes de qualquer `socket.on` ser registrado.
+- **Sem rooms**: cada socket conectado tem seu PRÓPRIO polling a `GET /v1/tenants/{tenant}/realtime/events` (Go, GO-028), com o ServiceIdentity do PRÓPRIO ator daquele socket — o filtro por destinatário já aconteceu no Go (`internal/realtime.ListSinceForActor`), então o BFF nunca decide audience, só reemite (`dynamic_update`) o que recebe. Divergência deliberada e mais forte que o legado: lá, isolamento depende de nomear rooms a partir do tenant resolvido do header `Host` no handshake, sem barreira estrutural própria do Socket.IO (ver achado #8 do levantamento) — aqui, cada socket nunca sequer recebe a EXISTÊNCIA de um evento de outro tenant/usuário.
+- **Sessão expirada**: cada tick de polling revalida a sessão no `SessionStore` ANTES de buscar eventos — se ela não existir mais, o socket é desconectado à força (`socket.disconnect(true)`), não só recusado num handshake futuro.
+- **Reconexão sem perda**: o protocolo Socket.IO real cuida da reconexão automática com backoff (nunca WebSocket puro, proibido pelo critério de aceite da tarefa); cada evento emitido carrega seu `id`, e o cliente (`migracao/packages/frontend/src/realtimeClient.ts`) lembra o maior já recebido e o reenvia como `?since=` na query da reconexão — o servidor retoma exatamente dali.
+- **Superfície coberta neste piloto**: só o equivalente a `dynamic_update` de notificação (`internal/notify.Create` publica um evento em tempo real na mesma transação, GO-028 fecha a lacuna deixada explicitamente aberta por GO-026). **Ficam de fora, bloqueados** (mesma disciplina de "sem inventário real" de GO-026 para push nativo): colaboração em tempo real por view (`collab_room`), stream de logs de admin, progresso de restore de backup, e o namespace `/datastream` de upload — nenhum tem consumidor Go equivalente ainda, e nenhum é exigido pelos critérios de aceite desta tarefa.
 
 ## Smoke test manual de três camadas (Postgres real + `cmd/server` real + BFF real)
 

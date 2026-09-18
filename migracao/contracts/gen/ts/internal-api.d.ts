@@ -181,6 +181,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant}/realtime/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Query: eventos de tempo real pendentes de entrega ao ator autenticado
+         * @description Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
+         */
+        get: operations["listRealtimeEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant}/tables/{table}/records": {
         parameters: {
             query?: never;
@@ -321,6 +343,22 @@ export interface components {
             descending: boolean;
             /** @description Cursor para a próxima página, ou `null` se não houver mais páginas. */
             next_cursor?: string | null;
+        };
+        RealtimeEvent: {
+            /**
+             * Format: int64
+             * @description Cursor de ordenação — sempre crescente na ordem de publicação (nunca reordenar por outro campo).
+             */
+            id: number;
+            /**
+             * @description Informativo — o BFF não precisa decidir roteamento por audience, a filtragem por destinatário já aconteceu no backend (ver `listRealtimeEvents`).
+             * @enum {string}
+             */
+            audience: "broadcast" | "users";
+            /** @description Corpo opaco definido por quem publicou o evento (ex. internal/notify.Create) — o BFF reemite tal como está, nunca reinterpreta. */
+            payload: {
+                [key: string]: unknown;
+            };
         };
         /** @description Campos do registro conforme o schema dinâmico da tabela (GO-011). Este contrato não pode enumerar campos fixos — validação de schema acontece no backend, não aqui. */
         RecordInput: {
@@ -735,6 +773,41 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+        };
+    };
+    listRealtimeEvents: {
+        parameters: {
+            query?: {
+                /** @description Cursor de retomada — o `next_after` da chamada anterior. Omitir para a primeira chamada de uma conexão nova. */
+                after?: number;
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description página de eventos endereçados ao ator autenticado, em ordem de publicação */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["RealtimeEvent"][];
+                        /**
+                         * Format: int64
+                         * @description Cursor a enviar como `after` na próxima chamada — igual ao `after` recebido quando `items` vem vazio.
+                         */
+                        next_after: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listRecords: {

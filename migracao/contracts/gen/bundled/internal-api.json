@@ -459,6 +459,75 @@
         }
       }
     },
+    "/v1/tenants/{tenant}/realtime/events": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "listRealtimeEvents",
+        "summary": "Query: eventos de tempo real pendentes de entrega ao ator autenticado",
+        "description": "Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.\n",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "description": "Cursor de retomada — o `next_after` da chamada anterior. Omitir para a primeira chamada de uma conexão nova.",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "$ref": "#/components/parameters/Limit"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "página de eventos endereçados ao ator autenticado, em ordem de publicação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items",
+                    "next_after"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RealtimeEvent"
+                      }
+                    },
+                    "next_after": {
+                      "type": "integer",
+                      "format": "int64",
+                      "description": "Cursor a enviar como `after` na próxima chamada — igual ao `after` recebido quando `items` vem vazio."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          }
+        }
+      }
+    },
     "/v1/tenants/{tenant}/tables/{table}/records": {
       "parameters": [
         {
@@ -991,6 +1060,34 @@
               "null"
             ],
             "description": "Cursor para a próxima página, ou `null` se não houver mais páginas."
+          }
+        }
+      },
+      "RealtimeEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "audience",
+          "payload"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Cursor de ordenação — sempre crescente na ordem de publicação (nunca reordenar por outro campo)."
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "broadcast",
+              "users"
+            ],
+            "description": "Informativo — o BFF não precisa decidir roteamento por audience, a filtragem por destinatário já aconteceu no backend (ver `listRealtimeEvents`).\n"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Corpo opaco definido por quem publicou o evento (ex. internal/notify.Create) — o BFF reemite tal como está, nunca reinterpreta."
           }
         }
       },

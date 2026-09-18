@@ -1,6 +1,6 @@
-// Fixture de Postgres real — mesmo padrão de internal/files/
+// Fixture de Postgres real — mesmo padrão de internal/notify/
 // fixture_test.go, internal/triggers/fixture_test.go.
-package notify
+package realtime
 
 import (
 	"context"
@@ -11,9 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
-	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
-	"github.com/vjuliani/saltcorn/migracao/backend/internal/realtime"
 )
 
 func testDB(t *testing.T) *database.DB {
@@ -42,11 +40,28 @@ func sanitizeForSchema(name string) string {
 	return string(out)
 }
 
-func notifyFixture(t *testing.T) (db *database.DB, tenant tenancy.Tenant) {
+// shortSanitizedName trunca o nome de teste sanitizado a maxLen — nomes de
+// função de teste em Go são livres de tamanho, e um schema Postgres é
+// silenciosamente truncado em 63 bytes (NAMEDATALEN-1). Sem este limite,
+// dois tenants construídos a partir do MESMO nome de teste longo (ex.:
+// "<prefixo><nome>" e "<prefixo><nome>_b" — ver TestListSinceForActor_
+// NeverLeaksAcrossTenantSchemas) podem colidir no MESMO schema após o
+// truncamento do Postgres, porque os dois compartilham os primeiros 63
+// bytes — achado real desta tarefa, mesma classe de bug (mas causa
+// diferente) do achado de GO-027 em internal/pack/fixture_test.go.
+func shortSanitizedName(name string, maxLen int) string {
+	s := sanitizeForSchema(name)
+	if len(s) > maxLen {
+		return s[:maxLen]
+	}
+	return s
+}
+
+func realtimeFixture(t *testing.T) (db *database.DB, tenant tenancy.Tenant) {
 	t.Helper()
 	db = testDB(t)
 	ctx := context.Background()
-	tenant = tenancy.Tenant(fmt.Sprintf("notify_test_%s", sanitizeForSchema(t.Name())))
+	tenant = tenancy.Tenant(fmt.Sprintf("realtime_test_%s", shortSanitizedName(t.Name(), 40)))
 
 	if err := db.WithTenant(ctx, "public", func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, fmt.Sprintf(`CREATE SCHEMA IF NOT EXISTS %s`, pgx.Identifier{string(tenant)}.Sanitize()))
@@ -62,12 +77,6 @@ func notifyFixture(t *testing.T) (db *database.DB, tenant tenancy.Tenant) {
 	})
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if err := outbox.EnsureSchema(ctx, tx); err != nil {
-			return err
-		}
-		if err := realtime.EnsureSchema(ctx, tx); err != nil {
-			return err
-		}
 		return EnsureSchema(ctx, tx)
 	}); err != nil {
 		t.Fatalf("EnsureSchema: %v", err)

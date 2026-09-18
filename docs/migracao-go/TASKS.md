@@ -549,7 +549,7 @@ Execute a task GO-027 — Portar configuração, packs e biblioteca, de docs/mig
 
 ### GO-028 — Migrar comunicação em tempo real
 
-- [ ] **Status:** TODO
+- [x] **Status:** IN_REVIEW — PR [#31](https://github.com/vjuliani/saltcorn/pull/31) aberto; histórico em [execucoes/GO-028.md](execucoes/GO-028.md)
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Backend + Frontend
 - **Depende de:** GO-017, GO-024

@@ -30,6 +30,8 @@ type RenderViewResponse =
   InternalPaths["/v1/tenants/{tenant}/views/{id}/render"]["get"]["responses"]["200"]["content"]["application/json"];
 type ListViewsResponse =
   InternalPaths["/v1/tenants/{tenant}/views"]["get"]["responses"]["200"]["content"]["application/json"];
+type ListRealtimeEventsResponse =
+  InternalPaths["/v1/tenants/{tenant}/realtime/events"]["get"]["responses"]["200"]["content"]["application/json"];
 
 export interface GoClientOptions {
   readonly baseUrl: string;
@@ -151,6 +153,18 @@ export class GoClient {
     if (query.limit !== undefined) url.searchParams.set("limit", String(query.limit));
     if (query.cursor !== undefined) url.searchParams.set("cursor", query.cursor);
     return this.request<RenderViewResponse>(url, { method: "GET", serviceIdentityToken });
+  }
+
+  // listRealtimeEvents (GO-028) — chamado em polling curto por
+  // src/realtime.ts, uma vez por socket conectado, com o ServiceIdentity
+  // do PRÓPRIO usuário daquele socket: o filtro por destinatário já
+  // aconteceu do lado Go (listRealtimeEvents no contrato), então este
+  // cliente só transporta o cursor de retomada `after`, nunca reinterpreta
+  // audience.
+  async listRealtimeEvents(serviceIdentityToken: string, tenant: string, after: number): Promise<ListRealtimeEventsResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/realtime/events`);
+    if (after > 0) url.searchParams.set("after", String(after));
+    return this.request<ListRealtimeEventsResponse>(url, { method: "GET", serviceIdentityToken });
   }
 
   private async request<T>(
