@@ -454,7 +454,7 @@ Execute a task GO-022 — Implementar host temporário de extensões JS, de docs
 
 ### GO-023 — Portar tipos e expressões prioritários
 
-- [ ] **Status:** IN_REVIEW — PR [#26](https://github.com/vjuliani/saltcorn/pull/26) aberto; aguardando revisão e checks; histórico em [execucoes/GO-023.md](execucoes/GO-023.md)
+- [x] **Status:** DONE — integrada via PR [#26](https://github.com/vjuliani/saltcorn/pull/26) (merge `a3372755ca858ad3e8da5c74f9c1eceee39e2f7d`); histórico em [execucoes/GO-023.md](execucoes/GO-023.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-004, GO-011, GO-022
