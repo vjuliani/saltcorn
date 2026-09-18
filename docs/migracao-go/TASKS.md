@@ -568,7 +568,7 @@ Execute a task GO-028 — Migrar comunicação em tempo real, de docs/migracao-g
 
 ### GO-029 — Definir SDK e portar plugins exigidos
 
-- [ ] **Status:** TODO
+- [x] **Status:** IN_REVIEW — PR [#32](https://github.com/vjuliani/saltcorn/pull/32) aberto; histórico em [execucoes/GO-029.md](execucoes/GO-029.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-022, GO-023, GO-024, GO-027

@@ -16,12 +16,13 @@ import (
 // ActionFunc é uma ação de trigger nativa em Go — roda DENTRO da mesma
 // transação que originou o disparo (ADR-0005: ações do núcleo são parte do
 // produto, portadas nativamente, nunca despachadas para o host de
-// plugins). O catálogo completo de ações builtin do legado
-// (base-plugin/actions.ts) fica fora de escopo desta tarefa — GO-026
-// (e-mail/webhook/notificações) e GO-029 (SDK/plugins) são os
-// consumidores planejados de um catálogo real; aqui só o MECANISMO de
-// registro/despacho por nome é entregue.
-type ActionFunc func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any) error
+// plugins). config é o Trigger.Configuration DESTA instância (GO-029) —
+// o mesmo nome de ação (ex.: "send_email") pode ser reaproveitado por
+// vários triggers, cada um com seus próprios parâmetros; uma ação que não
+// precisa de nenhum parâmetro simplesmente ignora config. Ver actions.go
+// para o catálogo de ações nativas reais (GO-029) — antes desta tarefa,
+// só o MECANISMO de registro/despacho por nome existia (GO-024).
+type ActionFunc func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error
 
 // Dispatcher liga o catálogo de triggers (_sc_triggers) à avaliação de
 // condição (internal/expression, GO-023) e a um registro de ações
@@ -81,7 +82,7 @@ func (d *Dispatcher) runBefore(ctx context.Context, tx pgx.Tx, tenant tenancy.Te
 		if !ok {
 			return fmt.Errorf("%w: %q (trigger %d)", ErrUnknownAction, trig.Action, trig.ID)
 		}
-		if err := action(ctx, tx, table, values); err != nil {
+		if err := action(ctx, tx, table, values, trig.Configuration); err != nil {
 			return err
 		}
 	}
@@ -114,7 +115,7 @@ func (d *Dispatcher) runAfter(ctx context.Context, tx pgx.Tx, tenant tenancy.Ten
 		if !ok {
 			return fmt.Errorf("%w: %q (trigger %d)", ErrUnknownAction, trig.Action, trig.ID)
 		}
-		if err := action(ctx, tx, table, record); err != nil {
+		if err := action(ctx, tx, table, record, trig.Configuration); err != nil {
 			return err
 		}
 	}
@@ -165,10 +166,11 @@ func (d *Dispatcher) shouldFire(ctx context.Context, tenant tenancy.Tenant, trig
 func (d *Dispatcher) enqueueAfterCommit(ctx context.Context, tx pgx.Tx, trig Trigger, table metadata.Table, record map[string]any) error {
 	key := fmt.Sprintf("trigger:%d:%v", trig.ID, record["id"])
 	payload := map[string]any{
-		"trigger_id": trig.ID,
-		"action":     trig.Action,
-		"table":      table.Name,
-		"record":     record,
+		"trigger_id":    trig.ID,
+		"action":        trig.Action,
+		"table":         table.Name,
+		"record":        record,
+		"configuration": trig.Configuration,
 	}
 	_, _, err := outbox.Do(ctx, tx, key, payload, func(ctx context.Context, tx pgx.Tx) (any, []outbox.Event, error) {
 		return nil, []outbox.Event{{Type: "trigger:" + trig.Action, Payload: payload}}, nil

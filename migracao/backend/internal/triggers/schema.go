@@ -13,6 +13,14 @@
 // fórmula JS) passa pelo host temporário, via internal/expression (GO-023)
 // — Dispatcher é o primeiro consumidor real de
 // internal/expression.Evaluator fora dos próprios testes de GO-023.
+//
+// `configuration` (GO-029) é o parâmetro por-trigger que uma ActionFunc
+// nomeada (actions.go) precisa para ser genérica — ex.: qual endereço um
+// `send_email` deste trigger específico usa. Antes de GO-029, o mesmo
+// `trig.Action` sempre resolvia para a MESMA função sem nenhum dado
+// próprio do trigger, o que impedia registrar ações reutilizáveis do
+// catálogo do legado (base-plugin/actions.ts) — cada instância delas
+// carrega parâmetros próprios (destinatário, URL, corpo).
 package triggers
 
 import (
@@ -29,6 +37,7 @@ CREATE TABLE IF NOT EXISTS _sc_triggers (
 	action text NOT NULL,
 	only_if text,
 	after_commit boolean NOT NULL DEFAULT false,
+	configuration jsonb NOT NULL DEFAULT '{}'::jsonb,
 	created_at timestamptz NOT NULL DEFAULT now()
 )`
 

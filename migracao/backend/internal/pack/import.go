@@ -93,6 +93,7 @@ func Import(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, p Pack, a
 		}
 		if _, err := triggers.CreateTrigger(ctx, tx, triggers.Trigger{
 			TableID: table.ID, When: tp.When, Action: tp.Action, OnlyIf: tp.OnlyIf, AfterCommit: tp.AfterCommit,
+			Configuration: tp.Configuration,
 		}); err != nil {
 			return fmt.Errorf("pack: criar trigger em %q: %w", tp.TableName, err)
 		}

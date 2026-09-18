@@ -439,6 +439,49 @@ Um pacote novo pequeno — o Go só oferece o transporte de dados; o protocolo S
 - **Corpus** (`internal/realtime/events_test.go`, `cmd/server/realtime_test.go`, mais `migracao/packages/bff/test/realtime.test.ts` e `migracao/packages/frontend/test/realtimeClient.test.ts` do lado Node): ordenação estrita entre publicações concorrentes de audience diferente; `AudienceUsers` nunca visível a outro ator; `AudienceBroadcast` visível a qualquer ator; cursor `after` exclui eventos já entregues; isolamento estrutural entre dois schemas de tenant; rota HTTP recusa sem o corte de ownership; handshake Socket.IO recusa sem sessão; socket já conectado é desconectado à força quando a sessão expira; reconexão automática do protocolo real retoma sem perder nem repetir eventos via `?since=`.
 - **Fora de escopo, documentado, não esquecido**: wiring de `internal/realtime.Publish` em `internal/triggers`/`internal/workflow` (só `internal/notify` foi conectado nesta entrega — o consumidor mais direto do achado de GO-026); áudience "público" (visitante anônimo, equivalente a `_${tenant}_public_dynamic_update_room` do legado); long-polling ou SSE como alternativa ao polling curto atual; qualquer wiring de UI real no frontend além do módulo `realtimeClient.ts` reutilizável (este pacote ainda não tem roteador nem páginas reais além do shell de demonstração, GO-018).
 
+## SDK de extensão: tipos, views, ações e autenticação (GO-029)
+
+GO-029 formaliza, como contratos Go documentados, os 4 pontos de extensão que um "plugin" do legado registra (`registerPlugin`, `packages/saltcorn-data/db/state.ts:1051-1218`) — e fecha a lacuna que GO-024 tinha deixado explicitamente reservada ("GO-026 e GO-029 são os consumidores planejados de um catálogo real" de ações). Ver `docs/migracao-go/execucoes/GO-029.md` para o levantamento completo do legado (anatomia de plugin, o que `base-plugin`/`sbadmin2` fornecem, ADR-0005/0006) e as decisões de escopo.
+
+### Os 4 contratos
+
+1. **Tipos** — `internal/types.Coerce(fieldType metadata.FieldType, raw any) (any, error)` (GO-023): uma função pura por `FieldType`, despachada centralmente por `Coerce`. Cobre 5 dos 6 tipos básicos do legado (text/integer/boolean/float/date) — `Color` fica de fora desta entrega (ver "Fora de escopo" abaixo).
+2. **Ações** — `triggers.ActionFunc func(ctx, tx, table, row, config map[string]any) error` (GO-024, `config` acrescentado por GO-029): roda DENTRO da transação que disparou o trigger (ADR-0005 — ações do núcleo nunca vão ao host de plugins), registrada por nome em `Dispatcher.Actions`. `config` é `Trigger.Configuration` (coluna `jsonb` nova, GO-029) — os parâmetros PRÓPRIOS de cada instância de trigger (destinatário de um `send_email`, URL de um `webhook`), sem os quais o mesmo nome de ação sempre resolveria para a MESMA função sem dado próprio, impedindo ações reutilizáveis. `triggers.BuiltinActions()` entrega o catálogo nativo real: `send_email` e `webhook`, ligados a `internal/notify` (GO-026) via `EnqueueEmail`/`EnqueueWebhook` (idempotência por hash do conteúdo de `config` + id da linha — dois triggers diferentes sobre a mesma linha nunca colidem na mesma chave de idempotência, confirmado por regressão deliberada).
+3. **Views** — `views.View{ID,Name,TableID,Template,MinRole,Configuration,Version}` + `ClassifyView`/`CompileListPlan` (GO-019/020): hoje só o viewtemplate "List" tem pipeline classify→plan→render real; um viewtemplate novo precisaria generalizar esse pipeline (não existe ainda uma interface `Viewtemplate` formal separada de "List").
+4. **Autenticação** — `internal/identity` (GO-008): `HashPassword`/`CheckPassword`, `RoleID`/`CanRead`/`CanWrite`, `IsOwnerByField`. Deliberadamente **NÃO extensível por plugin** — ver "Bloqueadores" abaixo.
+
+### Catálogo de ações nativas (`internal/triggers/actions.go`, novo)
+
+```go
+d := &triggers.Dispatcher{Expression: evaluator, Actions: triggers.BuiltinActions()}
+```
+
+`send_email` lê `config["to"]` (string ou lista), `config["subject"]`/`config["body"]` (com placeholders `{{campo}}` substituídos pelo valor do campo homônimo da linha — interpolação simples, sem motor de template completo); `webhook` lê `config["url"]` e envia a linha inteira como corpo JSON. Os dois validam a configuração ANTES de enfileirar (`ErrActionConfigInvalid` — nunca um envio silencioso com destinatário/URL vazio) e são idempotentes via `outbox.Do` (GO-014), com a chave incluindo um hash da própria `config` — achado de implementação confirmado por regressão deliberada: sem esse hash, dois triggers de `send_email` DIFERENTES (destinatários diferentes) sobre a MESMA linha colidem na mesma chave de idempotência e o Postgres rejeita a segunda inserção com `idempotency_key_conflict`, silenciosamente descartando o segundo e-mail.
+
+### Contrato de apresentação (React/BFF) — confirmado, não uma porta
+
+`sbadmin2` (`packages/saltcorn-sbadmin2/index.js`, investigado nesta tarefa) exporta só `{layout: {wrap, authWrap, renderBody}}` — zero `types`/`actions`/`viewtemplates`/`authentication`, e a única referência a `db` é uma leitura de uma string estática de versão (nenhuma query). Confirma o critério de aceite "plugins de apresentação seguem os contratos React/BFF e não acessam persistência": um componente de apresentação recebe dados JÁ prontos (menu, dados de view, alertas) e só produz marcação — o mesmo contrato que `migracao/packages/frontend` já segue desde GO-018 (consome o BFF via `bffClient.ts`, nunca acessa banco).
+
+### O que ainda bloqueia a retirada do backend legado/host temporário (ADR-0006)
+
+Lista explícita, exigida pelo critério de aceite "dependências do host temporário bloqueiam sua retirada":
+
+1. **`run_js_code`/`run_js_code_in_field`** — por definição executa JS arbitrário do usuário; nunca terá versão "nativa Go", só adapter via host (ADR-0005). Não registrado em `BuiltinActions()` nesta entrega — precisaria de uma capacidade de host própria para "executar código", distinta de `internal/expression.Evaluator.Eval` (que avalia EXPRESSÕES, não blocos de código).
+2. **Fórmulas/expressões de usuário** (`_only_if`, campos calculados) — já roteadas via `internal/expression.Evaluator` (GO-023), mas isso É o host, não uma saída dele.
+3. **6 de 8 viewtemplates do legado** (Edit/Show/Feed/Filter/ListShowList/Room/WorkflowRoom) sem `internal/views` equivalente — enquanto uma aplicação usar essas views (o próprio pack piloto `guitars` usa Edit/Show/Feed), depende do caminho legado Node.
+4. **`insert_any_row`/`modify_row`/`delete_rows`** — não portados nesta entrega: CRUD dirigido por trigger precisa de desenho próprio (evitar loop de trigger sobre a própria escrita, decidir contexto de autorização/papel do efeito) que não é incidental a "wiring de e-mail/webhook já prontos".
+5. **`@saltcorn/any-bootstrap-theme`/`@saltcorn/flatpickr-date`** — plugins de terceiro reais usados pelo pack piloto `guitars`, sem código-fonte disponível neste checkout para portar ou auditar (substituídos funcionalmente no piloto — ver matriz de capacidades §2.4).
+6. **Login social/OAuth/SAML** — zero plugins de auth de terceiro neste monorepo (confirmado por busca direta, não é lacuna de investigação); bloqueador permanente até existir inventário de produção.
+7. **Catálogo completo de ~29 ações do legado** (`base-plugin/actions.ts`) — só `send_email`/`webhook` portados; o restante (`navigate`, `emit_event`, ações de terceiro, etc.) permanece no legado.
+
+### Wiring em `cmd/server`/`cmd/worker` — deliberadamente fora desta entrega
+
+Mesma decisão de escopo já aplicada por GO-023/024/026: o catálogo de ações e o `Dispatcher` são testados no NÍVEL DE PACOTE (via `records.CreateRecord` real, Postgres real), não conectados ao processo HTTP real. Achado desta tarefa: nenhum dos três (`internal/triggers.Dispatcher`, `internal/expression.Evaluator`/`pluginhost.Client`, `internal/workflow`) está de fato wireado em `cmd/server`/`cmd/worker` hoje — toda a cadeia de automação (GO-022→GO-025) segue testada e correta, mas inerte em produção. Conectar isso ao caminho real de `createRecordHandler`/`updateRecordHandler` (passar `Dispatcher.HooksFor(tenant, user)` como os `hooks` de `records.CreateRecord`, hoje sempre `nil`) exige também decidir o ciclo de vida do processo host (GO-022) dentro de `cmd/server` — trabalho de integração substancial, deixado para uma tarefa futura dedicada, não incidental ao "SDK de ações" desta entrega.
+
+### Fora de escopo, documentado, não esquecido
+
+Tipo `Color` (`internal/types`, o 6º tipo básico do legado) — sem uso pelo piloto `guitars` (que só exercita text/integer/boolean/float/date), adicioná-lo tocaria `internal/metadata.FieldType`, `internal/records.validateValue` e `internal/pack` simultaneamente; deixado para quando um consumidor real do tipo existir. Views Edit/Show/Feed/Filter/ListShowList/Room/WorkflowRoom (item 3 da lista de bloqueadores acima). CRUD dirigido por trigger (item 4). `run_js_code` como `ActionFunc` (item 1).
+
 ## Encerramento gracioso
 
 `cmd/server` e `cmd/worker` capturam `SIGINT`/`SIGTERM`, param de aceitar trabalho novo, e esperam o trabalho já em curso terminar (via `internal/platform/shutdown.Tracker`) antes de sair — dentro do prazo de `SALTCORN_GO_SHUTDOWN_TIMEOUT_SECONDS`. Se o prazo estourar, o processo registra um aviso e sai mesmo assim; isso é uma decisão operacional explícita, não um bug — ver `shutdown.Tracker.Drain`.

@@ -78,6 +78,7 @@ func Export(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, plugins [
 		}
 		triggerPacks = append(triggerPacks, TriggerPack{
 			TableName: table.Name, When: tr.When, Action: tr.Action, OnlyIf: tr.OnlyIf, AfterCommit: tr.AfterCommit,
+			Configuration: tr.Configuration,
 		})
 	}
 
