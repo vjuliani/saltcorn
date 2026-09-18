@@ -11,7 +11,7 @@ O próprio relatório de GO-004 usou `vm2` deliberadamente para medir a fronteir
 JSON, uma mensagem por linha, em stdin/stdout — evolução direta do protocolo prototipado em GO-004 (`docs/migracao-go/prototipos/GO-004-fronteira-rpc/host.cjs`):
 
 - **`eval`** (Go → host): `{id, kind: "expr"|"call", code?, name?, args?, context?, capabilities: Capability[], timeoutMs?}`. `capabilities` é a lista de callbacks que ESTA chamada pode invocar — ADR-0005: "capacidades explícitas, não acesso irrestrito". `null`/ausente é tratado como lista vazia (achado desta tarefa: Go não usa `omitempty` em `Capabilities`, e um `null` sem essa normalização quebrava com um erro de runtime em vez de `capability_denied` — corrigido em `src/host.ts`).
-- **`result`** (host → Go): `{id, ok, result?, error?: {code, message}, evalMs}` — `error.code` é um de `runtime_error | capability_denied | invalid_request | timeout | crashed`, nunca uma string solta.
+- **`result`** (host → Go): `{id, ok, result?, error?: {code, message}, evalMs}` — `error.code` é um de `runtime_error | capability_denied | invalid_request | timeout | crashed | unsupported_reference`, nunca uma string solta.
 - **`callback_request`** (host → Go) / **`callback_response`** (Go → host): canal de callback **genérico** por `op` (não um global por singleton — recomendação #2 do relatório de GO-004), correlacionado por `corr`. A checagem "esta chamada pode invocar este `op`?" acontece nos DOIS lados (host, em `requestCallback`; cliente Go, em `serveCallback`) — defesa em profundidade, nenhum lado confia cegamente no outro.
 
 ## Capacidades implementadas
@@ -21,11 +21,12 @@ JSON, uma mensagem por linha, em stdin/stdout — evolução direta do protocolo
 
 ## Isolamento testado por regressão deliberada
 
-Três garantias, cada uma provada desabilitando o mecanismo e confirmando falha real antes de restaurar (ver `migracao/backend/internal/pluginhost/client_test.go` e `docs/migracao-go/execucoes/GO-022.md`):
+Quatro garantias, cada uma provada desabilitando o mecanismo e confirmando falha real antes de restaurar (ver `migracao/backend/internal/pluginhost/client_test.go`, `test/host.test.ts` e `docs/migracao-go/execucoes/GO-022.md`/`GO-023.md`):
 
-1. **Timeout**: um laço síncrono infinito é interrompido; sem a contenção do lado Go, o processo preso é reaproveitado pela chamada seguinte e produz uma condição de corrida real (confirmado com `go test -race` durante esta tarefa).
+1. **Timeout**: um laço síncrono infinito é interrompido; sem a contenção do lado Go, o processo preso é reaproveitado pela chamada seguinte e produz uma condição de corrida real (confirmado com `go test -race` durante GO-022).
 2. **Crash**: o processo do host morto (por OOM real via `--max-old-space-size`, ou morto externamente) nunca deixa o cliente Go preso — a chamada em voo recebe `crashed`, e a PRÓXIMA chamada sobe um host novo sozinha.
 3. **Acesso proibido**: um callback fora da lista de capacidades concedidas é negado nos dois lados, nunca chega a executar.
+4. **Referência a singleton de domínio** (GO-023): `Table`/`File`/`View` no sandbox de `host.ts` são um `Proxy` que lança `unsupported_reference` em qualquer leitura/chamada — removendo esse estojo (regressão deliberada desta tarefa), a MESMA referência (`Table.findOne(...)`) passa a virar `runtime_error`, indistinguível de um bug comum da fórmula do usuário. É exatamente essa ambiguidade que o estojo elimina: o chamador Go (`internal/expression`) precisa saber que a fórmula usa uma classe de recurso permanentemente não suportada, não que ela tem um typo a corrigir.
 
 ## Build, testes e execução
 
@@ -42,4 +43,4 @@ O cliente Go (`migracao/backend/internal/pluginhost`) espera o `dist/src/host.js
 
 - **Chamadas serializadas por `Client`**: um processo de host atende uma chamada por vez (mutex do lado Go) — correlacionar `callback_request` de chamadas CONCORRENTES pelo MESMO processo exigiria rastrear qual conjunto de capacidades pertence a qual chamada em voo, complexidade não justificada para o volume esperado (não é caminho quente). Uma pool de processos para mais throughput é uma extensão futura, não implementada aqui.
 - **Sem inventário real de plugins de terceiro** (lacuna já registrada desde GO-001/GO-003/GO-004): `sendToast` em `src/host.ts` demonstra o MECANISMO de chamada por nome, não um catálogo de plugins de produção.
-- **Sem wiring em `cmd/server`**: conectar este host a um caminho de validação real (ex.: `ownership_formula`, fórmulas calculadas em `CreateRecord`) é GO-023, que também decide quais expressões são prioritárias.
+- **Sem wiring em `cmd/server`**: GO-023 entrega `internal/expression.Evaluator` (a fachada única de consumo, com checagem de cutover e coerção de tipo) mas não conecta nenhuma rota HTTP real a ela (ex.: campos calculados em `CreateRecord`, `ownership_formula`) — isso fica para os consumidores futuros (GO-024 triggers/ações, GO-027 packs, GO-029 SDK).

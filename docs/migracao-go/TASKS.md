@@ -454,7 +454,7 @@ Execute a task GO-022 — Implementar host temporário de extensões JS, de docs
 
 ### GO-023 — Portar tipos e expressões prioritários
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — implementação, testes e documentação concluídos; aguardando abertura/revisão do PR; histórico em [execucoes/GO-023.md](execucoes/GO-023.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-004, GO-011, GO-022

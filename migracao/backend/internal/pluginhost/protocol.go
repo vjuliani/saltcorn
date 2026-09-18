@@ -64,6 +64,14 @@ const (
 	ErrCodeInvalidRequest   ErrorCode = "invalid_request"
 	ErrCodeTimeout          ErrorCode = "timeout"
 	ErrCodeCrashed          ErrorCode = "crashed"
+	// ErrCodeUnsupportedReference (GO-023) é devolvido quando a expressão
+	// referencia um singleton de domínio (Table/File/View) sem canal de
+	// callback explícito — achado de GO-004 caso #6, onde essa referência
+	// virava `undefined` SILENCIOSAMENTE do lado Node. O host (host.ts)
+	// nunca deixa isso passar em silêncio: lança este código explicitamente
+	// via um Proxy que intercepta qualquer leitura/chamada dessas
+	// identificadores no sandbox.
+	ErrCodeUnsupportedReference ErrorCode = "unsupported_reference"
 )
 
 // RpcError é o envelope de erro estruturado devolvido pelo host.

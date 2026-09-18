@@ -318,6 +318,38 @@ func TestEval_RuntimeError_DoesNotKillProcess(t *testing.T) {
 	}
 }
 
+// TestEval_UnsupportedReference_DoesNotKillProcess prova o lado Go do
+// achado de GO-004 caso #6 fechado em GO-023: referenciar um singleton de
+// domínio (Table/File/View) sem canal de callback explícito nunca vira um
+// `nil`/resultado manso — o host lança um erro distinto e explícito
+// (unsupported_reference), propagado aqui como ErrUnsupportedReference,
+// nunca confundido com ErrRuntime (a fórmula pode estar sintaticamente
+// perfeita; é a CLASSE de recurso que não é suportada). Como qualquer
+// outro erro que não seja crash/timeout, o processo do host continua vivo.
+func TestEval_UnsupportedReference_DoesNotKillProcess(t *testing.T) {
+	c := newTestClient(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := c.Eval(ctx, EvalRequest{Kind: KindExpr, Code: "Table.findOne({id: row.id})", Context: EvalContext{Row: map[string]any{"id": 1}}, Capabilities: nil}, nil)
+	if err == nil || res.OK {
+		t.Fatal("esperado falha de unsupported_reference")
+	}
+	if !errors.Is(err, ErrUnsupportedReference) {
+		t.Fatalf("err = %v, esperado ErrUnsupportedReference", err)
+	}
+	if errors.Is(err, ErrRuntime) {
+		t.Fatal("unsupported_reference não deveria ser classificado como ErrRuntime — são classes de falha distintas")
+	}
+
+	c.mu.Lock()
+	stillSameProc := c.proc != nil
+	c.mu.Unlock()
+	if !stillSameProc {
+		t.Error("unsupported_reference derrubou o processo do host — deveria continuar vivo (só timeout/crash derrubam)")
+	}
+}
+
 // TestEval_MemoryLimit_CrashIsContained é a prova mais direta da fronteira
 // de segurança que ADR-0005 realmente exige: não a VM (vm.Script não tem
 // como limitar memória), mas o PROCESSO — `--max-old-space-size` faz o

@@ -26,7 +26,21 @@ export interface EvalRequest {
   readonly timeoutMs?: number;
 }
 
-export type ErrorCode = "runtime_error" | "capability_denied" | "invalid_request" | "timeout" | "crashed";
+/**
+ * `unsupported_reference` (GO-023): lançado quando a expressão referencia um
+ * singleton de domínio (`Table`/`File`/`View`) sem canal de callback
+ * explícito — achado de GO-004 caso #6, onde essa referência virava
+ * `undefined` SILENCIOSAMENTE. Este host nunca deixa isso passar em
+ * silêncio: os estojos em `src/host.ts` lançam este código explicitamente
+ * ao serem referenciados.
+ */
+export type ErrorCode =
+  | "runtime_error"
+  | "capability_denied"
+  | "invalid_request"
+  | "timeout"
+  | "crashed"
+  | "unsupported_reference";
 
 export interface RpcError {
   readonly code: ErrorCode;

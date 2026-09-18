@@ -194,3 +194,35 @@ test("função com closure de variável externa nunca enviada falha — nenhuma 
     s.close();
   }
 });
+
+// GO-023: referenciar um singleton de domínio (Table/File/View) sem canal
+// de callback explícito NUNCA pode virar `undefined` silencioso (GO-004
+// caso #6) — tem que lançar um erro explícito, tipado, distinto de
+// runtime_error, para que o chamador Go saiba exatamente que classe de
+// incompatibilidade ocorreu.
+test("referência a Table sem canal de callback explícito lança unsupported_reference, nunca undefined silencioso", async () => {
+  const s = startHost();
+  try {
+    const res = await runOne(s, { type: "eval", id: 10, kind: "expr", code: "Table.findOne({id: 1})", capabilities: [] });
+    assert.equal(res.ok, false);
+    assert.equal(res.error?.code, "unsupported_reference");
+    assert.match(res.error?.message ?? "", /Table/);
+  } finally {
+    s.close();
+  }
+});
+
+test("referência a File/View também lança unsupported_reference", async () => {
+  const s = startHost();
+  try {
+    const resFile = await runOne(s, { type: "eval", id: 11, kind: "expr", code: "File.findOne({id: 1})", capabilities: [] });
+    assert.equal(resFile.ok, false);
+    assert.equal(resFile.error?.code, "unsupported_reference");
+
+    const resView = await runOne(s, { type: "eval", id: 12, kind: "expr", code: "'x' in View", capabilities: [] });
+    assert.equal(resView.ok, false);
+    assert.equal(resView.error?.code, "unsupported_reference");
+  } finally {
+    s.close();
+  }
+});

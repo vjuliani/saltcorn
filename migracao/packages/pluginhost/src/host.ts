@@ -40,6 +40,35 @@ const registeredFunctions: Record<string, (args: Record<string, unknown>) => unk
   sendToast: (args) => ({ toast: true, message: `Toast: ${String(args.msg ?? "")}` }),
 };
 
+/**
+ * unsupportedSingleton (GO-023) fecha a lacuna concreta de GO-004 caso #6:
+ * uma expressão que referencia um singleton de domínio (`Table`/`File`/
+ * `View`) sem canal de callback explícito virava `undefined` do lado Node,
+ * um resultado ERRADO SILENCIOSO (ex.: `Table.findOne(...)` vira
+ * `undefined.findOne` só se a expressão tentar CHAMAR um método — mas só
+ * referenciar `Table` numa condição booleana, por exemplo, passava batido
+ * como falsy sem nenhum erro). Este proxy lança explicitamente em
+ * qualquer leitura de propriedade, `in`, ou chamada — nunca deixa a
+ * referência virar um valor manso; é exatamente o "fallback explícito
+ * quando a semântica diverge" exigido pelo critério de aceite de GO-023.
+ */
+function unsupportedSingleton(name: string): unknown {
+  const deny = () => {
+    throw Object.assign(
+      new Error(
+        `referência a ${name} não suportada nesta fronteira — singleton de domínio sem canal de callback explícito (GO-004 caso #6, ver GO-023)`,
+      ),
+      { rpcCode: "unsupported_reference" },
+    );
+  };
+  return new Proxy(function () {} as unknown as object, {
+    get: deny,
+    has: deny,
+    apply: deny,
+    construct: deny,
+  });
+}
+
 let nextCorr = 1;
 const pendingCallbacks = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 
@@ -70,6 +99,9 @@ function classifyError(e: unknown): RpcError {
   const err = e as { rpcCode?: string; message?: string; name?: string };
   if (err?.rpcCode === "capability_denied") {
     return { code: "capability_denied", message: err.message ?? "capacidade não concedida" };
+  }
+  if (err?.rpcCode === "unsupported_reference") {
+    return { code: "unsupported_reference", message: err.message ?? "referência não suportada" };
   }
   // `rpcCode: "timeout"` cobre o timeout ASSÍNCRONO deste host (a corrida
   // com `asyncTimeout`); a checagem de nome/mensagem cobre o timeout
@@ -111,6 +143,10 @@ async function handleEval(req: EvalRequest): Promise<void> {
         user: req.context?.user ?? null,
         Date,
         callHost: (op: Capability, args: Record<string, unknown>) => requestCallback(op, args, granted),
+        // GO-023: nunca undefined silencioso — ver unsupportedSingleton.
+        Table: unsupportedSingleton("Table"),
+        File: unsupportedSingleton("File"),
+        View: unsupportedSingleton("View"),
       };
       const context = createContext(sandbox);
       const wrapped = `(async () => { return (${req.code}); })()`;
