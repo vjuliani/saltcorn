@@ -587,7 +587,7 @@ Execute a task GO-029 — Definir SDK e portar plugins exigidos, de docs/migraca
 
 ### GO-030 — Implementar adapter SQLite
 
-- [ ] **Status:** IN_REVIEW — entrega consolidada no PR [#33](https://github.com/vjuliani/saltcorn/pull/33) aberto; histórico em [execucoes/GO-030.md](execucoes/GO-030.md)
+- [x] **Status:** DONE — PR [#33](https://github.com/vjuliani/saltcorn/pull/33) integrado; histórico em [execucoes/GO-030.md](execucoes/GO-030.md)
 - **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-011, GO-012, GO-013, GO-014
@@ -606,7 +606,7 @@ Execute a task GO-030 — Implementar adapter SQLite, de docs/migracao-go/TASKS.
 
 ### GO-031 — Migrar contratos de sync e mobile offline
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — [PR #34](https://github.com/vjuliani/saltcorn/pull/34); histórico em [execucoes/GO-031.md](execucoes/GO-031.md)
 - **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Mobile
 - **Depende de:** GO-006, GO-008, GO-027, GO-030

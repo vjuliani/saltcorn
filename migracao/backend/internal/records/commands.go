@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -154,13 +155,13 @@ func CreateRecordTx(ctx context.Context, tx database.Tx, actorRole identity.Role
 	}
 
 	quotedTable := pgx.Identifier{table.Name}.Sanitize()
-	version := versionExpr(tx.Dialect(), "")
+	returning := returningColumns(fieldsByName, tx.Dialect())
 	var sql string
 	if len(cols) == 0 {
-		sql = fmt.Sprintf(`INSERT INTO %s DEFAULT VALUES RETURNING *, %s AS "_version"`, quotedTable, version)
+		sql = fmt.Sprintf(`INSERT INTO %s DEFAULT VALUES RETURNING %s`, quotedTable, returning)
 	} else {
-		sql = fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) RETURNING *, %s AS "_version"`,
-			quotedTable, strings.Join(cols, ", "), strings.Join(placeholders, ", "), version)
+		sql = fmt.Sprintf(`INSERT INTO %s (%s) VALUES (%s) RETURNING %s`,
+			quotedTable, strings.Join(cols, ", "), strings.Join(placeholders, ", "), returning)
 	}
 
 	rows, err := tx.Query(ctx, sql, args...)
@@ -216,8 +217,8 @@ func UpdateRecordTx(ctx context.Context, tx database.Tx, actorRole identity.Role
 	if tx.Dialect() == database.DialectSQLite {
 		setClauses = append(setClauses, `"_version" = "_version" + 1`)
 	}
-	sql := fmt.Sprintf(`UPDATE %s SET %s WHERE id = $%d AND %s = $%d RETURNING *, %s AS "_version"`,
-		quotedTable, strings.Join(setClauses, ", "), idPos, version, versionPos, version)
+	sql := fmt.Sprintf(`UPDATE %s SET %s WHERE id = $%d AND %s = $%d RETURNING %s`,
+		quotedTable, strings.Join(setClauses, ", "), idPos, version, versionPos, returningColumns(fieldsByName, tx.Dialect()))
 
 	rows, err := tx.Query(ctx, sql, args...)
 	if err != nil {
@@ -333,4 +334,20 @@ func versionExpr(d database.Dialect, prefix string) string {
 		return `CAST(` + prefix + `"_version" AS TEXT)`
 	}
 	return prefix + "xmin::text"
+}
+
+// Explicit columns make the SQL (and pgx prepared-statement cache key) change
+// when metadata changes. RETURNING * retains an obsolete result shape after DDL.
+func returningColumns(fields map[string]metadata.Field, dialect database.Dialect) string {
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	columns := make([]string, 0, len(names)+1)
+	for _, name := range names {
+		columns = append(columns, pgx.Identifier{name}.Sanitize())
+	}
+	columns = append(columns, versionExpr(dialect, "")+` AS "_version"`)
+	return strings.Join(columns, ", ")
 }

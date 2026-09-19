@@ -148,6 +148,9 @@ func main() {
 		mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records",
 			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, recordsCapability, listRecordsHandler(tracker, db)))))
+		mux.Handle("POST /v1/tenants/{tenant}/sync/{table}/exchange",
+			tenancy.Middleware(verifier, telemetry.Middleware("tenant_sync", httpMetrics,
+				cutover.RequireOwnership(guard, recordsCapability, syncExchangeHandler(tracker, db)))))
 		mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/records",
 			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, recordsCapability, createRecordHandler(tracker, db)))))

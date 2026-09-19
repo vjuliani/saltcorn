@@ -1,0 +1,52 @@
+name: migracao-sync-ci
+on:
+  push:
+    branches: [master]
+    paths:
+      - "migracao/backend/**"
+      - "migracao/packages/bff/**"
+      - "migracao/contracts/**"
+      - "migracao/packages/mobile-sync-test/**"
+      - "packages/saltcorn-mobile-app/src/**"
+      - ".github/workflows/migracao-sync-ci.yml"
+  pull_request:
+    paths:
+      - "migracao/backend/**"
+      - "migracao/packages/bff/**"
+      - "migracao/contracts/**"
+      - "migracao/packages/mobile-sync-test/**"
+      - "packages/saltcorn-mobile-app/src/**"
+      - ".github/workflows/migracao-sync-ci.yml"
+jobs:
+  offline-sync:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: saltcorn_sync_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d saltcorn_sync_test"
+          --health-interval 5s --health-timeout 5s --health-retries 5
+    env:
+      SALTCORN_GO_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/saltcorn_sync_test
+      SALTCORN_GO_TEST_MOBILE_E2E: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: migracao/backend/go.sum
+      - run: npm ci --prefix migracao/packages/bff
+      - run: npm test --prefix migracao/packages/bff
+      - name: Cliente offline com SQLite real
+        run: node --test migracao/packages/mobile-sync-test/client.test.mjs
+      - name: Contrato, RLS e mobile -> BFF -> Go -> PostgreSQL
+        working-directory: migracao/backend
+        run: go test -race -count=1 ./internal/sync ./cmd/server -run 'TestExchangeParity|TestScopeSchemaAndRollback|TestSnapshotLimitRollsBackBatch|TestPostgresOwnershipAndRevocation|TestSyncMobileE2E'

@@ -16,6 +16,108 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for MutationKind.
+const (
+	Create MutationKind = "create"
+	Delete MutationKind = "delete"
+	Update MutationKind = "update"
+)
+
+// Valid indicates whether the value is a known member of the MutationKind enum.
+func (e MutationKind) Valid() bool {
+	switch e {
+	case Create:
+		return true
+	case Delete:
+		return true
+	case Update:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RequestProtocol.
+const (
+	RequestProtocolN1 RequestProtocol = 1
+)
+
+// Valid indicates whether the value is a known member of the RequestProtocol enum.
+func (e RequestProtocol) Valid() bool {
+	switch e {
+	case RequestProtocolN1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ResponseFieldsType.
+const (
+	Boolean ResponseFieldsType = "boolean"
+	Date    ResponseFieldsType = "date"
+	Float   ResponseFieldsType = "float"
+	Integer ResponseFieldsType = "integer"
+	Key     ResponseFieldsType = "key"
+	Text    ResponseFieldsType = "text"
+)
+
+// Valid indicates whether the value is a known member of the ResponseFieldsType enum.
+func (e ResponseFieldsType) Valid() bool {
+	switch e {
+	case Boolean:
+		return true
+	case Date:
+		return true
+	case Float:
+		return true
+	case Integer:
+		return true
+	case Key:
+		return true
+	case Text:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ResponseProtocol.
+const (
+	ResponseProtocolN1 ResponseProtocol = 1
+)
+
+// Valid indicates whether the value is a known member of the ResponseProtocol enum.
+func (e ResponseProtocol) Valid() bool {
+	switch e {
+	case ResponseProtocolN1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ResultStatus.
+const (
+	Applied  ResultStatus = "applied"
+	Conflict ResultStatus = "conflict"
+	Rejected ResultStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the ResultStatus enum.
+func (e ResultStatus) Valid() bool {
+	switch e {
+	case Applied:
+		return true
+	case Conflict:
+		return true
+	case Rejected:
+		return true
+	default:
+		return false
+	}
+}
+
 // Bootstrap defines model for Bootstrap.
 type Bootstrap struct {
 	Actor struct {
@@ -45,12 +147,89 @@ type Error struct {
 // Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
 type Id = int64
 
+// Mutation defines model for Mutation.
+type Mutation struct {
+	// BaseVersion Obrigatório em update/delete; token recebido na leitura original.
+	BaseVersion *string `json:"base_version,omitempty"`
+
+	// Id Identificador imutável de uma tentativa. Resolver conflito exige novo ID.
+	Id     string                  `json:"id"`
+	Kind   MutationKind            `json:"kind"`
+	RowId  *int                    `json:"row_id,omitempty"`
+	Values *map[string]interface{} `json:"values,omitempty"`
+}
+
+// MutationKind defines model for Mutation.Kind.
+type MutationKind string
+
 // Page defines model for Page.
 type Page struct {
 	Items []interface{} `json:"items"`
 
 	// NextCursor Cursor para a próxima página, ou `null` se não houver mais páginas.
 	NextCursor *string `json:"next_cursor"`
+}
+
+// Request defines model for Request.
+type Request struct {
+	// Checkpoint Hash do último snapshot gravado localmente; vazio no bootstrap. Não é cursor incremental.
+	Checkpoint    string          `json:"checkpoint"`
+	ClientId      string          `json:"client_id"`
+	Mutations     []Mutation      `json:"mutations"`
+	Protocol      RequestProtocol `json:"protocol"`
+	SchemaVersion int             `json:"schema_version"`
+	Scope         Scope           `json:"scope"`
+}
+
+// RequestProtocol defines model for Request.Protocol.
+type RequestProtocol int
+
+// Response defines model for Response.
+type Response struct {
+	Checkpoint string `json:"checkpoint"`
+	Fields     []struct {
+		Name     string             `json:"name"`
+		Required bool               `json:"required"`
+		Type     ResponseFieldsType `json:"type"`
+	} `json:"fields"`
+	Protocol ResponseProtocol `json:"protocol"`
+	Results  []Result         `json:"results"`
+
+	// Rows Substituição completa e autorizada da tabela. Ausência representa exclusão ou perda de acesso; o cliente preserva rascunhos pendentes separadamente. Sem paginação parcial: se exceder 2000 linhas, toda a transação falha com 413.
+	Rows          []Response_Rows_Item `json:"rows"`
+	SchemaVersion int                  `json:"schema_version"`
+	Scope         Scope                `json:"scope"`
+}
+
+// ResponseFieldsType defines model for Response.Fields.Type.
+type ResponseFieldsType string
+
+// ResponseProtocol defines model for Response.Protocol.
+type ResponseProtocol int
+
+// Response_Rows_Item defines model for Response.rows.Item.
+type Response_Rows_Item struct {
+	UnderscoreVersion    string                 `json:"_version"`
+	Id                   int                    `json:"id"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// Result defines model for Result.
+type Result struct {
+	Code   *string      `json:"code,omitempty"`
+	Id     string       `json:"id"`
+	RowId  *int         `json:"row_id,omitempty"`
+	Status ResultStatus `json:"status"`
+}
+
+// ResultStatus defines model for Result.Status.
+type ResultStatus string
+
+// Scope defines model for Scope.
+type Scope struct {
+	Actor  string `json:"actor"`
+	Table  string `json:"table"`
+	Tenant string `json:"tenant"`
 }
 
 // Tenant Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL.
@@ -158,6 +337,9 @@ type RenderViewParams struct {
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// ExchangeOfflineSyncBffJSONRequestBody defines body for ExchangeOfflineSyncBff for application/json ContentType.
+type ExchangeOfflineSyncBffJSONRequestBody = Request
+
 // CreateTableJSONRequestBody defines body for CreateTable for application/json ContentType.
 type CreateTableJSONRequestBody CreateTableJSONBody
 
@@ -172,6 +354,85 @@ type CreateViewJSONRequestBody CreateViewJSONBody
 
 // UpdateViewJSONRequestBody defines body for UpdateView for application/json ContentType.
 type UpdateViewJSONRequestBody UpdateViewJSONBody
+
+// Getter for additional properties for Response_Rows_Item. Returns the specified
+// element and whether it was found
+func (a Response_Rows_Item) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for Response_Rows_Item
+func (a *Response_Rows_Item) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for Response_Rows_Item to handle AdditionalProperties
+func (a *Response_Rows_Item) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["_version"]; found {
+		err = json.Unmarshal(raw, &a.UnderscoreVersion)
+		if err != nil {
+			return fmt.Errorf("error reading '_version': %w", err)
+		}
+		delete(object, "_version")
+	}
+
+	if raw, found := object["id"]; found {
+		err = json.Unmarshal(raw, &a.Id)
+		if err != nil {
+			return fmt.Errorf("error reading 'id': %w", err)
+		}
+		delete(object, "id")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for Response_Rows_Item to handle AdditionalProperties
+func (a Response_Rows_Item) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["_version"], err = json.Marshal(a.UnderscoreVersion)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling '_version': %w", err)
+	}
+
+	object["id"], err = json.Marshal(a.Id)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'id': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -251,6 +512,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 	GetBootstrap(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExchangeOfflineSyncBffWithBody Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+	//
+	// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/bff/sync/{table}/exchange (the `ExchangeOfflineSyncBff` operationId).
+	ExchangeOfflineSyncBffWithBody(ctx context.Context, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExchangeOfflineSyncBff Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+	//
+	// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/bff/sync/{table}/exchange (the `ExchangeOfflineSyncBff` operationId).
+	ExchangeOfflineSyncBff(ctx context.Context, table string, body ExchangeOfflineSyncBffJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateTableWithBody Cria uma tabela dinâmica (GO-019)
 	//
@@ -362,6 +641,44 @@ type ClientInterface interface {
 // Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 func (c *Client) GetBootstrap(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetBootstrapRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExchangeOfflineSyncBffWithBody Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+//
+// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/bff/sync/{table}/exchange (the `ExchangeOfflineSyncBff` operationId).
+func (c *Client) ExchangeOfflineSyncBffWithBody(ctx context.Context, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExchangeOfflineSyncBffRequestWithBody(c.Server, table, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExchangeOfflineSyncBff Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+//
+// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/bff/sync/{table}/exchange (the `ExchangeOfflineSyncBff` operationId).
+func (c *Client) ExchangeOfflineSyncBff(ctx context.Context, table string, body ExchangeOfflineSyncBffJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExchangeOfflineSyncBffRequest(c.Server, table, body)
 	if err != nil {
 		return nil, err
 	}
@@ -639,6 +956,53 @@ func NewGetBootstrapRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewExchangeOfflineSyncBffRequest calls the generic ExchangeOfflineSyncBff builder with application/json body
+func NewExchangeOfflineSyncBffRequest(server string, table string, body ExchangeOfflineSyncBffJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewExchangeOfflineSyncBffRequestWithBody(server, table, "application/json", bodyReader)
+}
+
+// NewExchangeOfflineSyncBffRequestWithBody constructs an http.Request for the ExchangeOfflineSyncBff method, with any body, and a specified content type
+func NewExchangeOfflineSyncBffRequestWithBody(server string, table string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "table", table, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/sync/%s/exchange", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -1149,6 +1513,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 	GetBootstrapWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetBootstrapResponse, error)
 
+	// ExchangeOfflineSyncBffWithBodyWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+	//
+	// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/sync/{table}/exchange (the `ExchangeOfflineSyncBff` operationId).
+	ExchangeOfflineSyncBffWithBodyWithResponse(ctx context.Context, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExchangeOfflineSyncBffResponse, error)
+
+	// ExchangeOfflineSyncBffWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+	//
+	// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/sync/{table}/exchange (the `ExchangeOfflineSyncBff` operationId).
+	ExchangeOfflineSyncBffWithResponse(ctx context.Context, table string, body ExchangeOfflineSyncBffJSONRequestBody, reqEditors ...RequestEditorFn) (*ExchangeOfflineSyncBffResponse, error)
+
 	// CreateTableWithBodyWithResponse Cria uma tabela dinâmica (GO-019)
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -1304,6 +1686,103 @@ func (r GetBootstrapResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetBootstrapResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ExchangeOfflineSyncBffResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ExchangeOfflineSyncBffResponse) GetJSON200() *Response {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ExchangeOfflineSyncBffResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ExchangeOfflineSyncBffResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ExchangeOfflineSyncBffResponse) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ExchangeOfflineSyncBffResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ExchangeOfflineSyncBffResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r ExchangeOfflineSyncBffResponse) GetJSON413() *Error {
+	return r.JSON413
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r ExchangeOfflineSyncBffResponse) GetJSON502() *Error {
+	return r.JSON502
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ExchangeOfflineSyncBffResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ExchangeOfflineSyncBffResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExchangeOfflineSyncBffResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExchangeOfflineSyncBffResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExchangeOfflineSyncBffResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -1888,6 +2367,36 @@ func (c *ClientWithResponses) GetBootstrapWithResponse(ctx context.Context, reqE
 	return ParseGetBootstrapResponse(rsp)
 }
 
+// ExchangeOfflineSyncBffWithBodyWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+//
+// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/sync/{table}/exchange (the `ExchangeOfflineSyncBff` operationId).
+func (c *ClientWithResponses) ExchangeOfflineSyncBffWithBodyWithResponse(ctx context.Context, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExchangeOfflineSyncBffResponse, error) {
+	rsp, err := c.ExchangeOfflineSyncBffWithBody(ctx, table, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExchangeOfflineSyncBffResponse(rsp)
+}
+
+// ExchangeOfflineSyncBffWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+//
+// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/sync/{table}/exchange (the `ExchangeOfflineSyncBff` operationId).
+func (c *ClientWithResponses) ExchangeOfflineSyncBffWithResponse(ctx context.Context, table string, body ExchangeOfflineSyncBffJSONRequestBody, reqEditors ...RequestEditorFn) (*ExchangeOfflineSyncBffResponse, error) {
+	rsp, err := c.ExchangeOfflineSyncBff(ctx, table, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExchangeOfflineSyncBffResponse(rsp)
+}
+
 // CreateTableWithBodyWithResponse Cria uma tabela dinâmica (GO-019)
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -2111,6 +2620,88 @@ func ParseGetBootstrapResponse(rsp *http.Response) (*GetBootstrapResponse, error
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseExchangeOfflineSyncBffResponse parses an HTTP response from a ExchangeOfflineSyncBffWithResponse call
+func ParseExchangeOfflineSyncBffResponse(rsp *http.Response) (*ExchangeOfflineSyncBffResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExchangeOfflineSyncBffResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Response
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 

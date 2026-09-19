@@ -5,6 +5,7 @@ import * as common from "./helpers/common";
 import * as fileSystem from "./helpers/file_system";
 import * as navigation from "./helpers/navigation";
 import * as offlineMode from "./helpers/offline_mode";
+import * as syncV1 from "./sync-v1/index.mjs";
 import * as dbSchema from "./helpers/db_schema";
 import { router } from "./routing/index";
 
@@ -44,6 +45,7 @@ export const mobileApp = {
   fileSystem,
   navigation: { ...navigation, router },
   offlineMode,
+  syncV1,
   dbSchema,
   ...(notifications ? { notifications } : {}),
   ...(backgroundSync ? { backgroundSync } : {}),

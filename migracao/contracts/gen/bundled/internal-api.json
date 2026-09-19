@@ -17,6 +17,133 @@
     }
   ],
   "paths": {
+    "/v1/tenants/{tenant}/sync/{table}/exchange": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        },
+        {
+          "name": "table",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "exchangeOfflineSync",
+        "summary": "Sincroniza alterações offline com conflitos explícitos e snapshot autorizado",
+        "description": "GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.\n",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resultados idempotentes e snapshot completo para persistência atômica local",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Response"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Protocolo ou corpo inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sessão ou identidade inválida",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Scope, papel ou CSRF inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Tabela indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Schema alterado ou ID reutilizado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Corpo ou snapshot acima do limite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Falha no domínio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Serviço indisponível",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "operationId": "getLiveness",
@@ -1120,15 +1247,216 @@
         },
         "additionalProperties": true
       },
-      "Tenant": {
-        "type": "string",
-        "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
-        "description": "Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL.\n"
+      "Scope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenant",
+          "actor",
+          "table"
+        ],
+        "properties": {
+          "tenant": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actor": {
+            "type": "string",
+            "minLength": 1
+          },
+          "table": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       },
-      "Id": {
-        "type": "integer",
-        "format": "int64",
-        "description": "Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.\n"
+      "Mutation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$",
+            "description": "Identificador imutável de uma tentativa. Resolver conflito exige novo ID."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "create",
+              "update",
+              "delete"
+            ]
+          },
+          "row_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "base_version": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Obrigatório em update/delete; token recebido na leitura original."
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "protocol",
+          "scope",
+          "client_id",
+          "schema_version",
+          "checkpoint",
+          "mutations"
+        ],
+        "properties": {
+          "protocol": {
+            "type": "integer",
+            "const": 1
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "client_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "checkpoint": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Hash do último snapshot gravado localmente; vazio no bootstrap. Não é cursor incremental."
+          },
+          "mutations": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/Mutation"
+            }
+          }
+        }
+      },
+      "Result": {
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "applied",
+              "conflict",
+              "rejected"
+            ]
+          },
+          "code": {
+            "type": "string"
+          },
+          "row_id": {
+            "type": "integer"
+          }
+        }
+      },
+      "Response": {
+        "type": "object",
+        "required": [
+          "protocol",
+          "scope",
+          "schema_version",
+          "fields",
+          "checkpoint",
+          "results",
+          "rows"
+        ],
+        "properties": {
+          "protocol": {
+            "type": "integer",
+            "const": 1
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "name",
+                "type",
+                "required"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "text",
+                    "integer",
+                    "boolean",
+                    "float",
+                    "date",
+                    "key"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "checkpoint": {
+            "type": "string"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Result"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "maxItems": 2000,
+            "description": "Substituição completa e autorizada da tabela. Ausência representa exclusão ou perda de acesso; o cliente preserva rascunhos pendentes separadamente. Sem paginação parcial: se exceder 2000 linhas, toda a transação falha com 413.\n",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "_version"
+              ],
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "_version": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true
+            }
+          }
+        }
       },
       "Error": {
         "type": "object",
@@ -1159,6 +1487,16 @@
             }
           }
         }
+      },
+      "Tenant": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]{0,62}$",
+        "description": "Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL.\n"
+      },
+      "Id": {
+        "type": "integer",
+        "format": "int64",
+        "description": "Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.\n"
       },
       "Page": {
         "type": "object",

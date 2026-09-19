@@ -73,6 +73,15 @@ export function buildRouter(deps: AppDeps): Router {
     sendJSON(res, 200, page);
   });
 
+  router.post("/api/bff/sync/:table/exchange", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const result = await goClient.syncExchange(token, data.tenant, params.table!, body);
+    sendJSON(res, 200, result);
+  });
+
   router.post("/api/bff/tables/:table/records", async (req, res, params) => {
     const { data } = await requireSession(req, sessionStore);
     requireCsrf(req);

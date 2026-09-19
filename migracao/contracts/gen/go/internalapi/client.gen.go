@@ -19,28 +19,148 @@ import (
 
 // Defines values for FieldInputType.
 const (
-	Boolean FieldInputType = "boolean"
-	Date    FieldInputType = "date"
-	Float   FieldInputType = "float"
-	Integer FieldInputType = "integer"
-	Key     FieldInputType = "key"
-	Text    FieldInputType = "text"
+	FieldInputTypeBoolean FieldInputType = "boolean"
+	FieldInputTypeDate    FieldInputType = "date"
+	FieldInputTypeFloat   FieldInputType = "float"
+	FieldInputTypeInteger FieldInputType = "integer"
+	FieldInputTypeKey     FieldInputType = "key"
+	FieldInputTypeText    FieldInputType = "text"
 )
 
 // Valid indicates whether the value is a known member of the FieldInputType enum.
 func (e FieldInputType) Valid() bool {
 	switch e {
-	case Boolean:
+	case FieldInputTypeBoolean:
 		return true
-	case Date:
+	case FieldInputTypeDate:
 		return true
-	case Float:
+	case FieldInputTypeFloat:
 		return true
-	case Integer:
+	case FieldInputTypeInteger:
 		return true
-	case Key:
+	case FieldInputTypeKey:
 		return true
-	case Text:
+	case FieldInputTypeText:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MutationKind.
+const (
+	Create MutationKind = "create"
+	Delete MutationKind = "delete"
+	Update MutationKind = "update"
+)
+
+// Valid indicates whether the value is a known member of the MutationKind enum.
+func (e MutationKind) Valid() bool {
+	switch e {
+	case Create:
+		return true
+	case Delete:
+		return true
+	case Update:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RealtimeEventAudience.
+const (
+	Broadcast RealtimeEventAudience = "broadcast"
+	Users     RealtimeEventAudience = "users"
+)
+
+// Valid indicates whether the value is a known member of the RealtimeEventAudience enum.
+func (e RealtimeEventAudience) Valid() bool {
+	switch e {
+	case Broadcast:
+		return true
+	case Users:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RequestProtocol.
+const (
+	RequestProtocolN1 RequestProtocol = 1
+)
+
+// Valid indicates whether the value is a known member of the RequestProtocol enum.
+func (e RequestProtocol) Valid() bool {
+	switch e {
+	case RequestProtocolN1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ResponseFieldsType.
+const (
+	ResponseFieldsTypeBoolean ResponseFieldsType = "boolean"
+	ResponseFieldsTypeDate    ResponseFieldsType = "date"
+	ResponseFieldsTypeFloat   ResponseFieldsType = "float"
+	ResponseFieldsTypeInteger ResponseFieldsType = "integer"
+	ResponseFieldsTypeKey     ResponseFieldsType = "key"
+	ResponseFieldsTypeText    ResponseFieldsType = "text"
+)
+
+// Valid indicates whether the value is a known member of the ResponseFieldsType enum.
+func (e ResponseFieldsType) Valid() bool {
+	switch e {
+	case ResponseFieldsTypeBoolean:
+		return true
+	case ResponseFieldsTypeDate:
+		return true
+	case ResponseFieldsTypeFloat:
+		return true
+	case ResponseFieldsTypeInteger:
+		return true
+	case ResponseFieldsTypeKey:
+		return true
+	case ResponseFieldsTypeText:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ResponseProtocol.
+const (
+	ResponseProtocolN1 ResponseProtocol = 1
+)
+
+// Valid indicates whether the value is a known member of the ResponseProtocol enum.
+func (e ResponseProtocol) Valid() bool {
+	switch e {
+	case ResponseProtocolN1:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ResultStatus.
+const (
+	Applied  ResultStatus = "applied"
+	Conflict ResultStatus = "conflict"
+	Rejected ResultStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the ResultStatus enum.
+func (e ResultStatus) Valid() bool {
+	switch e {
+	case Applied:
+		return true
+	case Conflict:
+		return true
+	case Rejected:
 		return true
 	default:
 		return false
@@ -106,6 +226,21 @@ type FieldInputType string
 // Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
 type Id = int64
 
+// Mutation defines model for Mutation.
+type Mutation struct {
+	// BaseVersion Obrigatório em update/delete; token recebido na leitura original.
+	BaseVersion *string `json:"base_version,omitempty"`
+
+	// Id Identificador imutável de uma tentativa. Resolver conflito exige novo ID.
+	Id     string                  `json:"id"`
+	Kind   MutationKind            `json:"kind"`
+	RowId  *int                    `json:"row_id,omitempty"`
+	Values *map[string]interface{} `json:"values,omitempty"`
+}
+
+// MutationKind defines model for Mutation.Kind.
+type MutationKind string
+
 // Page defines model for Page.
 type Page struct {
 	Items []interface{} `json:"items"`
@@ -113,6 +248,21 @@ type Page struct {
 	// NextCursor Cursor para a próxima página, ou `null` se não houver mais páginas.
 	NextCursor *string `json:"next_cursor"`
 }
+
+// RealtimeEvent defines model for RealtimeEvent.
+type RealtimeEvent struct {
+	// Audience Informativo — o BFF não precisa decidir roteamento por audience, a filtragem por destinatário já aconteceu no backend (ver `listRealtimeEvents`).
+	Audience RealtimeEventAudience `json:"audience"`
+
+	// Id Cursor de ordenação — sempre crescente na ordem de publicação (nunca reordenar por outro campo).
+	Id int64 `json:"id"`
+
+	// Payload Corpo opaco definido por quem publicou o evento (ex. internal/notify.Create) — o BFF reemite tal como está, nunca reinterpreta.
+	Payload map[string]interface{} `json:"payload"`
+}
+
+// RealtimeEventAudience Informativo — o BFF não precisa decidir roteamento por audience, a filtragem por destinatário já aconteceu no backend (ver `listRealtimeEvents`).
+type RealtimeEventAudience string
 
 // Record defines model for Record.
 type Record struct {
@@ -132,6 +282,68 @@ type Record struct {
 
 // RecordInput Campos do registro conforme o schema dinâmico da tabela (GO-011). Este contrato não pode enumerar campos fixos — validação de schema acontece no backend, não aqui.
 type RecordInput map[string]interface{}
+
+// Request defines model for Request.
+type Request struct {
+	// Checkpoint Hash do último snapshot gravado localmente; vazio no bootstrap. Não é cursor incremental.
+	Checkpoint    string          `json:"checkpoint"`
+	ClientId      string          `json:"client_id"`
+	Mutations     []Mutation      `json:"mutations"`
+	Protocol      RequestProtocol `json:"protocol"`
+	SchemaVersion int             `json:"schema_version"`
+	Scope         Scope           `json:"scope"`
+}
+
+// RequestProtocol defines model for Request.Protocol.
+type RequestProtocol int
+
+// Response defines model for Response.
+type Response struct {
+	Checkpoint string `json:"checkpoint"`
+	Fields     []struct {
+		Name     string             `json:"name"`
+		Required bool               `json:"required"`
+		Type     ResponseFieldsType `json:"type"`
+	} `json:"fields"`
+	Protocol ResponseProtocol `json:"protocol"`
+	Results  []Result         `json:"results"`
+
+	// Rows Substituição completa e autorizada da tabela. Ausência representa exclusão ou perda de acesso; o cliente preserva rascunhos pendentes separadamente. Sem paginação parcial: se exceder 2000 linhas, toda a transação falha com 413.
+	Rows          []Response_Rows_Item `json:"rows"`
+	SchemaVersion int                  `json:"schema_version"`
+	Scope         Scope                `json:"scope"`
+}
+
+// ResponseFieldsType defines model for Response.Fields.Type.
+type ResponseFieldsType string
+
+// ResponseProtocol defines model for Response.Protocol.
+type ResponseProtocol int
+
+// Response_Rows_Item defines model for Response.rows.Item.
+type Response_Rows_Item struct {
+	UnderscoreVersion    string                 `json:"_version"`
+	Id                   int                    `json:"id"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
+
+// Result defines model for Result.
+type Result struct {
+	Code   *string      `json:"code,omitempty"`
+	Id     string       `json:"id"`
+	RowId  *int         `json:"row_id,omitempty"`
+	Status ResultStatus `json:"status"`
+}
+
+// ResultStatus defines model for Result.Status.
+type ResultStatus string
+
+// Scope defines model for Scope.
+type Scope struct {
+	Actor  string `json:"actor"`
+	Table  string `json:"table"`
+	Tenant string `json:"tenant"`
+}
 
 // Table defines model for Table.
 type Table struct {
@@ -229,6 +441,13 @@ type IdempotencyConflict = Error
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
 
+// ListRealtimeEventsParams defines parameters for ListRealtimeEvents.
+type ListRealtimeEventsParams struct {
+	// After Cursor de retomada — o `next_after` da chamada anterior. Omitir para a primeira chamada de uma conexão nova.
+	After *int64 `form:"after,omitempty" json:"after,omitempty"`
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListRecordsParams defines parameters for ListRecords.
 type ListRecordsParams struct {
 	// Cursor Cursor opaco da página anterior. Omitir para a primeira página.
@@ -280,6 +499,9 @@ type RenderViewParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
 }
+
+// ExchangeOfflineSyncJSONRequestBody defines body for ExchangeOfflineSync for application/json ContentType.
+type ExchangeOfflineSyncJSONRequestBody = Request
 
 // CreateTableJSONRequestBody defines body for CreateTable for application/json ContentType.
 type CreateTableJSONRequestBody = TableInput
@@ -406,6 +628,85 @@ func (a Record) MarshalJSON() ([]byte, error) {
 	return json.Marshal(object)
 }
 
+// Getter for additional properties for Response_Rows_Item. Returns the specified
+// element and whether it was found
+func (a Response_Rows_Item) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for Response_Rows_Item
+func (a *Response_Rows_Item) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for Response_Rows_Item to handle AdditionalProperties
+func (a *Response_Rows_Item) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["_version"]; found {
+		err = json.Unmarshal(raw, &a.UnderscoreVersion)
+		if err != nil {
+			return fmt.Errorf("error reading '_version': %w", err)
+		}
+		delete(object, "_version")
+	}
+
+	if raw, found := object["id"]; found {
+		err = json.Unmarshal(raw, &a.Id)
+		if err != nil {
+			return fmt.Errorf("error reading 'id': %w", err)
+		}
+		delete(object, "id")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for Response_Rows_Item to handle AdditionalProperties
+func (a Response_Rows_Item) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["_version"], err = json.Marshal(a.UnderscoreVersion)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling '_version': %w", err)
+	}
+
+	object["id"], err = json.Marshal(a.Id)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'id': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
 
@@ -496,6 +797,31 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 	GetActor(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListRealtimeEvents Query: eventos de tempo real pendentes de entrega ao ator autenticado
+	//
+	// Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/realtime/events (the `ListRealtimeEvents` operationId).
+	ListRealtimeEvents(ctx context.Context, tenant Tenant, params *ListRealtimeEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExchangeOfflineSyncWithBody Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+	//
+	// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/sync/{table}/exchange (the `ExchangeOfflineSync` operationId).
+	ExchangeOfflineSyncWithBody(ctx context.Context, tenant string, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExchangeOfflineSync Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+	//
+	// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/sync/{table}/exchange (the `ExchangeOfflineSync` operationId).
+	ExchangeOfflineSync(ctx context.Context, tenant string, table string, body ExchangeOfflineSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CreateTableWithBody Command: cria uma tabela dinâmica
 	//
@@ -681,6 +1007,61 @@ func (c *Client) GetReadiness(ctx context.Context, reqEditors ...RequestEditorFn
 // Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 func (c *Client) GetActor(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetActorRequest(c.Server, tenant)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListRealtimeEvents Query: eventos de tempo real pendentes de entrega ao ator autenticado
+//
+// Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
+//
+// Corresponds with GET /v1/tenants/{tenant}/realtime/events (the `ListRealtimeEvents` operationId).
+func (c *Client) ListRealtimeEvents(ctx context.Context, tenant Tenant, params *ListRealtimeEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListRealtimeEventsRequest(c.Server, tenant, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExchangeOfflineSyncWithBody Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+//
+// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/sync/{table}/exchange (the `ExchangeOfflineSync` operationId).
+func (c *Client) ExchangeOfflineSyncWithBody(ctx context.Context, tenant string, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExchangeOfflineSyncRequestWithBody(c.Server, tenant, table, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExchangeOfflineSync Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+//
+// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/sync/{table}/exchange (the `ExchangeOfflineSync` operationId).
+func (c *Client) ExchangeOfflineSync(ctx context.Context, tenant string, table string, body ExchangeOfflineSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExchangeOfflineSyncRequest(c.Server, tenant, table, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1101,6 +1482,133 @@ func NewGetActorRequest(server string, tenant Tenant) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewListRealtimeEventsRequest constructs an http.Request for the ListRealtimeEvents method
+func NewListRealtimeEventsRequest(server string, tenant Tenant, params *ListRealtimeEventsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/realtime/events", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.After != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewExchangeOfflineSyncRequest calls the generic ExchangeOfflineSync builder with application/json body
+func NewExchangeOfflineSyncRequest(server string, tenant string, table string, body ExchangeOfflineSyncJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewExchangeOfflineSyncRequestWithBody(server, tenant, table, "application/json", bodyReader)
+}
+
+// NewExchangeOfflineSyncRequestWithBody constructs an http.Request for the ExchangeOfflineSync method, with any body, and a specified content type
+func NewExchangeOfflineSyncRequestWithBody(server string, tenant string, table string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "table", table, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/sync/%s/exchange", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -1912,6 +2420,33 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 	GetActorWithResponse(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*GetActorResponse, error)
 
+	// ListRealtimeEventsWithResponse Query: eventos de tempo real pendentes de entrega ao ator autenticado
+	//
+	// Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/realtime/events (the `ListRealtimeEvents` operationId).
+	ListRealtimeEventsWithResponse(ctx context.Context, tenant Tenant, params *ListRealtimeEventsParams, reqEditors ...RequestEditorFn) (*ListRealtimeEventsResponse, error)
+
+	// ExchangeOfflineSyncWithBodyWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+	//
+	// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/sync/{table}/exchange (the `ExchangeOfflineSync` operationId).
+	ExchangeOfflineSyncWithBodyWithResponse(ctx context.Context, tenant string, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExchangeOfflineSyncResponse, error)
+
+	// ExchangeOfflineSyncWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+	//
+	// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/sync/{table}/exchange (the `ExchangeOfflineSync` operationId).
+	ExchangeOfflineSyncWithResponse(ctx context.Context, tenant string, table string, body ExchangeOfflineSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*ExchangeOfflineSyncResponse, error)
+
 	// CreateTableWithBodyWithResponse Command: cria uma tabela dinâmica
 	//
 	// Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).
@@ -2188,6 +2723,168 @@ func (r GetActorResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetActorResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListRealtimeEventsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *struct {
+		Items []RealtimeEvent `json:"items"`
+
+		// NextAfter Cursor a enviar como `after` na próxima chamada — igual ao `after` recebido quando `items` vem vazio.
+		NextAfter int64 `json:"next_after"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListRealtimeEventsResponse) GetJSON200() *struct {
+	Items []RealtimeEvent `json:"items"`
+
+	// NextAfter Cursor a enviar como `after` na próxima chamada — igual ao `after` recebido quando `items` vem vazio.
+	NextAfter int64 `json:"next_after"`
+} {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListRealtimeEventsResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListRealtimeEventsResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r ListRealtimeEventsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListRealtimeEventsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListRealtimeEventsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListRealtimeEventsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ExchangeOfflineSyncResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON413 the response for an HTTP 413 `application/json` response
+	JSON413 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ExchangeOfflineSyncResponse) GetJSON200() *Response {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ExchangeOfflineSyncResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ExchangeOfflineSyncResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ExchangeOfflineSyncResponse) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ExchangeOfflineSyncResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ExchangeOfflineSyncResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON413 returns the response for an HTTP 413 `application/json` response
+func (r ExchangeOfflineSyncResponse) GetJSON413() *Error {
+	return r.JSON413
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r ExchangeOfflineSyncResponse) GetJSON502() *Error {
+	return r.JSON502
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ExchangeOfflineSyncResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r ExchangeOfflineSyncResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExchangeOfflineSyncResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExchangeOfflineSyncResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExchangeOfflineSyncResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2961,6 +3658,51 @@ func (c *ClientWithResponses) GetActorWithResponse(ctx context.Context, tenant T
 	return ParseGetActorResponse(rsp)
 }
 
+// ListRealtimeEventsWithResponse Query: eventos de tempo real pendentes de entrega ao ator autenticado
+//
+// Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/tenants/{tenant}/realtime/events (the `ListRealtimeEvents` operationId).
+func (c *ClientWithResponses) ListRealtimeEventsWithResponse(ctx context.Context, tenant Tenant, params *ListRealtimeEventsParams, reqEditors ...RequestEditorFn) (*ListRealtimeEventsResponse, error) {
+	rsp, err := c.ListRealtimeEvents(ctx, tenant, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListRealtimeEventsResponse(rsp)
+}
+
+// ExchangeOfflineSyncWithBodyWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+//
+// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/sync/{table}/exchange (the `ExchangeOfflineSync` operationId).
+func (c *ClientWithResponses) ExchangeOfflineSyncWithBodyWithResponse(ctx context.Context, tenant string, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExchangeOfflineSyncResponse, error) {
+	rsp, err := c.ExchangeOfflineSyncWithBody(ctx, tenant, table, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExchangeOfflineSyncResponse(rsp)
+}
+
+// ExchangeOfflineSyncWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+//
+// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/sync/{table}/exchange (the `ExchangeOfflineSync` operationId).
+func (c *ClientWithResponses) ExchangeOfflineSyncWithResponse(ctx context.Context, tenant string, table string, body ExchangeOfflineSyncJSONRequestBody, reqEditors ...RequestEditorFn) (*ExchangeOfflineSyncResponse, error) {
+	rsp, err := c.ExchangeOfflineSync(ctx, tenant, table, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExchangeOfflineSyncResponse(rsp)
+}
+
 // CreateTableWithBodyWithResponse Command: cria uma tabela dinâmica
 //
 // Adicionado por GO-019 — `internal/metadata.CreateTable` (GO-011) nunca tinha exposição HTTP. Sem Idempotency-Key: já é idempotente por definição própria (uma definição idêntica a uma já existente é um no-op bem-sucedido).
@@ -3293,6 +4035,133 @@ func ParseGetActorResponse(rsp *http.Response) (*GetActorResponse, error) {
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListRealtimeEventsResponse parses an HTTP response from a ListRealtimeEventsWithResponse call
+func ParseListRealtimeEventsResponse(rsp *http.Response) (*ListRealtimeEventsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListRealtimeEventsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			Items []RealtimeEvent `json:"items"`
+
+			// NextAfter Cursor a enviar como `after` na próxima chamada — igual ao `after` recebido quando `items` vem vazio.
+			NextAfter int64 `json:"next_after"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseExchangeOfflineSyncResponse parses an HTTP response from a ExchangeOfflineSyncWithResponse call
+func ParseExchangeOfflineSyncResponse(rsp *http.Response) (*ExchangeOfflineSyncResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExchangeOfflineSyncResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Response
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 413:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON413 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
