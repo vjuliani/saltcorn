@@ -1,9 +1,5 @@
-// Comando cli: interface de linha de comando do backend Go. Nesta fundação
-// (GO-005) só tem comandos de operação mínimos; paridade com o `saltcorn`
-// (Node) atual — migrate, fixtures, tenant/user CRUD, backup/restore,
-// run-trigger, get-cfg/set-cfg (ver docs/migracao-go/inventario/GO-001-
-// matriz-capacidades.md §2.6) — entra conforme os domínios correspondentes
-// forem portados.
+// Comando cli: operação da distribuição self-hosted (GO-032), usando os
+// mesmos serviços de domínio e configuração do backend.
 package main
 
 import (
@@ -13,12 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/installation"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config"
 )
 
-// version é atualizada manualmente até existir um processo de release
-// (fora do escopo desta fundação).
-const version = "0.0.0-go-005"
+// A versão acompanha o manifesto compatível da distribuição.
+const version = installation.Release
 
 func main() {
 	if len(os.Args) < 2 {
@@ -28,6 +24,8 @@ func main() {
 
 	var err error
 	switch os.Args[1] {
+	case "setup", "migrate", "backup", "restore", "get-cfg", "set-cfg", "plugins", "check", "serve", "login":
+		err = installationCommand(os.Args[1], os.Args[2:])
 	case "version":
 		fmt.Println(version)
 	case "healthcheck":
@@ -46,7 +44,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "uso: cli <version|healthcheck|e2e-seed>")
+	fmt.Fprintln(os.Stderr, "uso: cli <setup|migrate|backup|restore|get-cfg|set-cfg|plugins|check|serve|login|version|healthcheck|e2e-seed>")
 }
 
 // healthcheck reutiliza internal/platform/config (o mesmo pacote de

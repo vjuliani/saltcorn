@@ -625,7 +625,7 @@ Execute a task GO-031 — Migrar contratos de sync e mobile offline, de docs/mig
 
 ### GO-032 — Portar CLI e distribuição self-hosted
 
-- [ ] **Status:** TODO
+- [ ] **Status:** VALIDATING — histórico em [execucoes/GO-032.md](execucoes/GO-032.md)
 - **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Plataforma
 - **Depende de:** GO-005, GO-027, GO-030

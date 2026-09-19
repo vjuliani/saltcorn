@@ -46,3 +46,5 @@ Tratadas em ADRs dedicados porque são decisões técnicas com critérios de ace
 ## Retirada do legado
 
 [ADR-0006](0006-retirada-do-legado.md) define critérios de saída **separados e verificáveis** para o backend legado Node e para o host de plugins — e deixa explícito que o BFF Node.js **não** tem critério de retirada, por ser parte permanente da arquitetura.
+
+- [ADR-0012 — Instalação e recuperação self-hosted](0012-distribuicao-self-hosted.md)

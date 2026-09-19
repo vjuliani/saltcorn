@@ -7,6 +7,7 @@ import { loadConfig } from "./config.js";
 import { GoClient } from "./goClient.js";
 import { InMemorySessionStore } from "./session.js";
 import { buildRouter, createRequestListener } from "./app.js";
+import { selfHostedListener } from "./selfhost.js";
 import { attachRealtime } from "./realtime.js";
 
 function parseAddr(addr: string): { host?: string; port: number } {
@@ -30,7 +31,11 @@ export function main(): void {
   };
 
   const router = buildRouter({ config, sessionStore, goClient, onRequestStart });
-  const listener = createRequestListener(router, { config, sessionStore, goClient });
+  const deps = { config, sessionStore, goClient };
+  const apiListener = createRequestListener(router, deps);
+  const listener = process.env.SALTCORN_BFF_WEB_ROOT
+    ? selfHostedListener(deps, apiListener, { root: process.env.SALTCORN_BFF_WEB_ROOT, tenant: process.env.SALTCORN_BFF_INSTALLATION_TENANT ?? "", installationId: process.env.SALTCORN_BFF_INSTALLATION_ID ?? "" })
+    : apiListener;
   const server = createServer((req, res) => {
     if (draining) {
       res.writeHead(503, { "Content-Type": "application/json" });
