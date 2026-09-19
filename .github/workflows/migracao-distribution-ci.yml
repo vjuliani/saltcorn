@@ -1,0 +1,68 @@
+name: migracao-distribution-ci
+on:
+  push:
+    branches: [master]
+    paths:
+      - "migracao/backend/**"
+      - "migracao/distribution/**"
+      - "migracao/packages/bff/**"
+      - "migracao/packages/frontend/**"
+      - "migracao/contracts/**"
+      - ".github/workflows/migracao-distribution-ci.yml"
+  pull_request:
+    paths:
+      - "migracao/backend/**"
+      - "migracao/distribution/**"
+      - "migracao/packages/bff/**"
+      - "migracao/packages/frontend/**"
+      - "migracao/contracts/**"
+      - ".github/workflows/migracao-distribution-ci.yml"
+permissions:
+  contents: read
+jobs:
+  install-upgrade-restore:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 5
+    env:
+      SALTCORN_GO_TEST_INSTALLATION_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: migracao/backend/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Ferramentas de backup PostgreSQL 16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
+      - name: Instalação, upgrade, recuperação e negativos PostgreSQL/SQLite
+        working-directory: migracao/backend
+        run: go test -race -count=1 -v ./internal/installation ./cmd/cli
+      - run: npm ci --prefix migracao/packages/bff
+      - run: npm test --prefix migracao/packages/bff
+      - run: npm ci --prefix migracao/packages/frontend
+      - run: npm test --prefix migracao/packages/frontend
+      - name: Construir pacote isolado com lockfiles
+        run: migracao/distribution/build.sh "$RUNNER_TEMP/saltcorn-release"
+      - name: CLI e processos reais sem checkout/runtime de desenvolvimento
+        run: node migracao/distribution/smoke.mjs "$RUNNER_TEMP/saltcorn-release"
+      - name: Empacotar artefato revisável
+        run: tar -C "$RUNNER_TEMP" -czf "$RUNNER_TEMP/saltcorn-linux-amd64.tar.gz" saltcorn-release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: saltcorn-linux-amd64
+          path: ${{ runner.temp }}/saltcorn-linux-amd64.tar.gz

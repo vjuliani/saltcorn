@@ -115,3 +115,16 @@ Documentado como evidência em `docs/migracao-go/execucoes/GO-017.md` (mesmo pad
 
 - **`InMemorySessionStore`**: não sobrevive a um restart nem escala além de uma instância — decisão explícita de estágio (ADR-0007 deixa a tecnologia exata para esta tarefa; sem Redis disponível no ambiente de execução desta entrega e sem consumidor de produção real ainda). Trocar por Redis/Postgres-de-sessão é uma troca de implementação atrás da interface `SessionStore`, não uma reescrita dos pontos que a consomem.
 - **CSRF de duplo-envio**: o cookie `sc_csrf` não é `HttpOnly` de propósito — o front-end precisa lê-lo para ecoar no header `X-CSRF-Token`.
+
+## Distribuição self-hosted (GO-032)
+
+`SALTCORN_BFF_WEB_ROOT` habilita o adapter opcional de assets e acesso de operador
+(`src/selfhost.ts`), com tenant/ID da instalação definidos pelo supervisor Go.
+O adapter serve apenas arquivos dentro do diretório da release, recusa symlinks
+externos e verifica readiness do Go. `POST /api/bff/operator-session` troca
+um ticket CLI HS256 de até 60 segundos por sessão/CSRF; exige mesma origem,
+audience/issuer/tenant corretos, uso único e papel admin atual consultado no Go.
+Tokens de identidade interna não servem para abrir essa sessão. O contrato
+OpenAPI documenta a rota opcional; o BFF comum continua sem login de usuário
+final. Reiniciar o BFF requer reautenticação. Instruções completas no
+[runbook da distribuição](../../distribution/README.md).

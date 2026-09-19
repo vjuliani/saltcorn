@@ -118,6 +118,21 @@ func (e ResultStatus) Valid() bool {
 	}
 }
 
+// Defines values for ExchangeOperatorTicket200JSONResponseBodyStatus.
+const (
+	Ok ExchangeOperatorTicket200JSONResponseBodyStatus = "ok"
+)
+
+// Valid indicates whether the value is a known member of the ExchangeOperatorTicket200JSONResponseBodyStatus enum.
+func (e ExchangeOperatorTicket200JSONResponseBodyStatus) Valid() bool {
+	switch e {
+	case Ok:
+		return true
+	default:
+		return false
+	}
+}
+
 // Bootstrap defines model for Bootstrap.
 type Bootstrap struct {
 	Actor struct {
@@ -285,6 +300,19 @@ type DomainUnavailable = Error
 // SessionRequired defines model for SessionRequired.
 type SessionRequired = Error
 
+// ExchangeOperatorTicketJSONBody defines parameters for ExchangeOperatorTicket.
+type ExchangeOperatorTicketJSONBody struct {
+	Ticket string `json:"ticket"`
+}
+
+// ExchangeOperatorTicketParams defines parameters for ExchangeOperatorTicket.
+type ExchangeOperatorTicketParams struct {
+	Origin string `json:"Origin"`
+}
+
+// ExchangeOperatorTicket200JSONResponseBodyStatus defines parameters for ExchangeOperatorTicket.
+type ExchangeOperatorTicket200JSONResponseBodyStatus string
+
 // CreateTableJSONBody defines parameters for CreateTable.
 type CreateTableJSONBody struct {
 	Name string `json:"name"`
@@ -336,6 +364,9 @@ type RenderViewParams struct {
 	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
 	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
+
+// ExchangeOperatorTicketJSONRequestBody defines body for ExchangeOperatorTicket for application/json ContentType.
+type ExchangeOperatorTicketJSONRequestBody ExchangeOperatorTicketJSONBody
 
 // ExchangeOfflineSyncBffJSONRequestBody defines body for ExchangeOfflineSyncBff for application/json ContentType.
 type ExchangeOfflineSyncBffJSONRequestBody = Request
@@ -513,6 +544,24 @@ type ClientInterface interface {
 	// Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 	GetBootstrap(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ExchangeOperatorTicketWithBody Abre sessão administrativa com ticket emitido pela CLI local
+	//
+	// Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/bff/operator-session (the `ExchangeOperatorTicket` operationId).
+	ExchangeOperatorTicketWithBody(ctx context.Context, params *ExchangeOperatorTicketParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExchangeOperatorTicket Abre sessão administrativa com ticket emitido pela CLI local
+	//
+	// Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/bff/operator-session (the `ExchangeOperatorTicket` operationId).
+	ExchangeOperatorTicket(ctx context.Context, params *ExchangeOperatorTicketParams, body ExchangeOperatorTicketJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ExchangeOfflineSyncBffWithBody Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
 	//
 	// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
@@ -641,6 +690,44 @@ type ClientInterface interface {
 // Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 func (c *Client) GetBootstrap(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetBootstrapRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExchangeOperatorTicketWithBody Abre sessão administrativa com ticket emitido pela CLI local
+//
+// Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/bff/operator-session (the `ExchangeOperatorTicket` operationId).
+func (c *Client) ExchangeOperatorTicketWithBody(ctx context.Context, params *ExchangeOperatorTicketParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExchangeOperatorTicketRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExchangeOperatorTicket Abre sessão administrativa com ticket emitido pela CLI local
+//
+// Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/bff/operator-session (the `ExchangeOperatorTicket` operationId).
+func (c *Client) ExchangeOperatorTicket(ctx context.Context, params *ExchangeOperatorTicketParams, body ExchangeOperatorTicketJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExchangeOperatorTicketRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -955,6 +1042,59 @@ func NewGetBootstrapRequest(server string) (*http.Request, error) {
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewExchangeOperatorTicketRequest calls the generic ExchangeOperatorTicket builder with application/json body
+func NewExchangeOperatorTicketRequest(server string, params *ExchangeOperatorTicketParams, body ExchangeOperatorTicketJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewExchangeOperatorTicketRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewExchangeOperatorTicketRequestWithBody constructs an http.Request for the ExchangeOperatorTicket method, with any body, and a specified content type
+func NewExchangeOperatorTicketRequestWithBody(server string, params *ExchangeOperatorTicketParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/operator-session")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Origin", params.Origin, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Origin", headerParam0)
+
 	}
 
 	return req, nil
@@ -1513,6 +1653,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 	GetBootstrapWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetBootstrapResponse, error)
 
+	// ExchangeOperatorTicketWithBodyWithResponse Abre sessão administrativa com ticket emitido pela CLI local
+	//
+	// Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/operator-session (the `ExchangeOperatorTicket` operationId).
+	ExchangeOperatorTicketWithBodyWithResponse(ctx context.Context, params *ExchangeOperatorTicketParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExchangeOperatorTicketResponse, error)
+
+	// ExchangeOperatorTicketWithResponse Abre sessão administrativa com ticket emitido pela CLI local
+	//
+	// Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/operator-session (the `ExchangeOperatorTicket` operationId).
+	ExchangeOperatorTicketWithResponse(ctx context.Context, params *ExchangeOperatorTicketParams, body ExchangeOperatorTicketJSONRequestBody, reqEditors ...RequestEditorFn) (*ExchangeOperatorTicketResponse, error)
+
 	// ExchangeOfflineSyncBffWithBodyWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
 	//
 	// GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
@@ -1686,6 +1844,51 @@ func (r GetBootstrapResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetBootstrapResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ExchangeOperatorTicketResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *struct {
+		Status ExchangeOperatorTicket200JSONResponseBodyStatus `json:"status"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ExchangeOperatorTicketResponse) GetJSON200() *struct {
+	Status ExchangeOperatorTicket200JSONResponseBodyStatus `json:"status"`
+} {
+	return r.JSON200
+}
+
+// GetBody returns the raw response body bytes
+func (r ExchangeOperatorTicketResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExchangeOperatorTicketResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExchangeOperatorTicketResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExchangeOperatorTicketResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2367,6 +2570,36 @@ func (c *ClientWithResponses) GetBootstrapWithResponse(ctx context.Context, reqE
 	return ParseGetBootstrapResponse(rsp)
 }
 
+// ExchangeOperatorTicketWithBodyWithResponse Abre sessão administrativa com ticket emitido pela CLI local
+//
+// Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/operator-session (the `ExchangeOperatorTicket` operationId).
+func (c *ClientWithResponses) ExchangeOperatorTicketWithBodyWithResponse(ctx context.Context, params *ExchangeOperatorTicketParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExchangeOperatorTicketResponse, error) {
+	rsp, err := c.ExchangeOperatorTicketWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExchangeOperatorTicketResponse(rsp)
+}
+
+// ExchangeOperatorTicketWithResponse Abre sessão administrativa com ticket emitido pela CLI local
+//
+// Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/operator-session (the `ExchangeOperatorTicket` operationId).
+func (c *ClientWithResponses) ExchangeOperatorTicketWithResponse(ctx context.Context, params *ExchangeOperatorTicketParams, body ExchangeOperatorTicketJSONRequestBody, reqEditors ...RequestEditorFn) (*ExchangeOperatorTicketResponse, error) {
+	rsp, err := c.ExchangeOperatorTicket(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExchangeOperatorTicketResponse(rsp)
+}
+
 // ExchangeOfflineSyncBffWithBodyWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
 //
 // GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
@@ -2620,6 +2853,43 @@ func ParseGetBootstrapResponse(rsp *http.Response) (*GetBootstrapResponse, error
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseExchangeOperatorTicketResponse parses an HTTP response from a ExchangeOperatorTicketWithResponse call
+func ParseExchangeOperatorTicketResponse(rsp *http.Response) (*ExchangeOperatorTicketResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExchangeOperatorTicketResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			Status ExchangeOperatorTicket200JSONResponseBodyStatus `json:"status"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case rsp.StatusCode == 401:
+		break // No content-type
+
+	case rsp.StatusCode == 403:
+		break // No content-type
+
+	case rsp.StatusCode == 404:
+		break // No content-type
 
 	}
 

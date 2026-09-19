@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/bff/operator-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abre sessão administrativa com ticket emitido pela CLI local
+         * @description Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
+         */
+        post: operations["exchangeOperatorTicket"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bff/sync/{table}/exchange": {
         parameters: {
             query?: never;
@@ -325,6 +345,58 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    exchangeOperatorTicket: {
+        parameters: {
+            query?: never;
+            header: {
+                Origin: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    ticket: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Sessão criada; cookies sc_session e sc_csrf emitidos */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @enum {string} */
+                        status: "ok";
+                    };
+                };
+            };
+            /** @description Ticket inválido, expirado, reutilizado ou administrador indisponível */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Origem ou tipo de conteúdo inválido */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Perfil self-hosted não habilitado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     exchangeOfflineSyncBff: {
         parameters: {
             query?: never;

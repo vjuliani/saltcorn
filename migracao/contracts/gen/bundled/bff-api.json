@@ -18,6 +18,74 @@
     }
   ],
   "paths": {
+    "/api/bff/operator-session": {
+      "post": {
+        "operationId": "exchangeOperatorTicket",
+        "summary": "Abre sessão administrativa com ticket emitido pela CLI local",
+        "description": "Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.\n",
+        "security": [],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "ticket"
+                ],
+                "properties": {
+                  "ticket": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sessão criada; cookies sc_session e sc_csrf emitidos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Ticket inválido, expirado, reutilizado ou administrador indisponível"
+          },
+          "403": {
+            "description": "Origem ou tipo de conteúdo inválido"
+          },
+          "404": {
+            "description": "Perfil self-hosted não habilitado"
+          }
+        }
+      }
+    },
     "/api/bff/sync/{table}/exchange": {
       "parameters": [
         {

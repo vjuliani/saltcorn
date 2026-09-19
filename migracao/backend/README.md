@@ -581,3 +581,19 @@ embutido no dispositivo.
 ## CI
 
 `.github/workflows/migracao-backend-ci.yml` roda `gofmt`, `go vet`, `go build` e `go test -race` neste módulo a cada push/PR que toque `migracao/backend/`, com um serviço Postgres efêmero do próprio job (schemas `acme`/`beta` preparados antes dos testes) para que a suíte de `internal/platform/database` rode de verdade em CI, não só localmente.
+
+## Operação e distribuição (GO-032)
+
+A [distribuição self-hosted](../distribution/README.md) empacota `cli`, `server`,
+`worker`, BFF Node 22 e assets React/SB Admin 2 com manifesto de compatibilidade
+(schema/contratos/hashes). `cli setup` substitui o provisionamento manual de
+schemas para **instâncias Go novas e dedicadas**; não adota schemas legados.
+`migrate`, `check`, `get-cfg`/`set-cfg`, `plugins`, `backup`/`restore` e `serve`
+operam uma pasta privada separada da release. Migrations são versionadas e
+atômicas; backup/restore exigem manutenção offline e destino vazio.
+
+O perfil web permanece PostgreSQL. O mesmo CLI administra e recupera SQLite
+no subconjunto portado em GO-030/031, recusando explicitamente `serve` web nesse
+perfil. `login` gera acesso administrativo temporário para o operador local;
+as regras de autorização continuam no Go. Consulte o runbook para instalação,
+upgrade, recuperação, locks, dependências externas e limites de plugins/mobile.
