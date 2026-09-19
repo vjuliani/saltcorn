@@ -543,6 +543,37 @@ paginação, idempotência concorrente entre handles, retries/savepoints e falha
 terminal. Testes SQLite adicionais encerram um subprocesso antes/depois do commit
 e verificam recuperação, replay e preservação de dados locais no upgrade.
 
+## Sync e mobile offline (GO-031)
+
+O protocolo 1 oferece `POST /v1/tenants/{tenant}/sync/{table}/exchange` por meio do
+BFF em `/api/bff/sync/{table}/exchange`. `internal/sync` revalida escopo/papel,
+executa mutações idempotentes e devolve conflitos explícitos e snapshot completo
+autorizado. O HTTP resolve o papel atual do ator na mesma transação e configura
+as GUCs de RLS; a rota exige ownership `tables.records`.
+
+Prepare `sync.EnsureSchema` durante o provisionamento do tenant, junto de
+`metadata.EnsureSchema` (a outbox já preparada pelas rotas de registros também
+atende). A aplicação que atende HTTP não precisa executar DDL no sync. Erros HTTP
+desfazem o lote; erros de registro classificados viram resultados por operação,
+com savepoint, mantendo as demais operações válidas.
+
+O cliente JS preserva o runtime Capacitor e mantém fila, conflitos e checkpoint
+no SQLite. Ver `packages/saltcorn-mobile-app/src/sync-v1/README.md` e
+[ADR-0011](../../docs/migracao-go/adr/0011-sync-versionado-offline.md). Limites
+explícitos: 100 mutações, 1 MiB de entrada, 2000 linhas no snapshot; 413 reverte o
+lote sem entregar snapshot parcial. Sync legado e UUIDs não são reinterpretados.
+
+Validação integrada (BFF compilado, Node 22 e PostgreSQL de teste configurados):
+
+```bash
+SALTCORN_GO_TEST_MOBILE_E2E=1 go test -race -count=1 ./internal/sync ./cmd/server -run 'TestExchangeParity|TestScopeSchemaAndRollback|TestSnapshotLimitRollsBackBatch|TestPostgresOwnershipAndRevocation|TestSyncMobileE2E'
+```
+
+Da raiz, `node --test migracao/packages/mobile-sync-test/client.test.mjs` testa o
+cliente com SQLite real. `.github/workflows/migracao-sync-ci.yml` executa ambos os
+fluxos, incluindo cliente → BFF sessão/CSRF → Go → PostgreSQL. O binário Go não é
+embutido no dispositivo.
+
 ## Encerramento gracioso
 
 `cmd/server` e `cmd/worker` capturam `SIGINT`/`SIGTERM`, param de aceitar trabalho novo, e esperam o trabalho já em curso terminar (via `internal/platform/shutdown.Tracker`) antes de sair — dentro do prazo de `SALTCORN_GO_SHUTDOWN_TIMEOUT_SECONDS`. Se o prazo estourar, o processo registra um aviso e sai mesmo assim; isso é uma decisão operacional explícita, não um bug — ver `shutdown.Tracker.Drain`.

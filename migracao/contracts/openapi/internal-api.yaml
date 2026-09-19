@@ -16,6 +16,86 @@ security:
   - ServiceIdentity: []
 
 paths:
+  /v1/tenants/{tenant}/sync/{table}/exchange:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema: {type: string}
+      - name: table
+        in: path
+        required: true
+        schema: {type: string}
+    post:
+      operationId: exchangeOfflineSync
+      summary: Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+      description: >
+        GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é
+        idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve
+        corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote.
+        Conflitos de registro retornam resultados explícitos em 200.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "./sync.yaml#/components/schemas/Request"
+      responses:
+        "200":
+          description: Resultados idempotentes e snapshot completo para persistência atômica local
+          content:
+            application/json:
+              schema:
+                $ref: "./sync.yaml#/components/schemas/Response"
+        "400":
+          description: Protocolo ou corpo inválido
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "401":
+          description: Sessão ou identidade inválida
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "403":
+          description: Scope, papel ou CSRF inválido
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "404":
+          description: Tabela indisponível
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "409":
+          description: Schema alterado ou ID reutilizado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "413":
+          description: Corpo ou snapshot acima do limite
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          description: Falha no domínio
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "503":
+          description: Serviço indisponível
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+
   /healthz:
     get:
       operationId: getLiveness

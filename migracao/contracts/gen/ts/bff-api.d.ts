@@ -4,6 +4,28 @@
  */
 
 export interface paths {
+    "/api/bff/sync/{table}/exchange": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                table: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
+         * @description GO-031, protocolo 1, independente do sync legado. Mesma operação/ID é idempotente; reutilizar ID com outro conteúdo retorna 409. Scope deve corresponder à sessão/identidade autenticada. Erros HTTP revertem o lote. Conflitos de registro retornam resultados explícitos em 200.
+         */
+        post: operations["exchangeOfflineSyncBff"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bff/bootstrap": {
         parameters: {
             query?: never;
@@ -183,13 +205,61 @@ export interface components {
             /** @description Cursor para a próxima página, ou `null` se não houver mais páginas. */
             next_cursor?: string | null;
         };
-        /**
-         * Format: int64
-         * @description Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
-         */
-        Id: number;
-        /** @description Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL. */
-        Tenant: string;
+        Scope: {
+            tenant: string;
+            actor: string;
+            table: string;
+        };
+        Mutation: {
+            /** @description Identificador imutável de uma tentativa. Resolver conflito exige novo ID. */
+            id: string;
+            /** @enum {string} */
+            kind: "create" | "update" | "delete";
+            row_id?: number;
+            /** @description Obrigatório em update/delete; token recebido na leitura original. */
+            base_version?: string;
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        Request: {
+            /** @constant */
+            protocol: 1;
+            scope: components["schemas"]["Scope"];
+            client_id: string;
+            schema_version: number;
+            /** @description Hash do último snapshot gravado localmente; vazio no bootstrap. Não é cursor incremental. */
+            checkpoint: string;
+            mutations: components["schemas"]["Mutation"][];
+        };
+        Result: {
+            id: string;
+            /** @enum {string} */
+            status: "applied" | "conflict" | "rejected";
+            code?: string;
+            row_id?: number;
+        };
+        Response: {
+            /** @constant */
+            protocol: 1;
+            scope: components["schemas"]["Scope"];
+            schema_version: number;
+            fields: {
+                name: string;
+                /** @enum {string} */
+                type: "text" | "integer" | "boolean" | "float" | "date" | "key";
+                required: boolean;
+            }[];
+            checkpoint: string;
+            results: components["schemas"]["Result"][];
+            /** @description Substituição completa e autorizada da tabela. Ausência representa exclusão ou perda de acesso; o cliente preserva rascunhos pendentes separadamente. Sem paginação parcial: se exceder 2000 linhas, toda a transação falha com 413. */
+            rows: ({
+                id: number;
+                _version: string;
+            } & {
+                [key: string]: unknown;
+            })[];
+        };
         Error: {
             error: {
                 /** @description Código estável para tratamento programático (ex.: "invalid_identity_token"). */
@@ -202,6 +272,13 @@ export interface components {
                 };
             };
         };
+        /**
+         * Format: int64
+         * @description Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+         */
+        Id: number;
+        /** @description Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL. */
+        Tenant: string;
         Page: {
             items: unknown[];
             /** @description Cursor para a próxima página, ou `null` se não houver mais páginas. */
@@ -248,6 +325,104 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    exchangeOfflineSyncBff: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Request"];
+            };
+        };
+        responses: {
+            /** @description Resultados idempotentes e snapshot completo para persistência atômica local */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Response"];
+                };
+            };
+            /** @description Protocolo ou corpo inválido */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Sessão ou identidade inválida */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Scope, papel ou CSRF inválido */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Tabela indisponível */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Schema alterado ou ID reutilizado */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Corpo ou snapshot acima do limite */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Falha no domínio */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Serviço indisponível */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getBootstrap: {
         parameters: {
             query?: never;

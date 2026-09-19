@@ -14,6 +14,7 @@ Relaciona-se à tarefa [GO-003](../TASKS.md#go-003--registrar-decisões-de-arqui
 8. [ADR-0008 — Roteamento de corte e ownership de escrita](0008-roteamento-de-corte-e-ownership.md)
 9. [ADR-0009 — Observabilidade com padrões abertos, sem SDK externo](0009-observabilidade-sem-sdk-externo.md)
 10. [ADR-0010 — Adiar projeções CQRS assíncronas](0010-projecoes-cqrs.md)
+11. [ADR-0011 — Sync versionado e runtime mobile preservado](0011-sync-versionado-offline.md)
 
 ## Matriz de limites entre as três camadas
 

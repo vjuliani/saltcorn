@@ -50,6 +50,11 @@ export interface GoClientOptions {
 export class GoClient {
   constructor(private readonly opts: GoClientOptions) {}
 
+  async syncExchange(serviceIdentityToken: string, tenant: string, table: string, input: Record<string, unknown>): Promise<InternalPaths["/v1/tenants/{tenant}/sync/{table}/exchange"]["post"]["responses"]["200"]["content"]["application/json"]> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/sync/${encodeURIComponent(table)}/exchange`);
+    return this.request(url, { method: "POST", serviceIdentityToken, body: input });
+  }
+
   async listRecords(serviceIdentityToken: string, tenant: string, table: string, cursor?: string): Promise<ListRecordsResponse> {
     const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/tables/${encodeURIComponent(table)}/records`);
     if (cursor) url.searchParams.set("cursor", cursor);

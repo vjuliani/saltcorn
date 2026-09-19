@@ -1,0 +1,98 @@
+GO-031 — validação local, 2026-09-19 UTC
+Go 1.22.2; Node 22.23.2; PostgreSQL 16.15; SQLite real
+Comandos/ambiente e falhas anteriores em GO-031.md.
+
+Backend: go test -race -count=1 ./... (PG/RLS/E2E), exit 0
+?   	github.com/vjuliani/saltcorn/migracao/backend/cmd/worker	[no test files]
+ok  	github.com/vjuliani/saltcorn/migracao/backend/cmd/cli	4.898s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/cmd/server	25.729s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/config	1.298s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/expression	2.203s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/files	1.429s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/identity	18.091s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/library	1.182s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/metadata	3.508s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/notify	2.522s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/pack	1.974s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config	1.022s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover	1.629s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database	2.052s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/health	1.019s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/lease	1.689s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox	1.784s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown	1.162s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/sqlite	2.291s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/telemetry	1.040s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy	1.037s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/pluginhost	2.417s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/realtime	1.662s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/records	5.209s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/scheduler	1.731s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/sync	3.030s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/triggers	2.862s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/types	1.035s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/views	2.178s
+ok  	github.com/vjuliani/saltcorn/migracao/backend/internal/workflow	2.125s
+
+Cliente JS SQLite, exit 0
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 291.594125
+
+BFF npm test, exit 0
+  ...
+1..49
+# tests 49
+# suites 0
+# pass 49
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 663.820598
+
+Bundle JS mobile, exit 0
+
+@babel/preset-env: esmodules and browsers targets have been specified together.
+`browsers` target, `last 2 Chrome versions,not dead` will be ignored.
+
+assets by chunk 4.55 MiB (id hint: vendors)
+  asset vendors-node_modules_jeep-sqlite_dist_esm_jeep-sqlite_entry_js.bundle.js 4.53 MiB [emitted] [javascript module] (id hint: vendors)
+  asset vendors-tmp_go031-mobile-deps_node_modules_capacitor_filesystem_dist_esm_web_js.bundle.js 25.6 KiB [emitted] [javascript module] (id hint: vendors)
+asset bundle.js 448 KiB [emitted] [javascript module] (name: main)
+asset tmp_go031-mobile-deps_node_modules_capacitor_file-transfer_dist_web-BjKL51lK_js.bundle.js 11.7 KiB [emitted] [javascript module]
+asset tmp_go031-mobile-deps_node_modules_capacitor_network_dist_esm_web_js.bundle.js 4.42 KiB [emitted] [javascript module]
+asset tmp_go031-mobile-deps_node_modules_capacitor_screen-orientation_dist_esm_web_js.bundle.js 3.58 KiB [emitted] [javascript module]
+asset _b34d-_2fe0-_0363-_c35c-_fadd-_44b3-_5506-_a1dc-_b26c-_15a4-_2c22-_75b4.bundle.js 3.39 KiB [emitted] [javascript module]
+asset tmp_go031-mobile-deps_node_modules_capacitor_app_dist_esm_web_js.bundle.js 2.97 KiB [emitted] [javascript module]
+asset tmp_go031-mobile-deps_node_modules_send-intent_dist_esm_web_js.bundle.js 2.06 KiB [emitted] [javascript module]
+
+WARNING in ./src/helpers/common.js 207:39-78
+Module not found: Error: Can't resolve '../helpers/ios_silent_push.js' in '/home/vjuliani/Documents/Projects/saltcorn/packages/saltcorn-mobile-app/src/helpers'
+ @ ./src/index.js 9:0-43 48:2-8
+
+WARNING in ./src/helpers/common.js 246:31-68
+Module not found: Error: Can't resolve '../helpers/notifications.js' in '/home/vjuliani/Documents/Projects/saltcorn/packages/saltcorn-mobile-app/src/helpers'
+ @ ./src/index.js 9:0-43 48:2-8
+
+WARNING in ./src/helpers/common.js 263:31-65
+Module not found: Error: Can't resolve '../helpers/background.js' in '/home/vjuliani/Documents/Projects/saltcorn/packages/saltcorn-mobile-app/src/helpers'
+ @ ./src/index.js 9:0-43 48:2-8
+
+WARNING in ./src/index.js 20:18-52
+Module not found: Error: Can't resolve './helpers/notifications' in '/home/vjuliani/Documents/Projects/saltcorn/packages/saltcorn-mobile-app/src'
+
+WARNING in ./src/index.js 29:19-55
+Module not found: Error: Can't resolve './helpers/background_sync' in '/home/vjuliani/Documents/Projects/saltcorn/packages/saltcorn-mobile-app/src'
+
+5 warnings have detailed information that is not shown.
+Use 'stats.errorDetails: true' resp. '--stats-error-details' to show it.
+
+webpack 5.97.1 compiled with 5 warnings in 6804 ms
