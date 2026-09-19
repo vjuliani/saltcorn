@@ -606,7 +606,7 @@ Execute a task GO-030 — Implementar adapter SQLite, de docs/migracao-go/TASKS.
 
 ### GO-031 — Migrar contratos de sync e mobile offline
 
-- [ ] **Status:** VALIDATING — histórico em [execucoes/GO-031.md](execucoes/GO-031.md)
+- [ ] **Status:** IN_REVIEW — [PR #34](https://github.com/vjuliani/saltcorn/pull/34); histórico em [execucoes/GO-031.md](execucoes/GO-031.md)
 - **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Mobile
 - **Depende de:** GO-006, GO-008, GO-027, GO-030
