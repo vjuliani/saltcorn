@@ -126,6 +126,8 @@ docs/
 /docs/*
 !/docs/migracao-go/
 package-lock.json
+!/migracao/contracts/package-lock.json
+!/migracao/packages/bff/package-lock.json
 .vagrant/
 # `dist` (above) excludes the whole directory, so git won't descend into it and
 # a bare `!.../builder_bundle.js` negation can't re-include the file. Re-include
