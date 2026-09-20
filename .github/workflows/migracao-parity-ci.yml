@@ -28,7 +28,7 @@ jobs:
           POSTGRES_DB: go033_parity
         ports: ['5432:5432']
         options: >-
-          --health-cmd 'pg_isready -U postgres -d go033_parity'
+          --health-cmd "pg_isready -U postgres -d go033_parity"
           --health-interval 5s --health-timeout 5s --health-retries 5
     env:
       SALTCORN_PARITY_DISPOSABLE: '1'
