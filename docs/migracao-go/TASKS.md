@@ -663,7 +663,7 @@ Execute a task GO-033 — Executar matriz completa de paridade, de docs/migracao
 
 ### GO-034 — Ensaiar migração de dados e rollback
 
-- [ ] **Status:** IN_REVIEW — PR [#38](https://github.com/vjuliani/saltcorn/pull/38); [runbook](recuperacao/RUNBOOK.md) e [histórico](execucoes/GO-034.md)
+- [x] **Status:** DONE — PR [#38](https://github.com/vjuliani/saltcorn/pull/38); [runbook](recuperacao/RUNBOOK.md) e [histórico](execucoes/GO-034.md)
 - **Fase:** F6 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Plataforma
 - **Depende de:** GO-009, GO-027, GO-032
@@ -682,7 +682,7 @@ Execute a task GO-034 — Ensaiar migração de dados e rollback, de docs/migrac
 
 ### GO-035 — Validar carga e falhas operacionais
 
-- [ ] **Status:** TODO
+- [ ] **Status:** VALIDATING — [histórico](execucoes/GO-035.md)
 - **Fase:** F6 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** QA + Plataforma
 - **Depende de:** GO-002, GO-010, GO-014, GO-025, GO-033

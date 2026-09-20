@@ -1,0 +1,65 @@
+name: migracao-load-ci
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'migracao/backend/**'
+      - 'migracao/packages/**'
+      - 'migracao/operations/**'
+      - 'migracao/e2e/package*.json'
+      - '.github/workflows/migracao-load-ci.yml'
+  pull_request:
+    paths:
+      - 'migracao/backend/**'
+      - 'migracao/packages/**'
+      - 'migracao/operations/**'
+      - 'migracao/e2e/package*.json'
+      - '.github/workflows/migracao-load-ci.yml'
+permissions:
+  contents: read
+jobs:
+  load-and-faults:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: load_ci_only
+          POSTGRES_DB: go035_load
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d go035_load"
+          --health-interval 5s --health-timeout 5s --health-retries 5
+    env:
+      GO035_DISPOSABLE: '1'
+      SALTCORN_GO_TEST_DATABASE_URL: postgres://postgres:load_ci_only@127.0.0.1:5432/go035_load
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: migracao/backend/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Dependências de sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          cd migracao/e2e
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Carga React/BFF/Go, saturação e recuperação
+        run: migracao/operations/run.sh "$RUNNER_TEMP/go035-load"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: go035-load-evidence
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/go035-load/*.json
+            ${{ runner.temp }}/go035-load/*.jsonl
+            ${{ runner.temp }}/go035-load/*.prom
+            ${{ runner.temp }}/go035-load/*.log

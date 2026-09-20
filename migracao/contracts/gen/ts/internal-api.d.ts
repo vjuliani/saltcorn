@@ -688,6 +688,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     createTable: {
@@ -716,6 +725,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     addField: {
@@ -745,6 +763,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listViews: {
@@ -771,6 +798,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     createView: {
@@ -803,6 +839,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["IdempotencyConflict"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getView: {
@@ -830,6 +875,15 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             /** @description view não encontrada */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -895,6 +949,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     renderView: {
@@ -950,6 +1013,15 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listRealtimeEvents: {
@@ -985,6 +1057,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listRecords: {
@@ -1017,6 +1098,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     createRecord: {
@@ -1051,6 +1141,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["IdempotencyConflict"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     getRecord: {
@@ -1079,6 +1178,15 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             /** @description registro não encontrado (ou fora da visibilidade do ator — nunca distingue os dois casos na resposta) */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1120,6 +1228,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     updateRecord: {
@@ -1157,6 +1274,15 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             /** @description conflito de versão otimista ou de idempotência */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

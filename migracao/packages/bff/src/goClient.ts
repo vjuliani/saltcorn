@@ -36,6 +36,8 @@ type ListRealtimeEventsResponse =
 export interface GoClientOptions {
   readonly baseUrl: string;
   readonly timeoutMs: number;
+  /** Limite por processo; rejeita imediatamente, sem fila de espera. */
+  readonly maxInFlight?: number;
 }
 
 /**
@@ -48,7 +50,19 @@ export interface GoClientOptions {
  * (nunca inventados aqui).
  */
 export class GoClient {
-  constructor(private readonly opts: GoClientOptions) {}
+  private inFlight = 0;
+  private rejected = 0;
+  private peak = 0;
+  private readonly limit: number;
+
+  constructor(private readonly opts: GoClientOptions) {
+    this.limit = opts.maxInFlight ?? 64;
+    if (!Number.isSafeInteger(this.limit) || this.limit < 1) throw new Error("maxInFlight inválido");
+  }
+
+  get concurrency() {
+    return { active: this.inFlight, peak: this.peak, rejected: this.rejected, limit: this.limit };
+  }
 
   async syncExchange(serviceIdentityToken: string, tenant: string, table: string, input: Record<string, unknown>): Promise<InternalPaths["/v1/tenants/{tenant}/sync/{table}/exchange"]["post"]["responses"]["200"]["content"]["application/json"]> {
     const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/sync/${encodeURIComponent(table)}/exchange`);
@@ -176,6 +190,12 @@ export class GoClient {
     url: URL,
     opts: { method: string; serviceIdentityToken: string; headers?: Record<string, string>; body?: unknown }
   ): Promise<T> {
+    if (this.inFlight >= this.limit) {
+      this.rejected++;
+      throw domainUnavailableError();
+    }
+    this.inFlight++;
+    this.peak = Math.max(this.peak, this.inFlight);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.opts.timeoutMs);
     try {
@@ -195,6 +215,7 @@ export class GoClient {
       }
 
       if (res.status >= 500) {
+        await res.body?.cancel();
         throw domainUnavailableError();
       }
 
@@ -214,6 +235,7 @@ export class GoClient {
       throw domainUnavailableError();
     } finally {
       clearTimeout(timeout);
+      this.inFlight--;
     }
   }
 }
