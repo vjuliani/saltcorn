@@ -28,25 +28,22 @@ GO_PID=""
 BFF_PID=""
 FRONTEND_PID=""
 
-# Achados desta tarefa sobre limpeza de processos de fundo — os dois
-# juntos causavam uma falha muito difícil de diagnosticar (createTable
-# nunca chegava ao Go, sem NENHUM erro do lado Go, porque o fetch() do
-# navegador ia para um processo de uma execução ANTERIOR já morta, com um
-# tenant/sessão que não existem mais):
-# 1. `(cd DIR && cmd) &` cria uma SUBSHELL — `$!`/`jobs -p` capturam o PID
-#    dela, não o do processo real (`npx`/`vite` ainda spawnam processos
-#    FILHOS). Corrigido: cada processo de fundo roda via `setsid` (cria seu
-#    próprio grupo de processos, com o PID inicial = PGID do grupo inteiro)
-#    e caminho de binário direto (sem `npx`, sem `cd`+subshell — `vite
-#    preview` aceita `[root]` como argumento posicional).
-# 2. Como salvaguarda adicional, as portas usadas são liberadas ANTES de
-#    começar (`fuser -k`), não só limpas no fim — cobre o caso de uma
-#    execução anterior ter sido interrompida de um jeito que nem o cleanup
-#    chegou a rodar.
-for port in "$GO_PORT" "$BFF_PORT" "$FRONTEND_PORT"; do
-  fuser -k -TERM "${port}/tcp" >/dev/null 2>&1 || true
-done
-sleep 0.3
+# Não encerrar processos que podem pertencer a outra execução/prévia.
+# A sondagem acontece antes do seed destrutivo; cleanup só encerra nossos grupos.
+node --input-type=module - "$GO_PORT" "$BFF_PORT" "$FRONTEND_PORT" <<'JS'
+import net from "node:net";
+const ports = process.argv.slice(2).map(Number);
+if (new Set(ports).size !== 3 || ports.some(p => !Number.isInteger(p) || p < 1024 || p > 65535)) {
+  throw new Error("Portas E2E devem ser distintas, entre 1024 e 65535");
+}
+for (const port of ports) {
+  for (const host of ["127.0.0.1", "::1"]) {
+    const server = net.createServer();
+    await new Promise((resolve, reject) => server.once("error", reject).listen(port, host, resolve));
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+JS
 
 cleanup() {
   rm -f "$GO_BIN" "$BFF_OUT"
@@ -107,7 +104,7 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 BFF_SESSION_JSON=$(cat "$BFF_OUT")
-echo "    BFF pronto: $BFF_SESSION_JSON"
+echo "    BFF pronto (sessão de teste omitida do log)."
 
 # VITE_BFF_BASE_URL vazio (mesma origem) + proxy do vite preview para o
 # BFF real (vite.config.ts) — evita CORS entre a porta do frontend e a do
