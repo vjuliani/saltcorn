@@ -606,7 +606,7 @@ Execute a task GO-030 — Implementar adapter SQLite, de docs/migracao-go/TASKS.
 
 ### GO-031 — Migrar contratos de sync e mobile offline
 
-- [ ] **Status:** IN_REVIEW — implementação integrada no [PR #34](https://github.com/vjuliani/saltcorn/pull/34); correções de CI no [PR #35](https://github.com/vjuliani/saltcorn/pull/35); histórico em [execucoes/GO-031.md](execucoes/GO-031.md)
+- [x] **Status:** DONE — histórico em [execucoes/GO-031.md](execucoes/GO-031.md)
 - **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Mobile
 - **Depende de:** GO-006, GO-008, GO-027, GO-030
@@ -625,7 +625,7 @@ Execute a task GO-031 — Migrar contratos de sync e mobile offline, de docs/mig
 
 ### GO-032 — Portar CLI e distribuição self-hosted
 
-- [ ] **Status:** IN_REVIEW — [PR #36](https://github.com/vjuliani/saltcorn/pull/36); histórico em [execucoes/GO-032.md](execucoes/GO-032.md)
+- [x] **Status:** DONE — histórico em [execucoes/GO-032.md](execucoes/GO-032.md)
 - **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Plataforma
 - **Depende de:** GO-005, GO-027, GO-030
@@ -644,7 +644,7 @@ Execute a task GO-032 — Portar CLI e distribuição self-hosted, de docs/migra
 
 ### GO-033 — Executar matriz completa de paridade
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — PR [#37](https://github.com/vjuliani/saltcorn/pull/37); matriz em [paridade/RESULTADOS.md](paridade/RESULTADOS.md); histórico em [execucoes/GO-033.md](execucoes/GO-033.md)
 - **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** QA
 - **Depende de:** GO-021, GO-025, GO-026, GO-027, GO-028, GO-029, GO-030, GO-031, GO-032

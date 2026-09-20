@@ -1,0 +1,999 @@
+{
+  "schema": 1,
+  "profiles": {
+    "pilot": "Piloto proposto guitars (GO-001): web PostgreSQL, dois tenants/papéis, relação, List/filtro, formulário e automação. Sem aprovação de canário.",
+    "integral": "Todas as capacidades do inventário; PG/SQLite, web e mobile, plugins/CLI. Sem autorização de retirada do legado."
+  },
+  "capabilities": [
+    {
+      "id": "CAP-001",
+      "capability": "Autenticação local (usuário/senha, bcrypt)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [
+        "internal/identity"
+      ],
+      "coverage": "Hash bcrypt, identidade delegada e sessão de operador",
+      "gap": "Login/senha de usuário final não integrado ao BFF; recuperação e políticas de conta pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-002",
+      "capability": "Autenticação via token de API (Bearer)",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/identity"
+      ],
+      "coverage": "Primitivas de identidade/token",
+      "gap": "Compatibilidade da API pública e tokens legados sem fluxo HTTP completo",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-003",
+      "capability": "TOTP / MFA",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/identity"
+      ],
+      "coverage": "Geração e validação TOTP",
+      "gap": "Cadastro, desafio e políticas MFA não integrados à interface",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-004",
+      "capability": "Login social / OAuth via plugin",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Levantamento GO-029 de métodos externos",
+      "gap": "Inventário/código de plugins OAuth/SAML de produção ausentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-005",
+      "capability": "Handoff de sessão para app móvel (JWT curto)",
+      "pilot": false,
+      "suites": [
+        "backend",
+        "mobile"
+      ],
+      "go_packages": [
+        "internal/identity",
+        "internal/sync"
+      ],
+      "coverage": "Identidade delegada e sync autenticado",
+      "gap": "Handoff JWT do app Capacitor não exercitado em dispositivo",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-006",
+      "capability": "Sessão HTTP (cookie + store)",
+      "pilot": true,
+      "suites": [
+        "bff",
+        "distribution"
+      ],
+      "go_packages": [],
+      "coverage": "Cookie, CSRF, expiração e sessão de operador",
+      "gap": "Store de sessão em memória; login final e durabilidade multi-instância pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-007",
+      "capability": "CSRF",
+      "pilot": true,
+      "suites": [
+        "bff"
+      ],
+      "go_packages": [],
+      "coverage": "CSRF, origem, cookie e negação de mutação sem token",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-008",
+      "capability": "Rate limiting de login",
+      "pilot": true,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário de limitadores legados",
+      "gap": "Fluxo de login de usuário final e limitadores sem prova de paridade",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-009",
+      "capability": "Resolução de tenant (subdomínio)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [
+        "internal/platform/tenancy"
+      ],
+      "coverage": "Resolução/validação de tenant e contexto",
+      "gap": "DNS/proxy de subdomínios reais não ensaiados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-010",
+      "capability": "Propagação de contexto de tenant/transação",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/database"
+      ],
+      "coverage": "Contexto transacional, reutilização de conexão e isolamento entre tenants",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-011",
+      "capability": "Defesa contra \"tenant drift\" (sessão de um tenant usada em outro)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [
+        "internal/identity",
+        "internal/platform/database"
+      ],
+      "coverage": "Negativos de identidade delegada, papel e tenant",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-012",
+      "capability": "Autorização por papel (role_id)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [
+        "internal/identity",
+        "internal/records",
+        "internal/views"
+      ],
+      "coverage": "Negativos de leitura/escrita e publicação por papel",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-013",
+      "capability": "Ownership por campo",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/identity",
+        "internal/records"
+      ],
+      "coverage": "Ownership por campo e autorização de registros",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-014",
+      "capability": "Ownership por fórmula JS",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "pluginhost"
+      ],
+      "go_packages": [
+        "internal/expression",
+        "internal/identity"
+      ],
+      "coverage": "Expressões com leitura autorizada e primitivas de ownership",
+      "gap": "Fórmulas arbitrárias de ownership não ligadas ao HTTP",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-015",
+      "capability": "RLS nativa Postgres (políticas `CREATE POLICY`, GUC por conexão)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/database"
+      ],
+      "coverage": "RLS real com conexão NOSUPERUSER/NOBYPASSRLS e usuários concorrentes",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-016",
+      "capability": "Filtragem de leitura em JS (fallback SQLite / RLS desabilitada)",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/sqlite"
+      ],
+      "coverage": "Isolamento de arquivos SQLite por tenant",
+      "gap": "Fallback JS/ownership SQLite web não portado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-017",
+      "capability": "Tabelas/campos/relações dinâmicos",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/metadata",
+        "internal/records"
+      ],
+      "coverage": "DDL, campos básicos, concorrência e consulta",
+      "gap": "Relações/constraints arbitrárias do legado não cobertas integralmente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-018",
+      "capability": "Constraints de tabela definidas pelo usuário",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/metadata"
+      ],
+      "coverage": "Validação e constraints básicas",
+      "gap": "Catálogo completo de constraints definidas pelo usuário não portado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-019",
+      "capability": "Config key/value (global e por tenant)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "distribution"
+      ],
+      "go_packages": [
+        "internal/config",
+        "internal/installation"
+      ],
+      "coverage": "Config versionada por tenant, CLI, backup e restore",
+      "gap": "Configuração global legada completa sem equivalência comprovada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-020",
+      "capability": "Discovery de tabelas existentes (reverse engineering)",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário GO-001 de discovery",
+      "gap": "Reverse engineering de bancos existentes não implementado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-021",
+      "capability": "Facade de banco (`db/index.ts`)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/database",
+        "internal/platform/sqlite"
+      ],
+      "coverage": "Contrato transacional compartilhado",
+      "gap": "Domínios ainda acoplados a pgx impedem facade integral PG/SQLite",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-022",
+      "capability": "Adapter Postgres",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/database"
+      ],
+      "coverage": "Adapter PostgreSQL e transações",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-023",
+      "capability": "Adapter SQLite",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/sqlite",
+        "internal/installation",
+        "internal/sync"
+      ],
+      "coverage": "Registros/outbox/sync e recuperação SQLite",
+      "gap": "Identidade/views/worker/web SQLite não disponíveis",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-024",
+      "capability": "Sanitização de identificadores (`sqlsanitize`/`sqlsanitizeAllowDots`)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/database",
+        "internal/metadata"
+      ],
+      "coverage": "Identificadores escapados e ataques de nomes nas fixtures",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-025",
+      "capability": "DSL de filtros parametrizados (`mkWhere`)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/records"
+      ],
+      "coverage": "Filtros parametrizados e autorização",
+      "gap": "DSL relacional completa do legado não demonstrada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-026",
+      "capability": "Migrations do framework (tabelas `_sc_*`)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "distribution"
+      ],
+      "go_packages": [
+        "internal/installation"
+      ],
+      "coverage": "Instalação limpa, schema 1→2, journal e recuperação PG/SQLite",
+      "gap": "Adoção/upgrade de schema legado existente recusado; GO-034 pendente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-027",
+      "capability": "Pack (import/export de aplicação)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/pack"
+      ],
+      "coverage": "Export/import versionado, rollback, remapeamento e repetição",
+      "gap": "Formato não importa diretamente backup legado guitars completo",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-028",
+      "capability": "Loja remota de packs (fetch HTTP)",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/pack"
+      ],
+      "coverage": "Cliente remoto e validações de pack",
+      "gap": "Catálogo remoto real e packs de terceiros não ensaiados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-029",
+      "capability": "Componentes de biblioteca (snippets reutilizáveis)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/library"
+      ],
+      "coverage": "Componentes versionados, referências e round-trip",
+      "gap": "Integração completa no editor e snippets legados pendente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-030",
+      "capability": "Log de eventos / auditoria",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/outbox",
+        "internal/platform/telemetry"
+      ],
+      "coverage": "Eventos transacionais, idempotência e observabilidade",
+      "gap": "Histórico/auditoria administrativa equivalente ao legado sem prova",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-031",
+      "capability": "Log de erros/crash",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/telemetry"
+      ],
+      "coverage": "Logs/erros estruturados e HTTP",
+      "gap": "Catálogo de crashes e interface administrativa não portados integralmente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-032",
+      "capability": "Modelo de ML (`Model`/`ModelInstance`)",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário GO-001 identifica lacuna de ML",
+      "gap": "Model/ModelInstance sem levantamento e implementação equivalentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-033",
+      "capability": "Modelo de View (config JSON, execução)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "frontend",
+        "web"
+      ],
+      "go_packages": [
+        "internal/views"
+      ],
+      "coverage": "Catálogo, edição, publicação e execução List",
+      "gap": "Execução dos demais templates e páginas não implementada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-034",
+      "capability": "Viewtemplates nativos (List/Show/Edit/Feed/Filter/ListShowList/Room/WorkflowRoom)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "web"
+      ],
+      "go_packages": [
+        "internal/views"
+      ],
+      "coverage": "Template List com filtros e paginação",
+      "gap": "Show/Edit/Feed/Filter/ListShowList/Room/WorkflowRoom pendentes; formulário P0 do piloto bloqueado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-035",
+      "capability": "Árvore de layout (`layout.ts`)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "frontend",
+        "web"
+      ],
+      "go_packages": [
+        "internal/views"
+      ],
+      "coverage": "Validação de árvore e round-trip",
+      "gap": "Catálogo completo de nós legados e canvas persistente não integrado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-036",
+      "capability": "Geração de HTML server-side (`@saltcorn/markup`)",
+      "pilot": true,
+      "suites": [
+        "frontend",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Renderização React, sanitização e contrato de dados",
+      "gap": "Todos os elementos/HTML legado não comparados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-037",
+      "capability": "Tema SB Admin 2 (server-side hoje)",
+      "pilot": true,
+      "suites": [
+        "frontend",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Shell SB Admin 2, teclado e responsividade",
+      "gap": "Substituição visual do tema do piloto sem validação da aplicação completa",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-038",
+      "capability": "Builder de views/páginas (React + Craft.js)",
+      "pilot": true,
+      "suites": [
+        "frontend",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Editor de configuração com save/publish e widget isolado",
+      "gap": "Alterações do canvas Craft.js não persistem por ponte completa ao editor conectado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-039",
+      "capability": "Páginas e grupos de páginas",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário GO-001 de páginas/grupos",
+      "gap": "Domínio e UI completos de páginas/grupos não portados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-040",
+      "capability": "Formulários (`Form`)",
+      "pilot": true,
+      "suites": [
+        "frontend",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Campos de configuração do editor",
+      "gap": "Formulários finais Edit e validação equivalentes ao legado pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-041",
+      "capability": "Arquivos: upload/download/miniaturas",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/files"
+      ],
+      "coverage": "Upload/download, limites, permissões e limpeza",
+      "gap": "Miniaturas e todas as variantes de armazenamento legadas não demonstradas",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-042",
+      "capability": "Carregador de plugins (npm install em runtime, `import()` dinâmico)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "pluginhost"
+      ],
+      "go_packages": [
+        "internal/pluginhost"
+      ],
+      "coverage": "Host isolado, capacidades e limites",
+      "gap": "npm dinâmico e todos os plugins legados não portados; host temporário permanece",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-043",
+      "capability": "Contrato de plugin (types/viewtemplates/actions/fieldviews/auth)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "pluginhost"
+      ],
+      "go_packages": [
+        "internal/pluginhost",
+        "internal/triggers"
+      ],
+      "coverage": "SDK de ações/tipos e callback autorizado",
+      "gap": "Extensões arbitrárias types/views/fieldviews/auth não cobertas",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-044",
+      "capability": "Plugins fixos (base-plugin, sbadmin2)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "frontend"
+      ],
+      "go_packages": [
+        "internal/types",
+        "internal/triggers"
+      ],
+      "coverage": "Tipos básicos, send_email/webhook e shell SB Admin 2",
+      "gap": "Catálogo completo base-plugin e templates não portado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-045",
+      "capability": "Plugins de terceiro do pack piloto (`@saltcorn/any-bootstrap-theme`, `@saltcorn/flatpickr-date`)",
+      "pilot": true,
+      "suites": [
+        "frontend"
+      ],
+      "go_packages": [],
+      "coverage": "Substituição proposta por SB Admin 2 e data HTML5",
+      "gap": "any-bootstrap-theme/flatpickr-date ausentes; aplicação guitars substituída não validada ponta a ponta",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-046",
+      "capability": "Motor de expressões JS (fórmulas de usuário)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "pluginhost"
+      ],
+      "go_packages": [
+        "internal/expression",
+        "internal/pluginhost"
+      ],
+      "coverage": "Avaliação JS em processo isolado, timeout e leitura autorizada",
+      "gap": "Host temporário requerido; fórmulas legadas com acesso direto a modelos não equivalentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-047",
+      "capability": "Triggers (Insert/Update/Delete/Weekly/Daily/Hourly/Often/Cron/API call/PageLoad/Login/…)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/triggers"
+      ],
+      "coverage": "Dispatch transacional em testes de domínio",
+      "gap": "HTTP CreateRecord recebe hooks nil; eventos reais não disparam cadeia de automação do piloto",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-048",
+      "capability": "Ações multi-etapa",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/triggers"
+      ],
+      "coverage": "Ações compostas e idempotência no domínio",
+      "gap": "Catálogo de ~29 ações e CRUD por trigger incompleto; sem wiring HTTP",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-049",
+      "capability": "E-mail (ação `send_email`, notificações)",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/notify",
+        "internal/triggers"
+      ],
+      "coverage": "Fila transacional, interpolação e entrega SMTP de teste",
+      "gap": "Provedor SMTP real e automação originada por HTTP não ensaiados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-050",
+      "capability": "Webhook (ação `webhook`)",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/notify",
+        "internal/triggers"
+      ],
+      "coverage": "Entrega HTTP local, idempotência e retries",
+      "gap": "Automação originada por HTTP não ligada ao dispatcher",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-051",
+      "capability": "Motor de workflow (estado, retomada)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/workflow"
+      ],
+      "coverage": "Estado durável, concorrência e retomada do workflow",
+      "gap": "Waiting/formulário, subworkflow e wiring no processo real pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-052",
+      "capability": "Mutex distribuído entre nós (workflow)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/workflow"
+      ],
+      "coverage": "Serialização de avanço concorrente por linha do workflow",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-053",
+      "capability": "Scheduler (tick loop + eleição de líder)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/scheduler",
+        "internal/platform/lease"
+      ],
+      "coverage": "Agendamento persistido, timezone e lease exclusivo",
+      "gap": "Often tem granularidade de minuto; catálogo de ações do worker limitado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-054",
+      "capability": "Ações registradas por plugin (`state.actions`)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "pluginhost"
+      ],
+      "go_packages": [
+        "internal/triggers",
+        "internal/pluginhost"
+      ],
+      "coverage": "Chamadas nomeadas com capacidades explícitas",
+      "gap": "Closures/efeitos e inventário completo de ações de terceiros ausentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-055",
+      "capability": "App móvel (shell Capacitor)",
+      "pilot": false,
+      "suites": [
+        "mobile",
+        "backend"
+      ],
+      "go_packages": [
+        "internal/sync"
+      ],
+      "coverage": "Cliente JS real SQLite → BFF → Go → PG",
+      "gap": "Build/instalação Android/iOS, dispositivos e plugins Capacitor não executados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-056",
+      "capability": "Builder de app móvel nativo",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Shell/builder legados preservados",
+      "gap": "Build e assinatura nativos não executados; pipeline externo",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-057",
+      "capability": "Driver SQLite embarcado no mobile",
+      "pilot": false,
+      "suites": [
+        "mobile",
+        "backend"
+      ],
+      "go_packages": [
+        "internal/sync",
+        "internal/platform/sqlite"
+      ],
+      "coverage": "SQLite real no cliente e recuperação de fila/checkpoint",
+      "gap": "Driver Capacitor nativo não executado em Android/iOS",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-058",
+      "capability": "Protocolo de sincronização (cursor, paginação)",
+      "pilot": false,
+      "suites": [
+        "mobile",
+        "backend"
+      ],
+      "go_packages": [
+        "internal/sync"
+      ],
+      "coverage": "Protocolo 1, snapshot, limite de lote e negação de versão",
+      "gap": "Sem paginação incremental equivalente ao legado; migração de filas legadas bloqueia corte",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-059",
+      "capability": "Resolução de conflitos (ordenação topológica, last-write-wins por campo)",
+      "pilot": false,
+      "suites": [
+        "mobile",
+        "backend"
+      ],
+      "go_packages": [
+        "internal/sync"
+      ],
+      "coverage": "Conflitos explícitos por versão, draft preservado, IDs repetidos",
+      "gap": "Mudança deliberada frente ao LWW; filas/FKs legadas exigem reconciliação",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-060",
+      "capability": "Execução de upload de sync como processo CLI separado",
+      "pilot": false,
+      "suites": [
+        "mobile",
+        "backend"
+      ],
+      "go_packages": [
+        "internal/sync"
+      ],
+      "coverage": "Upload transacional HTTP sem subprocesso e replay",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-061",
+      "capability": "Notificações (catálogo + e-mail)",
+      "pilot": false,
+      "suites": [
+        "backend",
+        "bff",
+        "frontend"
+      ],
+      "go_packages": [
+        "internal/notify",
+        "internal/realtime"
+      ],
+      "coverage": "Notificações por usuário, e-mail enfileirado e dynamic_update",
+      "gap": "Canais push e integração completa de UI não cobertos",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-062",
+      "capability": "Comunicação em tempo real (Socket.IO: dynamic_update, colaboração por view, stream de logs, progresso de restore, `/datastream`)",
+      "pilot": false,
+      "suites": [
+        "backend",
+        "bff",
+        "frontend"
+      ],
+      "go_packages": [
+        "internal/realtime"
+      ],
+      "coverage": "Socket.IO, reconexão, replay, tenant/destinatário",
+      "gap": "Colaboração, logs, restore e datastream pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-063",
+      "capability": "Notificações push (registro de dispositivo)",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário de canais push",
+      "gap": "FCM/APNS/WebPush sem credenciais/implementação equivalente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-064",
+      "capability": "Roteamento HTTP builder/admin (39 arquivos em `routes/`)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff",
+        "web"
+      ],
+      "go_packages": [
+        "cmd/server"
+      ],
+      "coverage": "Rotas de editor/registros/views e autenticação delegada",
+      "gap": "39 grupos de rotas administrativas não substituídos integralmente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-065",
+      "capability": "API REST genérica sobre tabelas",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [
+        "cmd/server"
+      ],
+      "coverage": "HTTP de registros tipado, idempotência e negativos",
+      "gap": "Compatibilidade da API pública legada e integrações externas não comprovada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-066",
+      "capability": "API interna de introspecção (`scapi.ts`)",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário de scapi",
+      "gap": "API de introspecção/cloud sem substituição equivalente comprovada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-067",
+      "capability": "Segurança de cabeçalhos (Helmet/CSP)",
+      "pilot": true,
+      "suites": [
+        "bff",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Borda HTTP, sanitização de conteúdo e sessão",
+      "gap": "Paridade de Helmet/CSP e política para todas as extensões não demonstrada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-068",
+      "capability": "CORS",
+      "pilot": true,
+      "suites": [
+        "bff",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Topologia same-origin no BFF",
+      "gap": "Origens mobile reais e todos os cenários CORS não validados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-069",
+      "capability": "Mitigação de poluição de protótipo",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [],
+      "coverage": "Go elimina prototype JS no domínio; Node permanece na borda",
+      "gap": "Não há teste específico de prototype pollution no BFF/host",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    },
+    {
+      "id": "CAP-070",
+      "capability": "CLI (`saltcorn`, oclif)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "distribution"
+      ],
+      "go_packages": [
+        "internal/installation",
+        "cmd/cli"
+      ],
+      "coverage": "Setup/upgrade/backup/restore/config/serve/login e pacote Linux real",
+      "gap": "CLI geral tenant/user/trigger/mobile-build e outras plataformas pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md"
+    }
+  ]
+}

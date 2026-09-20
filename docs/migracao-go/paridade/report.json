@@ -1,0 +1,2751 @@
+{
+  "schema": 1,
+  "started": "2026-09-20T11:14:42.223757+00:00",
+  "commit": "5eeca039f163fa55563ab32e28dffa2d88e76fdc",
+  "input_sha256": "3fd8c410627de59d2a944fd7103240538830aa9e7b10028c8113f5ddd99ecf60",
+  "environment": {
+    "platform": "Linux-6.8.0-139-generic-x86_64-with-glibc2.39",
+    "go": "go version go1.22.2 linux/amd64",
+    "node": "v22.23.2",
+    "npm": "12.0.2",
+    "postgres_client": "pg_dump (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+    "generator": "github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen\nv2.8.0"
+  },
+  "suites": {
+    "contracts": {
+      "status": "PASS",
+      "commands": [
+        {
+          "argv": [
+            "npm",
+            "ci"
+          ],
+          "cwd": "migracao/contracts",
+          "exit": 0,
+          "seconds": 2.77,
+          "log": "contracts-0.log",
+          "sha256": "e490c9b1d986dcca6d6f819e1a264fd4ba220099685a6930eff51dd099ac9bc8"
+        },
+        {
+          "argv": [
+            "bash",
+            "migracao/parity/contracts.sh"
+          ],
+          "cwd": ".",
+          "exit": 0,
+          "seconds": 14.73,
+          "log": "contracts-1.log",
+          "sha256": "62364ca25ca20d55094cfc81364dba62a711473cc0fe4f70aee273a12ef10d9a"
+        }
+      ]
+    },
+    "pluginhost": {
+      "status": "PASS",
+      "commands": [
+        {
+          "argv": [
+            "npm",
+            "ci"
+          ],
+          "cwd": "migracao/packages/pluginhost",
+          "exit": 0,
+          "seconds": 1.32,
+          "log": "pluginhost-0.log",
+          "sha256": "fda7015aa06aa89b5b99a77dd3c5559612d13fc848912cfcc200038ad34f597f"
+        },
+        {
+          "argv": [
+            "npm",
+            "test"
+          ],
+          "cwd": "migracao/packages/pluginhost",
+          "exit": 0,
+          "seconds": 3.93,
+          "log": "pluginhost-1.log",
+          "sha256": "1359f9c00c5dd01f5d344bddbc1b090e3116aa629dbbfade1bd1f4b119b829be"
+        }
+      ],
+      "summary": {
+        "tests": 10,
+        "pass": 10,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    "bff": {
+      "status": "PASS",
+      "commands": [
+        {
+          "argv": [
+            "npm",
+            "ci"
+          ],
+          "cwd": "migracao/packages/bff",
+          "exit": 0,
+          "seconds": 1.82,
+          "log": "bff-0.log",
+          "sha256": "5ecbf2a73726bff3d9108e569e819c965dd4037102b8b6fb75d28f21a6372a9c"
+        },
+        {
+          "argv": [
+            "npm",
+            "test"
+          ],
+          "cwd": "migracao/packages/bff",
+          "exit": 0,
+          "seconds": 4.38,
+          "log": "bff-1.log",
+          "sha256": "da9db0ce131c4b425c61e8b46a7694b3f7e786c17d39399bc82f53a3ba8c1279"
+        }
+      ],
+      "summary": {
+        "tests": 50,
+        "pass": 50,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    "frontend": {
+      "status": "PASS",
+      "commands": [
+        {
+          "argv": [
+            "npm",
+            "ci"
+          ],
+          "cwd": "migracao/packages/frontend",
+          "exit": 0,
+          "seconds": 5.38,
+          "log": "frontend-0.log",
+          "sha256": "355e68bca0681ed8ff5de0273e20a96da2c45f00978a991beb5feabd7b0df7f5"
+        },
+        {
+          "argv": [
+            "npm",
+            "test",
+            "--",
+            "--reporter=json",
+            "--outputFile=/tmp/go033-parity-02/frontend.json"
+          ],
+          "cwd": "migracao/packages/frontend",
+          "exit": 0,
+          "seconds": 5.36,
+          "log": "frontend-1.log",
+          "sha256": "04d5e80c0e7e2b771c413d914c0ff9e761f6f382deb55ed9214d74fcc2541781"
+        }
+      ],
+      "summary": {
+        "passed": 40
+      }
+    },
+    "backend": {
+      "status": "PASS",
+      "commands": [
+        {
+          "argv": [
+            "go",
+            "vet",
+            "./..."
+          ],
+          "cwd": "migracao/backend",
+          "exit": 0,
+          "seconds": 0.92,
+          "log": "backend-0.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "argv": [
+            "go",
+            "build",
+            "./..."
+          ],
+          "cwd": "migracao/backend",
+          "exit": 0,
+          "seconds": 1.97,
+          "log": "backend-1.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "argv": [
+            "go",
+            "test",
+            "-json",
+            "-race",
+            "-count=1",
+            "./..."
+          ],
+          "cwd": "migracao/backend",
+          "exit": 0,
+          "seconds": 43.12,
+          "log": "backend-2.log",
+          "sha256": "9e8c5e7393521f7194d6b80e24c57b37ad42f9124605398c7d6b9ac06300c48e"
+        }
+      ],
+      "summary": {
+        "passed": 471,
+        "packages": {
+          "internal/identity": [
+            "TestIsOwnerByField",
+            "TestHashPassword_CheckPassword_RoundTrip",
+            "TestCheckPassword_WrongPassword",
+            "TestCheckPassword_MalformedHash",
+            "TestHashPassword_DifferentSaltsEachTime",
+            "TestCanRead",
+            "TestCanWrite",
+            "TestCreateUser_FindUserByEmail",
+            "TestFindUserByID",
+            "TestAuthenticate_PositiveAndNegative",
+            "TestAPIToken_PositiveAndNegativeAndRevocation",
+            "TestAPIToken_CrossTenantIsolation",
+            "TestEnableTOTP_ThenValidate",
+            "TestRequireNativeStrategy_Native",
+            "TestRequireNativeStrategy_PluginBlocksCutover",
+            "TestRequireNativeStrategy_EmptyStrategy",
+            "TestGenerateAPIToken_VerifyRoundTrip",
+            "TestVerifyAPIToken_WrongToken",
+            "TestGenerateAPIToken_Uniqueness",
+            "TestHashAPIToken_Deterministic",
+            "TestGenerateTOTPSecret_ValidateCode",
+            "TestValidateTOTPCode_WrongCode",
+            "TestValidateTOTPCode_MalformedSecret"
+          ],
+          "internal/files": [
+            "TestLocalBackend_SaveAndOpen",
+            "TestLocalBackend_Open_NotFound",
+            "TestLocalBackend_Delete_IdempotentForMissingKey",
+            "TestLocalBackend_InterruptedUpload_CleansUpStagingImmediately",
+            "TestLocalBackend_CleanupOrphans_RemovesOldStagingKeepsFresh",
+            "TestLocalBackend_CleanupOrphans_EmptyDirIsNoop",
+            "TestNewStorageKey_NeverEmptyNeverRepeatsObviously",
+            "TestUpload_CreatesFileAndCatalogEntry",
+            "TestUpload_CreateFileFails_CleansUpPhysicalFile",
+            "TestDownload_UserWithoutAccess_NeverReadsBytes",
+            "TestDownload_Owner_CanReadRegardlessOfRole",
+            "TestDownload_UnknownFile_ReturnsNotFound",
+            "TestUpload_InterruptedUpload_NoCatalogEntryCreated"
+          ],
+          "internal/expression": [
+            "TestEval_LegacyOwner_NeverTouchesHost",
+            "TestEval_Sync_Arithmetic_DecimalCorpus",
+            "TestEval_NullCoalescing_Text",
+            "TestEval_Boolean",
+            "TestEval_Date_RoundTripsAsRFC3339String",
+            "TestEval_Async_DBReadCallback",
+            "TestEval_RuntimeError_Propagates",
+            "TestEval_ClosureSerialization_Fails",
+            "TestEval_UnsupportedReference_SingletonDomain",
+            "TestEval_AmbiguousResult_NeverSilentlyWrong"
+          ],
+          "internal/config": [
+            "TestSetGetDelete",
+            "TestGet_MissingKey_ReturnsNotOkNeverError",
+            "TestSet_OverwritesExistingValue",
+            "TestListAll"
+          ],
+          "internal/installation": [
+            "TestInstallationRecoveryParity/sqlite",
+            "TestInstallationRecoveryParity/postgres",
+            "TestInstallationRecoveryParity",
+            "TestMigrationRollbackAndFutureVersion",
+            "TestLocksAndInvalidBackup",
+            "TestPostgresLease",
+            "TestRejectUnmanagedAndWrongIdentity",
+            "TestRejectRestoreInsideBackup",
+            "TestReleaseMismatch"
+          ],
+          "internal/library": [
+            "TestCreateOrReplace_And_ListAll",
+            "TestCreateOrReplace_SameName_UpdatesInPlace"
+          ],
+          "cmd/server": [
+            "TestRealtimeEventsHandler_ReturnsEventsAddressedToActor",
+            "TestRealtimeEventsHandler_AfterCursor_ExcludesAlreadyDelivered",
+            "TestRealtimeEventsHandler_WithoutOwnershipCutover_Rejected",
+            "TestListRecordsHandler_Success",
+            "TestListRecordsHandler_InvalidSignatureRejected",
+            "TestListRecordsHandler_TenantMismatchRejected",
+            "TestCreateRecordHandler_Success",
+            "TestCreateRecordHandler_RetryDoesNotDuplicate",
+            "TestCreateRecordHandler_SameKeyDifferentPayloadConflict",
+            "TestCreateRecordHandler_MissingIdempotencyKeyRejected",
+            "TestListRecordsHandler_UnauthorizedTableRejected",
+            "TestGetActorHandler_Success",
+            "TestRenderListHandler_PublishedViewRendersRealRows",
+            "TestRenderListHandler_DeniedBeforePublish",
+            "TestRenderListHandler_UnsupportedViewReturns422",
+            "TestListViewsHandler_FiltersByRoleAndTable",
+            "TestUpdateViewHandler_PublishBlocksIncompatibleLayoutHTTP",
+            "TestSyncMobileE2E",
+            "TestEditorE2E_CreateTableViewSaveReopenPublish",
+            "TestCreateTableHandler_RequiresAdmin",
+            "TestCreateViewHandler_RetryDoesNotDuplicate"
+          ],
+          "cmd/cli": [
+            "TestE2ESeed_CreatesTenantAdminAndOwnership",
+            "TestE2ESeed_RerunResetsSchema"
+          ],
+          "internal/metadata": [
+            "TestCache_HitDoesNotCallLoader",
+            "TestCache_VersionBumpInvalidates",
+            "TestCache_DifferentTenantsAreIndependent",
+            "TestCache_InvalidateForcesReload",
+            "TestCreateTable_CatalogAndDDLAgree",
+            "TestCreateTable_Idempotent",
+            "TestCreateTable_MaliciousNameSanitizedSafely",
+            "TestCreateTable_EmptyNameAfterSanitizationFails",
+            "TestCreateTable_RequiresAdmin",
+            "TestAddField_CatalogAndDDLAgree",
+            "TestAddField_Idempotent",
+            "TestAddField_TypeMismatchRejected",
+            "TestAddField_KeyRelation",
+            "TestAddField_ReferencedTableNotFound",
+            "TestAddField_IntermediateFailureIsRecoverable",
+            "TestDropField_IdempotentAndRemovesPhysically",
+            "TestDropTable_IdempotentAndRemovesPhysically",
+            "TestGetTableByID",
+            "TestGetTableByID_NotFound",
+            "TestCreateTable_ConcurrentDistinctNames",
+            "TestCreateTable_ConcurrentSameNameIsSerializedAndIdempotent",
+            "TestAddField_ConcurrentSameFieldIsSerializedAndIdempotent",
+            "TestSQLSanitize_KnownGoodCases",
+            "TestSQLSanitize_MaliciousNames",
+            "TestSQLSanitize_EmptyAfterSanitizationIsEmpty",
+            "TestSQLSanitizeAllowDots_PreservesDotsAndQuotes",
+            "TestSQLSanitizeAllowDots_IsASCIIOnly",
+            "TestSQLite_EnsureSchema_Idempotente",
+            "TestSQLite_CreateTable_CriaTabelaFisicaComAutoincremento",
+            "TestSQLite_CreateTable_MesmoNomeEIdempotente",
+            "TestSQLite_AddField_ComReferenciaEIdempotencia",
+            "TestSQLite_ListTablesAndFields",
+            "TestSQLite_DropFieldAndDropTable_Idempotentes",
+            "TestSQLite_CurrentVersion_IncrementaSoQuandoMuda",
+            "TestSQLite_ConcorrenciaMesmoTenant_VersaoNuncaPerdeIncremento"
+          ],
+          "internal/notify": [
+            "TestSendEmail_HappyPath",
+            "TestSendEmail_WithoutAuth",
+            "TestSendEmail_ProviderFailure_ReturnsExplicitError",
+            "TestSendEmail_ConnectionRefused_ReturnsExplicitError",
+            "TestCreate_InsertsNotification",
+            "TestCreate_WithEmail_EnqueuesEmailAtomically",
+            "TestCreate_WithEmail_RollbackDiscardsBoth",
+            "TestCreate_PublishesRealtimeEventForUser",
+            "TestMarkRead_And_ListForUser",
+            "TestEnqueueEmail_DuplicateKey_DoesNotDuplicateEvent",
+            "TestEnqueueEmail_DuplicateKeyDifferentPayload_ReturnsConflict",
+            "TestHandler_DeliversEmailEvent_ViaProcessPending",
+            "TestHandler_DeliversWebhookEvent_ViaProcessPending",
+            "TestHandler_ProviderFailure_TriggersRetry",
+            "TestHandler_UnknownEventType_UsesFallback",
+            "TestSendWebhook_HappyPath",
+            "TestSendWebhook_NonSuccessStatus_ReturnsErrWebhookFailed",
+            "TestSendWebhook_SSRFBlocked_Loopback",
+            "TestSendWebhook_SSRFBlocked_PrivateIP",
+            "TestSendWebhook_SSRFBlocked_LinkLocal",
+            "TestSendWebhook_Timeout"
+          ],
+          "internal/platform/config": [
+            "TestLoad_Defaults",
+            "TestLoad_LogLevel",
+            "TestLoad_InvalidLogLevel",
+            "TestLoad_WorkerTenants",
+            "TestLoad_DatabaseURL",
+            "TestLoad_OverridesFromEnv",
+            "TestLoad_InvalidShutdownTimeout",
+            "TestLoad_NonPositiveShutdownTimeout",
+            "TestLoad_EmptyEnvValueFallsBackToDefault",
+            "TestLoad_SMTPAndFilesDefaults",
+            "TestLoad_SMTPOverridesFromEnv",
+            "TestLoad_InvalidSMTPPort",
+            "TestLoad_NonPositiveSMTPPort"
+          ],
+          "internal/pack": [
+            "TestRoundTrip_ExportImportExport_NoLoss",
+            "TestImport_MissingPlugin_ReportsBeforeApplying_NothingCreated",
+            "TestImport_PluginVersionMismatch_Reported",
+            "TestImport_AtomicFailure_RollsBackEverything",
+            "TestImport_UnknownVersion_Rejected",
+            "TestImport_ForwardTableReference_TwoPhaseFieldCreation",
+            "TestValidate_NoDependencies_ReturnsEmpty",
+            "TestExport_EmptyTenant_ReturnsEmptyPack"
+          ],
+          "internal/platform/cutover": [
+            "TestGuard_BeginWithoutOwnerFailsClosed",
+            "TestGuard_ResumeWithOwnerThenBeginSucceeds",
+            "TestGuard_DrainBlocksNewBeginUntilResumeWithOwner",
+            "TestGuard_DrainWaitsForInFlightWork",
+            "TestGuard_KeysAreIndependent",
+            "TestGuard_ConcurrentBeginAndEnd",
+            "TestRequireOwnership_Positive",
+            "TestRequireOwnership_Negative_NotOwner",
+            "TestRequireOwnership_Negative_Draining",
+            "TestRequireOwnership_Negative_ForgedHeaders_NoValidToken",
+            "TestRequireOwnership_ForgedHeaders_ValidTokenDifferentTenant_UsesTokenTenant",
+            "TestOwnerOf_DefaultsToLegacy",
+            "TestSetOwner_ThenOwnerOf",
+            "TestSwitchOwner_PersistsAndUpdatesCache",
+            "TestSwitchOwner_DrainsInFlightBeforeFlipping",
+            "TestSwitchOwner_NoAdmissionOnceDrainingConfirmed"
+          ],
+          "internal/platform/database": [
+            "TestWithTenant_IsolatesDataBetweenTenants",
+            "TestWithTenant_ConcurrentReuseNoLeak",
+            "TestWithTenant_RollbackDiscardsWrites",
+            "TestWithTenant_DoesNotLeakSearchPathToNextConnectionUse",
+            "TestWithTenant_CancellationRollsBackWithoutLeaking",
+            "TestWithTenantAndActor_RLSDeniesCrossUserAccess",
+            "TestWithTenantAndActor_AdminRoleBypassesOwnershipRLS",
+            "TestWithTenantAndActor_ConcurrentUsersNoLeak"
+          ],
+          "internal/platform/health": [
+            "TestLivenessHandler_AlwaysOK",
+            "TestReadinessHandler_NotReadyByDefault",
+            "TestReadinessHandler_ReadyAfterSetReady"
+          ],
+          "internal/platform/shutdown": [
+            "TestTracker_DrainWaitsForInFlightWork",
+            "TestTracker_RejectsNewWorkAfterDrainStarts",
+            "TestTracker_DrainTimesOut",
+            "TestTracker_DrainWithNoInFlightWorkReturnsImmediately",
+            "TestTracker_ConcurrentBeginAndEnd",
+            "TestTracker_DrainCalledTwiceIsSafe"
+          ],
+          "internal/platform/lease": [
+            "TestAcquire_ExclusiveWhileValid",
+            "TestAcquire_ExpiredLeaseCanBeReacquired",
+            "TestAcquire_SameOwnerRenews",
+            "TestRelease_OnlyByOwner",
+            "TestAcquire_ConcurrentClaims_OnlyOneSucceeds"
+          ],
+          "internal/platform/outbox": [
+            "TestDo_FreshExecutesFnOnce",
+            "TestDo_RedeliveryDoesNotRepeatEffect",
+            "TestDo_SameKeyDifferentPayloadRejected",
+            "TestDo_CrashBeforeCommitLosesNothingBecauseNothingWasConfirmed",
+            "TestDo_ConcurrentSameKeyRunsFnOnce",
+            "TestProcessPending_SuccessMarksDone",
+            "TestProcessPending_OneFailureDoesNotAffectOthers",
+            "TestProcessPending_RetriesThenTerminalFailure",
+            "TestProcessPending_ConcurrentWorkersDoNotDoubleProcess"
+          ],
+          "internal/platform/sqlite": [
+            "TestOpen_RejeitaDiretorioInexistente",
+            "TestWithTenant_CommitPersiste",
+            "TestWithTenant_ErroDesfazTransacao",
+            "TestWithTenant_TenantsDiferentesSaoArquivosDiferentes",
+            "TestWithTenant_ConcorrenciaMesmoTenant_SerializaSemPerderEscrita",
+            "TestWithTenant_QueryRow_SemLinhas_DevolveErrNoRowsNeutro",
+            "TestWithTenant_PanicDesfazTransacao",
+            "TestParityRecords/sqlite/duplicate",
+            "TestParityRecords/sqlite/reference",
+            "TestParityRecords/sqlite/required",
+            "TestParityRecords/sqlite/null",
+            "TestParityRecords/sqlite/type",
+            "TestParityRecords/sqlite/role",
+            "TestParityRecords/sqlite/version",
+            "TestParityRecords/sqlite",
+            "TestParityRecords/postgres/duplicate",
+            "TestParityRecords/postgres/reference",
+            "TestParityRecords/postgres/required",
+            "TestParityRecords/postgres/null",
+            "TestParityRecords/postgres/type",
+            "TestParityRecords/postgres/role",
+            "TestParityRecords/postgres/version",
+            "TestParityRecords/postgres",
+            "TestParityRecords",
+            "TestParityOutbox/sqlite",
+            "TestParityOutbox/postgres",
+            "TestParityOutbox",
+            "TestParityPanicRollback/sqlite",
+            "TestParityPanicRollback/postgres",
+            "TestParityPanicRollback",
+            "TestSQLiteCrashRecovery/before",
+            "TestSQLiteCrashRecovery/after",
+            "TestSQLiteCrashRecovery",
+            "TestParityOutboxTerminalFailure/sqlite",
+            "TestParityOutboxTerminalFailure/postgres",
+            "TestParityOutboxTerminalFailure",
+            "TestSQLiteUpgradePreservesLocalRecords"
+          ],
+          "internal/platform/telemetry": [
+            "TestNewHandler_RedactsSensitiveAttributes",
+            "TestLoggerFor_IncludesTraceTenantActor",
+            "TestLoggerFor_WithoutContextValuesFallsBackToDefault",
+            "TestCounter_IncAndAdd",
+            "TestCounter_WrongLabelCountPanics",
+            "TestCounter_ConcurrentIncNoRace",
+            "TestHistogram_ObserveAndWriteText",
+            "TestHistogram_WithLabels",
+            "TestGaugeFunc_ReadsOnDemand",
+            "TestRegistry_WriteTextIncludesAllRegistered",
+            "TestEscapeLabelValue",
+            "TestMiddleware_GeneratesTraceparentWhenAbsent",
+            "TestMiddleware_ReusesIncomingTraceID",
+            "TestMiddleware_RecordsMetricsByStatusClass",
+            "TestMiddleware_LogsRequestSummary",
+            "TestNewTraceID_NotZeroAndUnique",
+            "TestNewSpanID_NotZeroAndUnique",
+            "TestFormatTraceparent_ParseTraceparent_RoundTrip",
+            "TestParseTraceparent_KnownGoodExample",
+            "TestParseTraceparent_Invalid",
+            "TestTraceIDFromContext_SpanIDFromContext"
+          ],
+          "internal/platform/tenancy": [
+            "TestNewVerifier_RejectsShortSecret",
+            "TestParseDelegatedIdentity_Valid",
+            "TestParseDelegatedIdentity_Empty",
+            "TestParseDelegatedIdentity_Malformed",
+            "TestParseDelegatedIdentity_MissingClaims",
+            "TestParseDelegatedIdentity_Expired",
+            "TestParseDelegatedIdentity_MissingExp",
+            "TestParseDelegatedIdentity_WrongSignature",
+            "TestParseDelegatedIdentity_AlgNoneRejected",
+            "TestMiddleware_Positive",
+            "TestMiddleware_Negative_MalformedToken",
+            "TestMiddleware_Negative_ForgedSignature",
+            "TestMiddleware_Negative_TenantMismatch",
+            "TestMiddleware_MissingAuthorizationHeader",
+            "TestMiddleware_ExpiredToken",
+            "TestWithTenant_RoundTrip",
+            "TestTenantFromContext_AbsentByDefault",
+            "TestWithActor_RoundTrip",
+            "TestContext_DoesNotLeakBetweenDerivedContexts",
+            "TestSchemaName"
+          ],
+          "internal/pluginhost": [
+            "TestEval_PureExpression",
+            "TestEval_NamedCall",
+            "TestEval_DBReadCallback_RealAuthorization",
+            "TestEval_CapabilityDenied_NotDeclared",
+            "TestEval_Timeout_IsContained",
+            "TestEval_Crash_IsContained",
+            "TestEval_RuntimeError_DoesNotKillProcess",
+            "TestEval_UnsupportedReference_DoesNotKillProcess",
+            "TestEval_MemoryLimit_CrashIsContained",
+            "TestExpressionCapability_DefaultsToLegacy"
+          ],
+          "internal/realtime": [
+            "TestPublish_Broadcast_NoUserIDs_OK",
+            "TestPublish_Users_RequiresUserIDs",
+            "TestPublish_Broadcast_RejectsUserIDs",
+            "TestPublish_InvalidAudience_Rejected",
+            "TestListSinceForActor_Ordering_ReturnsInPublishOrder",
+            "TestListSinceForActor_UsersAudience_OnlyVisibleToListedActor",
+            "TestListSinceForActor_Broadcast_VisibleToAnyActor",
+            "TestListSinceForActor_AfterID_ExcludesAlreadySeen",
+            "TestListSinceForActor_NeverLeaksAcrossTenantSchemas"
+          ],
+          "internal/scheduler": [
+            "TestParseCron_Valid",
+            "TestParseCron_Invalid",
+            "TestCronExpr_Matches_DomDowOrRule",
+            "TestCronExpr_Matches_WildcardDayFieldsAndBothZeroAndSevenMeanSunday",
+            "TestCronExpr_NextAfter_NeverReturnsTheSameInstant",
+            "TestCronExpr_NextAfter_DailyAtFixedTime",
+            "TestCronExpr_NextAfter_RespectsLocation",
+            "TestCronExpr_NextAfter_NoUpcomingOccurrence",
+            "TestSchedulerCapability_DefaultsToLegacy",
+            "TestCreateScheduledTrigger_ComputesNextRunAt",
+            "TestRunDue_ExecutesDueTrigger_AdvancesSchedule",
+            "TestRunDue_NotYetDue_Untouched",
+            "TestRunDue_ActionFailure_RecordsErrorDoesNotAbortBatch",
+            "TestRunDue_UnknownAction_RecordsErrorAdvancesSchedule",
+            "TestCreateScheduledTrigger_InvalidTimezone_ReturnsExplicitError"
+          ],
+          "internal/records": [
+            "TestCreateRecord_Success",
+            "TestCreateRecord_UnknownFieldRejected",
+            "TestCreateRecord_TypeMismatchRejected",
+            "TestCreateRecord_RequiredFieldMissing",
+            "TestCreateRecord_DuplicateValueRejected",
+            "TestCreateRecord_InvalidReferenceRejected",
+            "TestCreateRecord_NotAuthorized",
+            "TestCreateRecord_HookFailureRollsBackEverything",
+            "TestCreateRecord_HooksCalledWithCorrectArgs",
+            "TestUpdateRecord_SuccessAndVersionChanges",
+            "TestUpdateRecord_VersionConflict",
+            "TestUpdateRecord_NotFound",
+            "TestUpdateRecord_NoFieldsRejected",
+            "TestUpdateRecord_ConcurrentConflict",
+            "TestDeleteRecord_Success",
+            "TestDeleteRecord_VersionConflict",
+            "TestDeleteRecord_NotFound",
+            "TestDeleteRecord_HookFailureRollsBack",
+            "TestCompile_EqAndTypes",
+            "TestCompile_NullHandling",
+            "TestCompile_Between",
+            "TestCompile_InNotIn",
+            "TestCompile_LikeAndComparisons",
+            "TestCompile_CompositeConditions",
+            "TestCompile_OrderByLimitOffset",
+            "TestCompile_Join",
+            "TestCompile_JoinAuthorizationDenied",
+            "TestCompile_Aggregation",
+            "TestCompile_AggregationAuthorizationDenied",
+            "TestCompile_RevocationTakesEffectImmediately",
+            "TestCompile_UnknownFieldRejected",
+            "TestCompile_UnknownTableRejected",
+            "TestCompile_MaliciousValueIsParametrizedNotInjected",
+            "TestCompile_TypeMismatchRejected",
+            "TestCompile_AuthorizationDenied"
+          ],
+          "internal/sync": [
+            "TestExchangeParity/sqlite",
+            "TestExchangeParity/postgres",
+            "TestExchangeParity",
+            "TestScopeSchemaAndRollback/sqlite/actor",
+            "TestScopeSchemaAndRollback/sqlite/tenant",
+            "TestScopeSchemaAndRollback/sqlite/table",
+            "TestScopeSchemaAndRollback/sqlite/protocol",
+            "TestScopeSchemaAndRollback/sqlite/schema",
+            "TestScopeSchemaAndRollback/sqlite/role",
+            "TestScopeSchemaAndRollback/sqlite",
+            "TestScopeSchemaAndRollback/postgres/actor",
+            "TestScopeSchemaAndRollback/postgres/tenant",
+            "TestScopeSchemaAndRollback/postgres/table",
+            "TestScopeSchemaAndRollback/postgres/protocol",
+            "TestScopeSchemaAndRollback/postgres/schema",
+            "TestScopeSchemaAndRollback/postgres/role",
+            "TestScopeSchemaAndRollback/postgres",
+            "TestScopeSchemaAndRollback",
+            "TestSnapshotLimitRollsBackBatch/sqlite",
+            "TestSnapshotLimitRollsBackBatch/postgres",
+            "TestSnapshotLimitRollsBackBatch",
+            "TestPostgresOwnershipAndRevocation"
+          ],
+          "internal/triggers": [
+            "TestSendEmailAction_EnqueuesEmailWithInterpolatedFields",
+            "TestWebhookAction_EnqueuesPostWithRowAsBody",
+            "TestSendEmailAction_MissingTo_ReturnsErrorWithoutEnqueuing",
+            "TestWebhookAction_MissingURL_ReturnsErrorWithoutEnqueuing",
+            "TestSendEmailAction_TwoTriggersSameRowDifferentConfig_BothEnqueue",
+            "TestInterpolate",
+            "TestValidate_AbortsWrite",
+            "TestOnlyIf_GatesAction",
+            "TestAfterInsert_RunsInSameTransaction",
+            "TestAfterCommit_EnqueuesOutboxEvent_NeverRunsSynchronously",
+            "TestAfterCommit_RollbackNeverEnqueuesEvent",
+            "TestAfterCommit_RetryDoesNotDuplicateEvent",
+            "TestUnknownAction_ReturnsExplicitError",
+            "TestOnlyIf_LegacyOwner_FailsClosed"
+          ],
+          "internal/types": [
+            "TestCoerce_NullIsUniversal",
+            "TestCoerce_UnsupportedFieldType",
+            "TestCoerceText/string_simples",
+            "TestCoerceText/remove_byte_nulo",
+            "TestCoerceText/número_não_é_coagido_—_erro_explícito",
+            "TestCoerceText/bool_não_é_coagido_—_erro_explícito",
+            "TestCoerceText",
+            "TestCoerceInteger/int_direto",
+            "TestCoerceInteger/float64_arredonda_para_cima",
+            "TestCoerceInteger/float64_arredonda_para_baixo",
+            "TestCoerceInteger/negativo",
+            "TestCoerceInteger/zero",
+            "TestCoerceInteger/string_numérica_simples",
+            "TestCoerceInteger/string_numérica_com_espaços_(equivalente_a_+v_do_JS)",
+            "TestCoerceInteger/string_com_notação_científica",
+            "TestCoerceInteger/string_não_numérica_—_erro_explícito,_nunca_NaN_silencioso",
+            "TestCoerceInteger/string_mista_número+texto_—_erro_explícito",
+            "TestCoerceInteger/bool_não_suportado_—_erro_explícito",
+            "TestCoerceInteger/NaN_—_erro_explícito",
+            "TestCoerceInteger/+Inf_—_erro_explícito",
+            "TestCoerceInteger",
+            "TestCoerceFloat_DecimalCorpus/float64_direto",
+            "TestCoerceFloat_DecimalCorpus/int_coagido_para_float",
+            "TestCoerceFloat_DecimalCorpus/string_numérica_estrita",
+            "TestCoerceFloat_DecimalCorpus/string_com_espaços",
+            "TestCoerceFloat_DecimalCorpus/string_suja_(moeda)_—_divergência_deliberada_do_legado,_erro_explícito",
+            "TestCoerceFloat_DecimalCorpus/NaN_—_erro_explícito",
+            "TestCoerceFloat_DecimalCorpus/tipo_não_numérico_—_erro_explícito",
+            "TestCoerceFloat_DecimalCorpus",
+            "TestCoerceBoolean/bool_true",
+            "TestCoerceBoolean/bool_false",
+            "TestCoerceBoolean/string_\"TRUE\"",
+            "TestCoerceBoolean/string_\"t\"_minúscula",
+            "TestCoerceBoolean/string_\"ON\"",
+            "TestCoerceBoolean/string_\"yes\"_minúscula",
+            "TestCoerceBoolean/string_\"?\"_é_NULL_lógico,_não_erro",
+            "TestCoerceBoolean/string_vazia_é_NULL_lógico,_não_erro",
+            "TestCoerceBoolean/string_desconhecida_vira_false,_não_erro_(legado_é_permissivo_aqui)",
+            "TestCoerceBoolean/inteiro_não-zero_é_truthy",
+            "TestCoerceBoolean/inteiro_zero_é_falsy",
+            "TestCoerceBoolean/tipo_não_suportado_—_erro_explícito",
+            "TestCoerceBoolean",
+            "TestCoerceDate/RFC3339_completo",
+            "TestCoerceDate/date-only_AAAA-MM-DD",
+            "TestCoerceDate/time.Time_nativo_passa_direto",
+            "TestCoerceDate/formato_locale-aware_do_legado_(moment.js)_—_fora_do_subconjunto_prioritário,_erro_explícito",
+            "TestCoerceDate/string_vazia_—_erro_explícito,_nunca_NULL_silencioso",
+            "TestCoerceDate/tipo_não_suportado_—_erro_explícito",
+            "TestCoerceDate",
+            "TestCoerce_Dispatch_RoundTripPerType"
+          ],
+          "internal/views": [
+            "TestClassifyView_CompatibleListWithFieldColumns",
+            "TestClassifyView_UnsupportedTemplate",
+            "TestClassifyView_MissingLayout",
+            "TestClassifyView_EmptyBesides",
+            "TestClassifyView_UnsupportedColumnContentType",
+            "TestClassifyView_UnknownFieldName",
+            "TestClassifyView_UnsupportedDefaultStateOption",
+            "TestClassifyView_UnknownOrderField",
+            "TestClassifyView_SupportedDefaultStateOptionsAllowed",
+            "TestCreateView_Success",
+            "TestCreateView_NotAuthorizedForNonAdmin",
+            "TestCreateView_DuplicateNameRejected",
+            "TestGetView_PublishWithTwoRoles",
+            "TestUpdateView_ConcurrentEditConflict",
+            "TestUpdateView_NotFoundVsConflict",
+            "TestListViews_FiltersByRoleAndTable",
+            "TestCompileListPlan_Success",
+            "TestCompileListPlan_UnsupportedTemplateRejected",
+            "TestCompileListPlan_DeniedForUnauthorizedActor",
+            "TestUpdateView_PublishBlocksIncompatibleLayout",
+            "TestUpdateView_PublishAllowsCompatibleLayout"
+          ],
+          "internal/workflow": [
+            "TestRun_HappyPath_MultiStep",
+            "TestRun_OnlyIf_SkipsStep",
+            "TestRun_ErrorStep_NoDuplicateEffect",
+            "TestAdvance_RolledBackAttempt_LeavesNoPartialEffect_ThenCleanRetry",
+            "TestAdvance_ConcurrentCallsDoNotDuplicateEffect",
+            "TestRun_LoopRevisitsSameStepName_EachVisitEffectRuns",
+            "TestAdvance_UnknownStep_ReturnsExplicitError",
+            "TestAdvance_OnlyIf_LegacyOwner_FailsClosed",
+            "TestAdvance_NoopOnFinishedRun"
+          ]
+        },
+        "allowed_skips": [
+          {
+            "package": "github.com/vjuliani/saltcorn/migracao/backend/internal/platform/sqlite",
+            "test": "TestSQLiteCrashHelper",
+            "reason": "Helper executado pelo teste pai TestSQLiteCrashRecovery em subprocessos."
+          },
+          {
+            "package": "github.com/vjuliani/saltcorn/migracao/backend/internal/records",
+            "test": "TestCQRSBenchmark_AggregationDirectVsIndexVsProjection",
+            "reason": "Benchmark de desempenho, escopo GO-035; não é teste de corretude."
+          }
+        ]
+      }
+    },
+    "mobile": {
+      "status": "PASS",
+      "commands": [
+        {
+          "argv": [
+            "node",
+            "--test",
+            "migracao/packages/mobile-sync-test/client.test.mjs"
+          ],
+          "cwd": ".",
+          "exit": 0,
+          "seconds": 0.67,
+          "log": "mobile-0.log",
+          "sha256": "d8d6c8ce4d15cd05c1a2f1119ed43db3233509b3661a527f2a9e784bfbcb6dc1"
+        }
+      ],
+      "summary": {
+        "tests": 12,
+        "pass": 12,
+        "fail": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    "web": {
+      "status": "PASS",
+      "commands": [
+        {
+          "argv": [
+            "npm",
+            "ci"
+          ],
+          "cwd": "migracao/e2e",
+          "exit": 0,
+          "seconds": 1.62,
+          "log": "web-0.log",
+          "sha256": "fda7015aa06aa89b5b99a77dd3c5559612d13fc848912cfcc200038ad34f597f"
+        },
+        {
+          "argv": [
+            "bash",
+            "migracao/e2e/run.sh",
+            "--reporter=json"
+          ],
+          "cwd": ".",
+          "exit": 0,
+          "seconds": 39.61,
+          "log": "web-1.log",
+          "sha256": "8039a8ace7b515a159141a3dbc3c6b979493de50ffe1ad581485df256581727d"
+        }
+      ],
+      "summary": {
+        "passed": 12,
+        "projects": {
+          "chromium": 6,
+          "firefox": 6
+        }
+      }
+    },
+    "distribution": {
+      "status": "PASS",
+      "commands": [
+        {
+          "argv": [
+            "bash",
+            "migracao/distribution/build.sh",
+            "/tmp/go033-parity-02/release"
+          ],
+          "cwd": ".",
+          "exit": 0,
+          "seconds": 18.71,
+          "log": "distribution-0.log",
+          "sha256": "6e50502a2b3ba618fc95b1b829df9e491f362e6870a77947e751b0d2804008b4"
+        },
+        {
+          "argv": [
+            "node",
+            "migracao/distribution/smoke.mjs",
+            "/tmp/go033-parity-02/release"
+          ],
+          "cwd": ".",
+          "exit": 0,
+          "seconds": 4.73,
+          "log": "distribution-1.log",
+          "sha256": "fa4f5777c560769f31afa87e99415b75095a9754921b9c4da361be2fa9d6ce0e"
+        }
+      ]
+    }
+  },
+  "release": {
+    "format": 1,
+    "version": "0.1.0-go032",
+    "schema": 2,
+    "internal_api": 1,
+    "bff_api": 1,
+    "node_major": 22,
+    "sha256": {
+      "README.md": "746083d4dc85002c47ef9b09b6a2cb4c1dd45ef8d2603262b07c8e32c617ab4b",
+      "bff/dist/src/app.js": "0855f4730fa43d7555eee1c9e77551136de3debd64af5d91a84c881c8c1345b0",
+      "bff/dist/src/app.js.map": "e549da1d41553e70d544090c889eb6143db155d4cc3e33377857365d1bcc5d15",
+      "bff/dist/src/config.js": "c02bf0f4c258b18e99c6a9e807db2ba7080367679fb7e890e9406b1e342e9ff5",
+      "bff/dist/src/config.js.map": "d47279d7962b1a6bf811e4bac1c4f23a64c400ff28c682dfe2658f7fcb889ea8",
+      "bff/dist/src/csrf.js": "d2998fc833aadcbcaa696f8096cd4527e60a0155f81133b78a2fdbcb49434f2d",
+      "bff/dist/src/csrf.js.map": "8b6026ac59bb391a0b297925bf34973b54dfd41a8768e461ee5f16770abd681e",
+      "bff/dist/src/errors.js": "c37b5105194d08ff4b0672162c9e4a0f1f60e60f4922f5f2aa0263a190630bc3",
+      "bff/dist/src/errors.js.map": "e597615af8a9ae84bfc38f32f50f1de947a76bb8340b2d7b6808201394c29256",
+      "bff/dist/src/goClient.js": "1bb56921946eafbe9471e2abbb597b7a7563f925b9081f278f3ce15caa92f36d",
+      "bff/dist/src/goClient.js.map": "adf7df101418786b78b9bc79fe56885c8758b2e7c2f40435b99b19cead37b2bb",
+      "bff/dist/src/httpHelpers.js": "1f068549907400ee12fa21528b8473a43b601186c984720f22980e45322bb15f",
+      "bff/dist/src/httpHelpers.js.map": "aa39738195e8ab3e576d484851afd0a2767fd0eb2d92cdc6ff49aba26ca6aaf2",
+      "bff/dist/src/idempotency.js": "d6d825c0886b3a716202d273a86dcff5891224e6fa2d4d1265acebc427432b84",
+      "bff/dist/src/idempotency.js.map": "d48e8549f23020ea0f2c6884b8c7afb7182dabf1fcd00d256d740dee2a77b370",
+      "bff/dist/src/realtime.js": "9e18e77bed04052741178b61431eff2cc57f45a1b6ed49d55b77524935aa2144",
+      "bff/dist/src/realtime.js.map": "854f6cb8296c2253493bc645c1f7e5043e792d4cc0af0f14fa87a16ebe4ae4cf",
+      "bff/dist/src/router.js": "83c70fa5339a1cf2e8f9cdb491b57ec6808d79c23159c9a57d1916ec5381c15e",
+      "bff/dist/src/router.js.map": "d82cc4ff86f7d659ee23280e1aeec14890727f8eea49e7953fa9ee5ca3464544",
+      "bff/dist/src/selfhost.js": "908fa244c7d846db7ef4c099417a93c28036f822920b4f0dae874863738a33af",
+      "bff/dist/src/selfhost.js.map": "84b6f70ae4860a2282b2a4859c4b209dfddb5ba1feb518ce4e6b1e15c501d53c",
+      "bff/dist/src/server.js": "1af37d38ab6ccdd336d6a1983752eee77d503c002857acce07788fbed96f6bbb",
+      "bff/dist/src/server.js.map": "960e5cbb7ec0cf1ff05ddba99ff27dd85848eaa539c7a9dc58ded6d80bb8324d",
+      "bff/dist/src/serviceIdentity.js": "abd164090ebf1a22c44abd890c5e8240cfaeb16fd5a22946c3860a442d18cf08",
+      "bff/dist/src/serviceIdentity.js.map": "9365266c62d1521bbf44eceb34c30fe618656858aaceea783a62ea9dccb75479",
+      "bff/dist/src/session.js": "7e293d75056e6257b5c75d929677ce130c7fb239257cc5e76eb4ca22accf3a19",
+      "bff/dist/src/session.js.map": "6b1c4d38fab98f2c74a02160298f1524a1b4924dda6b625be302184924b0d297",
+      "bff/dist/test/app.test.js": "bb580cc8a796c9750cbfa6dc75f9016e184ca9a6a3fbda9b156a3e25cd60f260",
+      "bff/dist/test/app.test.js.map": "fc1dff5d30f0a24aa79a53473ba99af7243c539becdae671c5d312dccc2fd57d",
+      "bff/dist/test/csrf.test.js": "1a4f96bf873e2c707a9dd6c3ec04dcba95b13d086c7da53ad1cb3d1d2b8638f4",
+      "bff/dist/test/csrf.test.js.map": "0460f3b0749b7e68709cc138715281b72bca1814c6745a85f6bd1d30ba5e753d",
+      "bff/dist/test/editor.test.js": "8d5cfcf94d67a6b64e127682f54e8baf74bad512df8186a2a31c2b65398cc4d7",
+      "bff/dist/test/editor.test.js.map": "4ec7ea3ca5caf3a3a1952b41b4b2b6ca7e6ad2c13384622c39c64e489a60de8d",
+      "bff/dist/test/idempotency.test.js": "49d31c79311675f13d20296eb71cb3710faf2cef799dd06110ec85e19b90bfe3",
+      "bff/dist/test/idempotency.test.js.map": "cf27057616a3cb8d8680842d395312d99b27f272e96988e0bcee52341c9efce1",
+      "bff/dist/test/mockGoServer.js": "386cc6c99d632f964adf27e9df3dc53ac54ec11169c2529e8325af89a6f7a45e",
+      "bff/dist/test/mockGoServer.js.map": "61383d7abfcc03eca6c309d81734c93584eaf9683d10f5aa5a0c7a968929d24c",
+      "bff/dist/test/realtime.test.js": "5b0a8d38c28e6073c42d626ffab778638adebb140d63ee506291af78d8e4dd6e",
+      "bff/dist/test/realtime.test.js.map": "aceb1511a0b7e876eb884a738abe7579dd9ee6ee30f24913ad3c5ec46d3c0cd5",
+      "bff/dist/test/selfhost.test.js": "165134ccc1cbaf2ccb8e1b04fa53868bde4eec2072fb72f684409a3470cd33f8",
+      "bff/dist/test/selfhost.test.js.map": "03376786ef096faae1967000aab377d2805ffc5e419bb931dfd871565dff87b8",
+      "bff/dist/test/serviceIdentity.test.js": "ac6e37e0c816afbe1e190a1e9cee594b67a3eca2026f0221b08d875e339eb6c7",
+      "bff/dist/test/serviceIdentity.test.js.map": "893187cca554b87108fe5fc4383b2c78d5ae6f2b4265e76c9341295b83d0628b",
+      "bff/dist/test/session.test.js": "6ebc7129b0ffe0a5e9e33892187a304216cce40e4aca942bfd922e5755c06ceb",
+      "bff/dist/test/session.test.js.map": "cb7511d6ad4c98b0c8b720432d8c689074a4ad9f72ee538ecfa913fc4fc804c9",
+      "bff/node_modules/.package-lock.json": "a038506c2ba624d389b22e86aec78fdc6aae602d452d71b50709b29304364f03",
+      "bff/node_modules/@socket.io/component-emitter/LICENSE": "0f0b408b8b871d983e767528c6dc51e0ad7efaa022890c449fe2b2e1ee24dbb7",
+      "bff/node_modules/@socket.io/component-emitter/Readme.md": "d19f58893062ce0cd4b13fcad88c85b08f0fbf7295db52468d9a95e97f0f0aae",
+      "bff/node_modules/@socket.io/component-emitter/lib/cjs/index.d.ts": "14ecfc29e0c44ad4c5e50f9b597492cd8f45a2a635db8b5fe911a5da83e26cf8",
+      "bff/node_modules/@socket.io/component-emitter/lib/cjs/index.js": "035ac0e824962a30ea6b60ffbf8dd158232514430f67e378faeb73144bb1ca0e",
+      "bff/node_modules/@socket.io/component-emitter/lib/cjs/package.json": "036dfc220ed39ea6b7b6d6fcb3a3db92e3546660cecb73328be16607234db80b",
+      "bff/node_modules/@socket.io/component-emitter/lib/esm/index.d.ts": "14ecfc29e0c44ad4c5e50f9b597492cd8f45a2a635db8b5fe911a5da83e26cf8",
+      "bff/node_modules/@socket.io/component-emitter/lib/esm/index.js": "ca00e4be549e1715025c7c71654f0b9aea92705a5b58fb647a096593ab8ffea7",
+      "bff/node_modules/@socket.io/component-emitter/lib/esm/package.json": "8e4f7407409b741d73f342128eec1c0fa924b35a12005d8d6589241e1215edb5",
+      "bff/node_modules/@socket.io/component-emitter/package.json": "e27384033330a18408e0f2dd764278c75ed169229bde709d29e753159b04848a",
+      "bff/node_modules/@types/cors/LICENSE": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "bff/node_modules/@types/cors/README.md": "3432d8f064f83df0f325a945c00e122e2a438990e149a27bc34775eb24be195e",
+      "bff/node_modules/@types/cors/index.d.ts": "25be1eb939c9c63242c7a45446edb20c40541da967f43f1aa6a00ed53c0552db",
+      "bff/node_modules/@types/cors/package.json": "668eaf9685f07c43881b376ddf4fccf6d1896c0e46e528b0a32c383e15237271",
+      "bff/node_modules/@types/node/LICENSE": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "bff/node_modules/@types/node/README.md": "31454d495771cdf0bdee5c4bf89dcf58ce8cdfe77a9958f776b2336b41e44ac3",
+      "bff/node_modules/@types/node/assert/strict.d.ts": "7394959e5a741b185456e1ef5d64599c36c60a323207450991e7a42e08911419",
+      "bff/node_modules/@types/node/assert.d.ts": "f52e8dacc97d71dcc96af29e49584353f9c54cb916d132e3e768d8b8129c928d",
+      "bff/node_modules/@types/node/async_hooks.d.ts": "76103716ba397bbb61f9fa9c9090dca59f39f9047cb1352b2179c5d8e7f4e8d0",
+      "bff/node_modules/@types/node/buffer.buffer.d.ts": "0fd06258805d26c72f5997e07a23155d322d5f05387adb3744a791fe6a0b042d",
+      "bff/node_modules/@types/node/buffer.d.ts": "53eac70430b30089a3a1959d8306b0f9cfaf0de75224b68ef25243e0b5ad1ca3",
+      "bff/node_modules/@types/node/child_process.d.ts": "4314c7a11517e221f7296b46547dbc4df047115b182f544d072bdccffa57fc72",
+      "bff/node_modules/@types/node/cluster.d.ts": "115971d64632ea4742b5b115fb64ed04bcaae2c3c342f13d9ba7e3f9ee39c4e7",
+      "bff/node_modules/@types/node/compatibility/disposable.d.ts": "70521b6ab0dcba37539e5303104f29b721bfb2940b2776da4cc818c07e1fefc1",
+      "bff/node_modules/@types/node/compatibility/index.d.ts": "21d819c173c0cf7cc3ce57c3276e77fd9a8a01d35a06ad87158781515c9a438a",
+      "bff/node_modules/@types/node/compatibility/indexable.d.ts": "030e350db2525514580ed054f712ffb22d273e6bc7eddc1bb7eda1e0ba5d395e",
+      "bff/node_modules/@types/node/compatibility/iterators.d.ts": "d153a11543fd884b596587ccd97aebbeed950b26933ee000f94009f1ab142848",
+      "bff/node_modules/@types/node/console.d.ts": "c2510f124c0293ab80b1777c44d80f812b75612f297b9857406468c0f4dafe29",
+      "bff/node_modules/@types/node/constants.d.ts": "a40826e8476694e90da94aa008283a7de50d1dafd37beada623863f1901cb7fb",
+      "bff/node_modules/@types/node/crypto.d.ts": "86956cc2eb9dd371d6fab493d326a574afedebf76eef3fa7833b8e0d9b52d6f1",
+      "bff/node_modules/@types/node/dgram.d.ts": "24642567d3729bcc545bacb65ee7c0db423400c7f1ef757cab25d05650064f98",
+      "bff/node_modules/@types/node/diagnostics_channel.d.ts": "e6f5a38687bebe43a4cef426b69d34373ef68be9a6b1538ec0a371e69f309354",
+      "bff/node_modules/@types/node/dns/promises.d.ts": "e009777bef4b023a999b2e5b9a136ff2cde37dc3f77c744a02840f05b18be8ff",
+      "bff/node_modules/@types/node/dns.d.ts": "a6bf63d17324010ca1fbf0389cab83f93389bb0b9a01dc8a346d092f65b3605f",
+      "bff/node_modules/@types/node/dom-events.d.ts": "ee1ee365d88c4c6c0c0a5a5701d66ebc27ccd0bcfcfaa482c6e2e7fe7b98edf7",
+      "bff/node_modules/@types/node/domain.d.ts": "1e0d1f8b0adfa0b0330e028c7941b5a98c08b600efe7f14d2d2a00854fb2f393",
+      "bff/node_modules/@types/node/events.d.ts": "88bc59b32d0d5b4e5d9632ac38edea23454057e643684c3c0b94511296f2998c",
+      "bff/node_modules/@types/node/fs/promises.d.ts": "eaf9ee1d90a35d56264f0bf39842282c58b9219e112ac7d0c1bce98c6c5da672",
+      "bff/node_modules/@types/node/fs.d.ts": "e9ad08a376ac84948fcca0013d6f1d4ae4f9522e26b91f87945b97c99d7cc30b",
+      "bff/node_modules/@types/node/globals.d.ts": "ba97261afafe85aafe76d988e65e531da8e8cf791c49caf0531f5dd1689bd91b",
+      "bff/node_modules/@types/node/globals.typedarray.d.ts": "a79e62f1e20467e11a904399b8b18b18c0c6eea6b50c1168bf215356d5bebfaf",
+      "bff/node_modules/@types/node/http.d.ts": "c15c4427ae7fd1dcd7f312a8a447ac93581b0d4664ddf151ecd07de4bf2bb9d7",
+      "bff/node_modules/@types/node/http2.d.ts": "5135bdd72cc05a8192bd2e92f0914d7fc43ee077d1293dc622a049b7035a0afb",
+      "bff/node_modules/@types/node/https.d.ts": "4f80de3a11c0d2f1329a72e92c7416b2f7eab14f67e92cac63bb4e8d01c6edc8",
+      "bff/node_modules/@types/node/index.d.ts": "ad90122e1cb599b3bc06a11710eb5489101be678f2920f2322b0ac3e195af78d",
+      "bff/node_modules/@types/node/inspector.d.ts": "6d386bc0d7f3afa1d401afc3e00ed6b09205a354a9795196caed937494a713e6",
+      "bff/node_modules/@types/node/module.d.ts": "07562498d06bc1db00536c886f38e5f9892f8aef7a3720a25db714be4c775952",
+      "bff/node_modules/@types/node/net.d.ts": "d4047ed87e765bd3bcc316a0c4c4c8b0061628460d8a5412d1c4b53a4658665a",
+      "bff/node_modules/@types/node/os.d.ts": "b1b6ee0d012aeebe11d776a155d8979730440082797695fc8e2a5c326285678f",
+      "bff/node_modules/@types/node/package.json": "a6a3c4c19976603f791a7eb2069d4f76a16eae88b6c31862cde932f4a8ef2317",
+      "bff/node_modules/@types/node/path.d.ts": "45875bcae57270aeb3ebc73a5e3fb4c7b9d91d6b045f107c1d8513c28ece71c0",
+      "bff/node_modules/@types/node/perf_hooks.d.ts": "3eb62baae4df08c9173e6903d3ca45942ccec8c3659b0565684a75f3292cffbb",
+      "bff/node_modules/@types/node/process.d.ts": "a85683ef86875f4ad4c6b7301bbcc63fb379a8d80d3d3fd735ee57f48ef8a47e",
+      "bff/node_modules/@types/node/punycode.d.ts": "3f16a7e4deafa527ed9995a772bb380eb7d3c2c0fd4ae178c5263ed18394db2c",
+      "bff/node_modules/@types/node/querystring.d.ts": "c6b4e0a02545304935ecbf7de7a8e056a31bb50939b5b321c9d50a405b5a0bba",
+      "bff/node_modules/@types/node/readline/promises.d.ts": "8145e07aad6da5f23f2fcd8c8e4c5c13fb26ee986a79d03b0829b8fce152d8b2",
+      "bff/node_modules/@types/node/readline.d.ts": "fab29e6d649aa074a6b91e3bdf2bff484934a46067f6ee97a30fcd9762ae2213",
+      "bff/node_modules/@types/node/repl.d.ts": "e1120271ebbc9952fdc7b2dd3e145560e52e06956345e6fdf91d70ca4886464f",
+      "bff/node_modules/@types/node/sea.d.ts": "15c5e91b5f08be34a78e3d976179bf5b7a9cc28dc0ef1ffebffeb3c7812a2dca",
+      "bff/node_modules/@types/node/sqlite.d.ts": "58832ded29e0094047596544ac391d68c799d7bd7d35936f47221857141628f1",
+      "bff/node_modules/@types/node/stream/consumers.d.ts": "93452d394fdd1dc551ec62f5042366f011a00d342d36d50793b3529bfc9bd633",
+      "bff/node_modules/@types/node/stream/promises.d.ts": "37ba7b45141a45ce6e80e66f2a96c8a5ab1bcef0fc2d0f56bb58df96ec67e972",
+      "bff/node_modules/@types/node/stream/web.d.ts": "745c4240220559bd340c8aeb6e3c5270a709d3565e934dc22a69c304703956bc",
+      "bff/node_modules/@types/node/stream.d.ts": "553870e516f8c772b89f3820576152ebc70181d7994d96917bb943e37da7f8a7",
+      "bff/node_modules/@types/node/string_decoder.d.ts": "2754d8221d77c7b382096651925eb476f1066b3348da4b73fe71ced7801edada",
+      "bff/node_modules/@types/node/test.d.ts": "9212c6e9d80cb45441a3614e95afd7235a55a18584c2ed32d6c1aca5a0c53d93",
+      "bff/node_modules/@types/node/timers/promises.d.ts": "282fd2a1268a25345b830497b4b7bf5037a5e04f6a9c44c840cb605e19fea841",
+      "bff/node_modules/@types/node/timers.d.ts": "bef91efa0baea5d0e0f0f27b574a8bc100ce62a6d7e70220a0d58af6acab5e89",
+      "bff/node_modules/@types/node/tls.d.ts": "5360a27d3ebca11b224d7d3e38e3e2c63f8290cb1fcf6c3610401898f8e68bc3",
+      "bff/node_modules/@types/node/trace_events.d.ts": "66ba1b2c3e3a3644a1011cd530fb444a96b1b2dfe2f5e837a002d41a1a799e60",
+      "bff/node_modules/@types/node/ts5.6/buffer.buffer.d.ts": "2d1319e6b5d0efd8c5eae07eb864a00102151e8b9afddd2d45db52e9aae002c4",
+      "bff/node_modules/@types/node/ts5.6/globals.typedarray.d.ts": "613b21ccdf3be6329d56e6caa13b258c842edf8377be7bc9f014ed14cdcfc308",
+      "bff/node_modules/@types/node/ts5.6/index.d.ts": "171fd8807643c46a9d17e843959abdf10480d57d60d38d061fb44a4c8d4a8cc4",
+      "bff/node_modules/@types/node/tty.d.ts": "7e514f5b852fdbc166b539fdd1f4e9114f29911592a5eb10a94bb3a13ccac3c4",
+      "bff/node_modules/@types/node/url.d.ts": "7d6ff413e198d25639f9f01f16673e7df4e4bd2875a42455afd4ecc02ef156da",
+      "bff/node_modules/@types/node/util.d.ts": "6bd91a2a356600dee28eb0438082d0799a18a974a6537c4410a796bab749813c",
+      "bff/node_modules/@types/node/v8.d.ts": "f689c4237b70ae6be5f0e4180e8833f34ace40529d1acc0676ab8fb8f70457d7",
+      "bff/node_modules/@types/node/vm.d.ts": "ae25afbbf1ed5df63a177d67b9048bf7481067f1b8dc9c39212e59db94fc9fc6",
+      "bff/node_modules/@types/node/wasi.d.ts": "ac5ed35e649cdd8143131964336ab9076937fa91802ec760b3ea63b59175c10a",
+      "bff/node_modules/@types/node/worker_threads.d.ts": "52a8e7e8a1454b6d1b5ad428efae3870ffc56f2c02d923467f2940c454aa9aec",
+      "bff/node_modules/@types/node/zlib.d.ts": "78dc0513cc4f1642906b74dda42146bcbd9df7401717d6e89ea6d72d12ecb539",
+      "bff/node_modules/@types/ws/LICENSE": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "bff/node_modules/@types/ws/README.md": "1bb2fbdd6e1a9e5320a8a9297e57ac2fefd7690ae695c0b78121bd0092a87910",
+      "bff/node_modules/@types/ws/index.d.mts": "316f1486e15cbf7896425f0a16dfe12d447dd57cfb3244b8b119c77df870858f",
+      "bff/node_modules/@types/ws/index.d.ts": "1ba59c8bbeed2cb75b239bb12041582fa3e8ef32f8d0bd0ec802e38442d3f317",
+      "bff/node_modules/@types/ws/package.json": "92f0a87117b71231a0864f7bb7c6a84b7fc91dbdd7d33379fc23d655980ad083",
+      "bff/node_modules/accepts/HISTORY.md": "ef66fe7e96fee5760f153fc5059124effa5310895b336585e3a80a93c9f2d9be",
+      "bff/node_modules/accepts/LICENSE": "71f83c4c0621102a56d9853812777b85751bce7e9726f686f5b056c1f8a4b0e6",
+      "bff/node_modules/accepts/README.md": "c25a1071e5aa1b1b43e10f083e8d97c3dbf1f7700cfa38b5cbc40725662e1ae0",
+      "bff/node_modules/accepts/index.js": "be2decbd50610e8f995c1e312ee4dd6d7c1244cfdf03ee4c4a3da68e572dada1",
+      "bff/node_modules/accepts/package.json": "e5716d5d939db08c5c28ec6ae86ed67be5320f91089e2673fca1c5b876e57aa3",
+      "bff/node_modules/base64id/CHANGELOG.md": "1fb4270d07a7f1bb205ead46181fbf6f64ee7b10edee35f67d01534bcbaf5fc6",
+      "bff/node_modules/base64id/LICENSE": "de6059eadd0c1327f30a22663392e57d36b97b0ac9bb48f4875c8008ba823c30",
+      "bff/node_modules/base64id/README.md": "b47c8fb2a8ba65ccbdfd54b3fad647a52610a0344e6aced91150c7de6a05da3e",
+      "bff/node_modules/base64id/lib/base64id.js": "b22f3bccc756717cccf3841102c662960ec5831c3600c7a8d8c2d8ceade168fa",
+      "bff/node_modules/base64id/package.json": "26250fc512e912fc8dcdd1728025c79e85cc4727ba7e662d0ec0700f843efae4",
+      "bff/node_modules/buffer-equal-constant-time/.npmignore": "d8f7bf914b1a1e848cd262d967606cc37700f2a4270adcbb89515ed00d0caf22",
+      "bff/node_modules/buffer-equal-constant-time/.travis.yml": "36fbdbd408acb19600eda6897a0fa33daed9014a679d166d58203d8083b66f94",
+      "bff/node_modules/buffer-equal-constant-time/LICENSE.txt": "751d0e80fb5c828f8c3de198cc760e1e05377e47c8263ab6ee2f10cdc19ba658",
+      "bff/node_modules/buffer-equal-constant-time/README.md": "b4183b472a9f25b0b14a5d6e7e2eb4cc92e7bb944262a98e4775ecf06d8eacf3",
+      "bff/node_modules/buffer-equal-constant-time/index.js": "873c585bc4b4373d4e9d8d39bd475f9a0816fb7c8fce0f20335f6897090eb068",
+      "bff/node_modules/buffer-equal-constant-time/package.json": "2d3df7ecb57811cf6fc43be180d9801c7c70928e5388391a6f258d889449ef4e",
+      "bff/node_modules/buffer-equal-constant-time/test.js": "9563fa194940e1ada764b9b5c0bd652baaec734b3aec6151a1bbe6f999f8bbde",
+      "bff/node_modules/cookie/LICENSE": "c02110eedc16c7114f1a9bdc026c65626ce1d9c7e27fd51a8e0feee8a48a6858",
+      "bff/node_modules/cookie/README.md": "ba8b36c7d860d6ef37887b6ef496a486e91aefe5229f65157cc8b44725b9bec5",
+      "bff/node_modules/cookie/SECURITY.md": "299f5e632ccb1ae2d74f95dac09db13d7ff46c482663b67032e3e72cbe376276",
+      "bff/node_modules/cookie/index.js": "a88f6d7257e3403b727b90a2f3f5c03591e14eaa0b217c501b7071074f080e42",
+      "bff/node_modules/cookie/package.json": "7fa781bd142e7f38b66bff64b4e3a8be9e53e340e7ddaf27caebd00322602208",
+      "bff/node_modules/cors/LICENSE": "1aa9a12863eefb583779b2ca0e5d73c610b6e6d07529ae0472721769a6ea0a32",
+      "bff/node_modules/cors/README.md": "369e3374210f43cd0e15bea9e1f974edf70f5719ea06d3ec2c0eb7517a16e000",
+      "bff/node_modules/cors/lib/index.js": "ea5c1ee247ad5204dad41a86326197d9d85a3bc46e8c9078cc4f1f323a828697",
+      "bff/node_modules/cors/package.json": "b314218cdfc9e9442efd35c74c4176902c0bbd74700ba30d6055e70a76455174",
+      "bff/node_modules/debug/LICENSE": "3a61c6c96caf5c1d9b623fb9b04c822b783dfcb78aa7e49c76a3f643e6ed7f95",
+      "bff/node_modules/debug/README.md": "486cb669048bd5014adf9ea117e27a45c4e61b0e668f464c724273beb8170797",
+      "bff/node_modules/debug/package.json": "7a60ed9b6b14aa67f2ffe975715aaa6a78303844a5b43d33bfd619812088fe4d",
+      "bff/node_modules/debug/src/browser.js": "4afa722281f0817504bb7a9d060eea7e8ab2eae342611b525aff9b9204b9c9af",
+      "bff/node_modules/debug/src/common.js": "c65bff44c189188e0c45afdbd9b02c427ff5c6e54b94da53c102fbb7a53f0e37",
+      "bff/node_modules/debug/src/index.js": "aa127ff1752b7d9c7415c5c7bb6994d9aa722b81bcbcab4bd48316b013d23bf3",
+      "bff/node_modules/debug/src/node.js": "d7b26d7c92f8ea7794b77ce11f3c11cd18c9084df7c357e3c7025344fa28aac6",
+      "bff/node_modules/ecdsa-sig-formatter/CODEOWNERS": "a4cc581ea5553d0cec140293fba981ec4d137bee809a4e32ed4419e8e36f68ce",
+      "bff/node_modules/ecdsa-sig-formatter/LICENSE": "50a6b24f8defc31a078aa9799a91d776f83948071574854f12473362aee74d0d",
+      "bff/node_modules/ecdsa-sig-formatter/README.md": "e4dbe1e1f6f54182599a8e7165acef79ad1031817c63ff4ca0fff19f0ac72366",
+      "bff/node_modules/ecdsa-sig-formatter/package.json": "f8c0805a13487310192db6ae04452c4315f5538ae87d7bc20de2904902c34027",
+      "bff/node_modules/ecdsa-sig-formatter/src/ecdsa-sig-formatter.d.ts": "af48bd168522d6adc363513e504aede00339bd5e1e245b95a088dc233e3e6a65",
+      "bff/node_modules/ecdsa-sig-formatter/src/ecdsa-sig-formatter.js": "9c7330949ada946a3c89be79ba66597616342c643ef5ab13a646c72147c11666",
+      "bff/node_modules/ecdsa-sig-formatter/src/param-bytes-for-alg.js": "4352fe33309e8085148db1fabc91748137089d830a85498d4e50a17c813ea1fc",
+      "bff/node_modules/engine.io/LICENSE": "b263a81f99a73ce7e0ad869a396ece7416b2e99f514e08e39dd24f326047a698",
+      "bff/node_modules/engine.io/README.md": "818a4a880fe2f6571007cd8955600d0d7f686edf023bc15a1557c0cfa3e6007b",
+      "bff/node_modules/engine.io/build/contrib/base64id.d.ts": "c3deb44cf6760190ca08965c8182c79f4c4aed88ef19d3ac2ff5aa391291215c",
+      "bff/node_modules/engine.io/build/contrib/base64id.js": "4d4ef544f8502adf52e7c20dd179b69389cb980c8ff9c08fc69f0010f40bdca4",
+      "bff/node_modules/engine.io/build/contrib/types.cookie.d.ts": "08c2bb524b8ed271f194e1c7cc6ad0bcc773f596c41f68a207d0ec02c9727060",
+      "bff/node_modules/engine.io/build/contrib/types.cookie.js": "a374c183df3da0115753ea5423b0fe66feece4f6d7feef4ee6591c8f7c092483",
+      "bff/node_modules/engine.io/build/engine.io.d.ts": "a32e3fc530d8d1a18bf54678d8d55714827a50c9fabdd4ede7155a56be7d1dcb",
+      "bff/node_modules/engine.io/build/engine.io.js": "52402fb5d33034d3ff50aa688f43e492dd439c01a40c30420bf592bdd8d42afb",
+      "bff/node_modules/engine.io/build/parser-v3/index.d.ts": "a9de04c9ecc184497995853cfcf529de92b58adc5bccfae0350157269aba9391",
+      "bff/node_modules/engine.io/build/parser-v3/index.js": "d7697c8197a538a9a5466aca25b637f8e37aac10d620d347e112a50f14cafc22",
+      "bff/node_modules/engine.io/build/parser-v3/utf8.d.ts": "e5e07d820a2c09f159388cb656fbbc283b81f16c7fea4f3c4eba62a1b1b4e035",
+      "bff/node_modules/engine.io/build/parser-v3/utf8.js": "d857560da00796aebab3086b68bb8cd1c2afcc626b746215bad6d05b57aea643",
+      "bff/node_modules/engine.io/build/server.d.ts": "8ac41e0836522cc725d4541502cc2d433fa5b66d66d074ef6716b201bdf8ecc0",
+      "bff/node_modules/engine.io/build/server.js": "d4e6e104edccda892a1b8054b938f366855e2e4ca66aeee7cbe0d3fe00a5ef65",
+      "bff/node_modules/engine.io/build/socket.d.ts": "cb5bb1db16ff4b534f56f7741e7ffd0a007ce36d387a377d4c196036e0932423",
+      "bff/node_modules/engine.io/build/socket.js": "2608fb4e8c287a960bf7500de9a19e8f93f67940714540ae0d759052f80f7be6",
+      "bff/node_modules/engine.io/build/transport.d.ts": "f2c4a36eb216aadb0d9c79862a31b922ccfa1eaaa38d2124cc9192d40eda4779",
+      "bff/node_modules/engine.io/build/transport.js": "14eb4545796bbffbafc304d8c654fc8b5544aa5015fe80e7ffcc84a82ebf9ac5",
+      "bff/node_modules/engine.io/build/transports/index.d.ts": "ac44995fc7d0781d77927bae7dd41a31f0309e695fd2694b175c0ce3bc4b3b50",
+      "bff/node_modules/engine.io/build/transports/index.js": "7fe89007f42a89a1ceacefebac7bd31d66b8beb79bc6449d6b35e95292a463b5",
+      "bff/node_modules/engine.io/build/transports/polling-jsonp.d.ts": "b925ce95fad1a9e416367bff807a0d8dba7d3e503fa90e028ee85b70c358a707",
+      "bff/node_modules/engine.io/build/transports/polling-jsonp.js": "a25385d50caf3f2c7688c2e3e6e003b90496b70f8206ecbac7241c6156d24a12",
+      "bff/node_modules/engine.io/build/transports/polling.d.ts": "c0a4398261ab9b569fb4016576636c601c171ee983d124f68a2faa7ff82ce14b",
+      "bff/node_modules/engine.io/build/transports/polling.js": "e5e557cd125a756424c9f487aa114dff3f340d68d39ab89ce7cd82907b00157a",
+      "bff/node_modules/engine.io/build/transports/websocket.d.ts": "d99e9f5aa43397599fe824e38c33d13d3a9e19198806a4363114bd7ac58b29cc",
+      "bff/node_modules/engine.io/build/transports/websocket.js": "37b9466ef8a73ff7e79404b1b3b334b959815609ed2e2ab04cefb976ce278812",
+      "bff/node_modules/engine.io/build/transports/webtransport.d.ts": "440099416057789b14f85af057d4924915f27043399c10d4ca67409d94b963cf",
+      "bff/node_modules/engine.io/build/transports/webtransport.js": "106bfd5d7af9f069877ff5d461629244c06314b2d8a3912c7a64fd2677d2f8df",
+      "bff/node_modules/engine.io/build/transports-uws/index.d.ts": "852c2ecc4083a4ef09dee8bac7a9ce172cf29201e658bd6618c08cb4bdcc53d9",
+      "bff/node_modules/engine.io/build/transports-uws/index.js": "bb6f6dfedd50215c83ce73ca0319be2879cf082f613bdcbd4ba7e83580a219e1",
+      "bff/node_modules/engine.io/build/transports-uws/polling.d.ts": "3597dcb8199d87d85ffdb377073545a02557eeec9c3435b782e3076d45d83461",
+      "bff/node_modules/engine.io/build/transports-uws/polling.js": "37ea40b3711424392280b7dc48e8a52d1b0c10e2d7c234cfcf2a798a3e3129fb",
+      "bff/node_modules/engine.io/build/transports-uws/websocket.d.ts": "683c006f243b941bbe27ffad0ba19ffa8735e8cc8ce10892ea651f880f9c31ae",
+      "bff/node_modules/engine.io/build/transports-uws/websocket.js": "7cf98a1bba21c8f31e55e46ed9d45a6ae2d0fc85a9e5c9abbd89f53d824e03d9",
+      "bff/node_modules/engine.io/build/userver.d.ts": "0c1f802f7a60ca8084e5188ac7952accdfc00f39ded3ebbbd3cdcc9da51b9a7b",
+      "bff/node_modules/engine.io/build/userver.js": "6aaa109d265754c00590288211a3a633e8528afde8e0557f0505e21437789bbf",
+      "bff/node_modules/engine.io/build/utils/objectFromEntries.d.ts": "bebdb6fb8a72cbf55d35db4748fc6f34d9889a790a3e3e256d5903efc9be6a28",
+      "bff/node_modules/engine.io/build/utils/objectFromEntries.js": "4d9358342aa673c47dad8b0aba1b1c77ef59df9a2e41e8fd7178d30b147bb6c2",
+      "bff/node_modules/engine.io/node_modules/debug/LICENSE": "3a61c6c96caf5c1d9b623fb9b04c822b783dfcb78aa7e49c76a3f643e6ed7f95",
+      "bff/node_modules/engine.io/node_modules/debug/README.md": "486cb669048bd5014adf9ea117e27a45c4e61b0e668f464c724273beb8170797",
+      "bff/node_modules/engine.io/node_modules/debug/package.json": "ea8e33d63fe5f3a4c36609b6c3df8e2ef1f8b8ba2fc3a2e1e53cb27291f384af",
+      "bff/node_modules/engine.io/node_modules/debug/src/browser.js": "19920671f5902f64ad8ea11767fa50ea9d7a71ae0b7dff7ba5693c0075afc763",
+      "bff/node_modules/engine.io/node_modules/debug/src/common.js": "dbe83d2bb5837f3c4d7fe537b8004c585987270eceed5b06b8e078deb0ae214a",
+      "bff/node_modules/engine.io/node_modules/debug/src/index.js": "aa127ff1752b7d9c7415c5c7bb6994d9aa722b81bcbcab4bd48316b013d23bf3",
+      "bff/node_modules/engine.io/node_modules/debug/src/node.js": "d7b26d7c92f8ea7794b77ce11f3c11cd18c9084df7c357e3c7025344fa28aac6",
+      "bff/node_modules/engine.io/package.json": "33599bdc99b1c98fbe763c0efb413f604a1a3308d245bd4365419e2c93a5a0c2",
+      "bff/node_modules/engine.io/wrapper.mjs": "00a4b966b7a8e5632a0700866fdc09af59fb51d0568b0431b9a7e7615120c0c0",
+      "bff/node_modules/engine.io-parser/LICENSE": "d96e657000a00ad35280309c8a3d66db9c575efaa652720b82e619185581c835",
+      "bff/node_modules/engine.io-parser/Readme.md": "7f0227879c56f9695ff0041c12a82384d149e519180acc9cd105c1fe258c56d7",
+      "bff/node_modules/engine.io-parser/build/cjs/commons.d.ts": "569e762cf47aafdad508360a443c6c757e56c61db3b652b65458a7d168d139c4",
+      "bff/node_modules/engine.io-parser/build/cjs/commons.js": "ecc58a302fbaa248477dcc704cb693407be6f32e7a906a793f710c27c9bd4c92",
+      "bff/node_modules/engine.io-parser/build/cjs/contrib/base64-arraybuffer.d.ts": "22dcca4a59712f959872f6fa9daab731baed6fe5d0a9fdda1e26401ffbf1c83f",
+      "bff/node_modules/engine.io-parser/build/cjs/contrib/base64-arraybuffer.js": "56e0bcd9e749ba9f9e3c6e1bb3e051510c44bd17f70c1dc7fdda55c015ea74fb",
+      "bff/node_modules/engine.io-parser/build/cjs/decodePacket.browser.d.ts": "4b84373e192b7e0f8569b65eb16857098a6ee279b75d49223db2a751fdd7efde",
+      "bff/node_modules/engine.io-parser/build/cjs/decodePacket.browser.js": "a6fc5b8770bfacace959b79b359f7620c18f726e5b9801ecf1b14df7907b2b46",
+      "bff/node_modules/engine.io-parser/build/cjs/decodePacket.d.ts": "4b84373e192b7e0f8569b65eb16857098a6ee279b75d49223db2a751fdd7efde",
+      "bff/node_modules/engine.io-parser/build/cjs/decodePacket.js": "3d7a03c59d00e3e21e30975a10daba32e4b448840c8a7a565ecb02dc4ccee94c",
+      "bff/node_modules/engine.io-parser/build/cjs/encodePacket.browser.d.ts": "5bc17e8632d55a605edf0a5f75cf138a8d29537ca250d1bf02aa840974784fdb",
+      "bff/node_modules/engine.io-parser/build/cjs/encodePacket.browser.js": "3f54bec63fa8cb645fed95f6ba50b3d4f58313bd7fb64f78a5df43970eeabd40",
+      "bff/node_modules/engine.io-parser/build/cjs/encodePacket.d.ts": "02ed2766d79a00719ac3cc77851d54bd7197c1b12085ea12126bc2a65068223e",
+      "bff/node_modules/engine.io-parser/build/cjs/encodePacket.js": "7fde5b77d01635f987d12192eacc73f15ffbb693ef542fc6455a73f3460fb02e",
+      "bff/node_modules/engine.io-parser/build/cjs/index.d.ts": "5aeea312cd1d3cc5d72fc8a9c964439d771bdf41d9cce46667471b896b997473",
+      "bff/node_modules/engine.io-parser/build/cjs/index.js": "e2750b46f6f498d45174cba094626979a574f10f56bf2252ba78d27a8edb3b9b",
+      "bff/node_modules/engine.io-parser/build/cjs/package.json": "75c2e49823eba572fdbaf8ba8c2bfb3b27ddb40b38c8183983d4f6d44440d1f7",
+      "bff/node_modules/engine.io-parser/build/esm/commons.d.ts": "569e762cf47aafdad508360a443c6c757e56c61db3b652b65458a7d168d139c4",
+      "bff/node_modules/engine.io-parser/build/esm/commons.js": "32c147b2159086f1d4e56adb4b10fdc9618d8f1779feb1d7ecd2c8a0cb7c3b11",
+      "bff/node_modules/engine.io-parser/build/esm/contrib/base64-arraybuffer.d.ts": "22dcca4a59712f959872f6fa9daab731baed6fe5d0a9fdda1e26401ffbf1c83f",
+      "bff/node_modules/engine.io-parser/build/esm/contrib/base64-arraybuffer.js": "726d8b8f96716a304892023e56b58377c40820bb58c9fb7d9e149db5ec930ad1",
+      "bff/node_modules/engine.io-parser/build/esm/decodePacket.browser.d.ts": "4b84373e192b7e0f8569b65eb16857098a6ee279b75d49223db2a751fdd7efde",
+      "bff/node_modules/engine.io-parser/build/esm/decodePacket.browser.js": "4de5f65c81ee59dd269fdd47082d260fb6a56f73b56a89281f7319ffb1bcf36b",
+      "bff/node_modules/engine.io-parser/build/esm/decodePacket.d.ts": "4b84373e192b7e0f8569b65eb16857098a6ee279b75d49223db2a751fdd7efde",
+      "bff/node_modules/engine.io-parser/build/esm/decodePacket.js": "f855ae1fb99736b60d2eb494d2824faf9835341d633112387f4d74abeb33f8bb",
+      "bff/node_modules/engine.io-parser/build/esm/encodePacket.browser.d.ts": "5bc17e8632d55a605edf0a5f75cf138a8d29537ca250d1bf02aa840974784fdb",
+      "bff/node_modules/engine.io-parser/build/esm/encodePacket.browser.js": "b8f9f0686a551641a9141333ffa6efbfc57090237be9a0ecd9c507a158196ec6",
+      "bff/node_modules/engine.io-parser/build/esm/encodePacket.d.ts": "02ed2766d79a00719ac3cc77851d54bd7197c1b12085ea12126bc2a65068223e",
+      "bff/node_modules/engine.io-parser/build/esm/encodePacket.js": "44e9abe306a07cfd06bfec511f14fc7ba5b44ebff671d9e63a38f90e8d034ab0",
+      "bff/node_modules/engine.io-parser/build/esm/index.d.ts": "5aeea312cd1d3cc5d72fc8a9c964439d771bdf41d9cce46667471b896b997473",
+      "bff/node_modules/engine.io-parser/build/esm/index.js": "c96c87baec3e12ba73cda33d9f6612efef04115eb756dadd633d01c6acf455eb",
+      "bff/node_modules/engine.io-parser/build/esm/package.json": "827a647c26cb86a5c54d5b7cbfa145505c5fb01ff91775144b24529a70ea4977",
+      "bff/node_modules/engine.io-parser/package.json": "1424a9e48ed5141c78bfc5e1316fc482c9c9f3975665152cbf081c39d8d0255c",
+      "bff/node_modules/jsonwebtoken/LICENSE": "2144eb6894cb440fde6b2b3aaae3b617c8f1dc9bb19813079dcf62ec6c517042",
+      "bff/node_modules/jsonwebtoken/README.md": "e57a769be325a07c979fe3126800dc919d13e58b87c5652aacc1d0479c7aaaca",
+      "bff/node_modules/jsonwebtoken/decode.js": "32fa49ba4da4e2eb75f91a84385d8718660fe5b51192ed317c6161b5d72a4a89",
+      "bff/node_modules/jsonwebtoken/index.js": "aae460b3f08f3f8b1cb229ee226fb084540fec04b6ddc8fc01463068ebf4b7de",
+      "bff/node_modules/jsonwebtoken/lib/JsonWebTokenError.js": "35fdb68dea632779c5fa58f225fd02d65a6d8e15a004928a18b48724da423428",
+      "bff/node_modules/jsonwebtoken/lib/NotBeforeError.js": "7e7de14d16fc9c308c53d4303309e4f924116d470ffec8e91436064382df95ca",
+      "bff/node_modules/jsonwebtoken/lib/TokenExpiredError.js": "ba5ac1133bbd1db3ebc297f04657b256294771f1688a42588abebdef172f5c70",
+      "bff/node_modules/jsonwebtoken/lib/asymmetricKeyDetailsSupported.js": "aa5ce3d7b296793af5743836266b41c225f53ed3622fb93547b370876bfd6863",
+      "bff/node_modules/jsonwebtoken/lib/psSupported.js": "422fd617085929da78d1c4b2d4618af81bec231bffc635301056b4bd09a11b21",
+      "bff/node_modules/jsonwebtoken/lib/rsaPssKeyDetailsSupported.js": "affc2e0df7e8928b52c2a3078cf2b31541bc39d764ddfbbd5047bb70b3d2147f",
+      "bff/node_modules/jsonwebtoken/lib/timespan.js": "328f90a9a030c4d63159c75123e679c80e851ea9ea732d7f3345db7f4cd519d7",
+      "bff/node_modules/jsonwebtoken/lib/validateAsymmetricKey.js": "46c209d93f601141c15ed4c5b91a4d5742048f2bfbd04d1aaa5831c03f2b856b",
+      "bff/node_modules/jsonwebtoken/package.json": "54849822be7522aa777ad65eb962292558c317f449d7eb098e1d0ff46a2a0486",
+      "bff/node_modules/jsonwebtoken/sign.js": "00779cf25c179c89ff359a5544dea41850efb1c227f5c081cac04cf637ff53a8",
+      "bff/node_modules/jsonwebtoken/verify.js": "fa01db296dfa5585bff7b097187ef65fcb017d636ab9900799eb53e0acee0b85",
+      "bff/node_modules/jwa/LICENSE": "3320319f8a5f42bc4254e65471eca7a5ea4dc8c883c4c24b4868e36b14890bcf",
+      "bff/node_modules/jwa/README.md": "284f55cc1212b178fff15ba7b6db7dd4ea62e2b27a5929bddb2516e960bebf82",
+      "bff/node_modules/jwa/index.js": "8b51949114a92cdc8fac5b3cd14c7d6ade0c4a676791c2cffd922e7739933b82",
+      "bff/node_modules/jwa/package.json": "b9bb9207f37f9d48a2d705e65bc22c53acdc68c06830e741901f8e32855edf7f",
+      "bff/node_modules/jws/CHANGELOG.md": "f4c14c8fca7e129003793a3f3cca881dadab75cc3685af4e09bbc75132dd203c",
+      "bff/node_modules/jws/LICENSE": "3320319f8a5f42bc4254e65471eca7a5ea4dc8c883c4c24b4868e36b14890bcf",
+      "bff/node_modules/jws/index.js": "52b3ac7e9675ed8ef5a1ca48679f0d0da7e1f4639e297a503c9b541846704c52",
+      "bff/node_modules/jws/lib/data-stream.js": "21b28bf70f771856223b8f48c563ac6f7f0158eefe7ca5955dedc122f901fa20",
+      "bff/node_modules/jws/lib/sign-stream.js": "75bb778ed57146e9ee1b3cb0235bbbf78c17bfc1e85d34903a9067b41207b7e5",
+      "bff/node_modules/jws/lib/tostring.js": "f564b878221935e72e05caf3fbc483d44550f10958144d00fb2665beae771bfc",
+      "bff/node_modules/jws/lib/verify-stream.js": "ee9d879a54d2efc1174f67ad8ae570d0f7fac26a05bd70b92c828173b3449fef",
+      "bff/node_modules/jws/package.json": "df91b6d5b5711e70a83238092877cf6bc8214e3d47dd241640b71cf91b89885d",
+      "bff/node_modules/jws/readme.md": "e8dd2c6bddc506407beb0a67e1b17ed0c27963ef703161287d2092c0ea9c0d62",
+      "bff/node_modules/lodash.includes/LICENSE": "ffd8b33b354585f4ce119f19c53728281e48a97b074491eb6bf6d5c5ff305272",
+      "bff/node_modules/lodash.includes/README.md": "baea08cbf4d642e0e5e40ac3f8db161d448af67dcc6239948ce7b6edd0b87c6c",
+      "bff/node_modules/lodash.includes/index.js": "83318ef5471ffa444d442ab55e24ccb772671fbfcc3e494ed2c32715e85ebe8e",
+      "bff/node_modules/lodash.includes/package.json": "475341d4a8eb63cee296d0be3d0180bcf3731d2b9837d3ba74280044bc1e8f48",
+      "bff/node_modules/lodash.isboolean/LICENSE": "25a399d4a42f419445101092a1fc3f9b4bfe06d614f84128222d79e3a2105fe7",
+      "bff/node_modules/lodash.isboolean/README.md": "e7c286f0810d2b89d5b83ecd64ba0b37960b4b83bc92947a7e13d1a7ed292810",
+      "bff/node_modules/lodash.isboolean/index.js": "8fee48fd5bafd252cf16ceccc6fe0d3de14f91bdb99ea17287c5fd2af886b0d1",
+      "bff/node_modules/lodash.isboolean/package.json": "2eb21a69e5934d240b5f9b731eb088646c496e0255667ab852fce32e82048d2e",
+      "bff/node_modules/lodash.isinteger/LICENSE": "ffd8b33b354585f4ce119f19c53728281e48a97b074491eb6bf6d5c5ff305272",
+      "bff/node_modules/lodash.isinteger/README.md": "d97158b83bf82cbb642c108ee4cf4a6869f8a63ad4860eae01651131dc7ba40f",
+      "bff/node_modules/lodash.isinteger/index.js": "f08d39de94700d1d233ef6fc7dce458b0959dff006e97a1f071b3c33f4ed1631",
+      "bff/node_modules/lodash.isinteger/package.json": "7247346b82f902b15d2698360d45af5dfb5164f628bdc57b83c996b939a27408",
+      "bff/node_modules/lodash.isnumber/LICENSE": "25a399d4a42f419445101092a1fc3f9b4bfe06d614f84128222d79e3a2105fe7",
+      "bff/node_modules/lodash.isnumber/README.md": "14e23253247dad45c1f76efedb2efd20569aa65126684a44b87c998e6a35f269",
+      "bff/node_modules/lodash.isnumber/index.js": "8af07547259b1a9f9d55e5e9209242295ced23a63df9f6c0d6f3c58d913309de",
+      "bff/node_modules/lodash.isnumber/package.json": "73b6302bec5815d609e434b440bd8ecd45d3d71b650c0de88d400cab13891000",
+      "bff/node_modules/lodash.isplainobject/LICENSE": "ffd8b33b354585f4ce119f19c53728281e48a97b074491eb6bf6d5c5ff305272",
+      "bff/node_modules/lodash.isplainobject/README.md": "e16673134b617aea6220c5c0e8eee877ef2fbcb9d97b2aa7707dfa104747cb38",
+      "bff/node_modules/lodash.isplainobject/index.js": "0f8359da5d7830204b85d5afc6c6321ea35adee76b600531418382930cb90dba",
+      "bff/node_modules/lodash.isplainobject/package.json": "c76488b831ad65dfa3a3e51201c9eb2193313ba1bee05bad910e9c6fa613bcd7",
+      "bff/node_modules/lodash.isstring/LICENSE": "25a399d4a42f419445101092a1fc3f9b4bfe06d614f84128222d79e3a2105fe7",
+      "bff/node_modules/lodash.isstring/README.md": "9df20abc572c6aa3701e093e275e9e19e63f18ad986e1aa30ce42ba2d5642dc3",
+      "bff/node_modules/lodash.isstring/index.js": "d974a8434ce40a084b20268fd2b5a40161597961de3cc9679b68b407f5cb10b2",
+      "bff/node_modules/lodash.isstring/package.json": "6fb3bb13e2d77b249269f9b39d3bd0629206cccb44bf04968643a49678882d0e",
+      "bff/node_modules/lodash.once/LICENSE": "ffd8b33b354585f4ce119f19c53728281e48a97b074491eb6bf6d5c5ff305272",
+      "bff/node_modules/lodash.once/README.md": "15996ffb63cf9a1b50e7e336d94adc5d38bf9cf36e78ff8801faf7708bbe59ad",
+      "bff/node_modules/lodash.once/index.js": "0424069c17cc702b439db9bc25302bf0aa7c9037f3bfe2adc78ebeec66af4dc5",
+      "bff/node_modules/lodash.once/package.json": "7702448f49d390b35edfe095daa8bd684aba40069e0359c2bacf79606d1468e0",
+      "bff/node_modules/mime-db/HISTORY.md": "1e820a4ab3b25cc858eed9d2629ddb39bfd48bab307bedec769308c258199aa6",
+      "bff/node_modules/mime-db/LICENSE": "cc1dfd4dafa27271e8212cd3b274eeb3f262e40a6fdab36ddc3f9696f706f58b",
+      "bff/node_modules/mime-db/README.md": "5cc863fd64953afa39d206b510378b73e8c767c5fd124bb8d4017db921c94855",
+      "bff/node_modules/mime-db/db.json": "85c8e1ba609079947c8df83c092900ab0226e1d7b60e5e7105fb7dd701833263",
+      "bff/node_modules/mime-db/index.js": "2ccebf3d525708c915c6a86ffbb68e5023d34c9bc30b6b4021db9ebbc6ca9ecc",
+      "bff/node_modules/mime-db/package.json": "d03e37b915a050af548d543f4e45ff5de06ec767c19e745f18c431d9dc26b5bf",
+      "bff/node_modules/mime-types/HISTORY.md": "277b1cfc3e8fdb57e8b3fc9ebdef37d108ac13572b60091cccaf0e863167adc0",
+      "bff/node_modules/mime-types/LICENSE": "71f83c4c0621102a56d9853812777b85751bce7e9726f686f5b056c1f8a4b0e6",
+      "bff/node_modules/mime-types/README.md": "19e8eaca7dc91f7ad8e46114ce1689e4976368435f41a0039f48aaf27e5e6a20",
+      "bff/node_modules/mime-types/index.js": "8cfccaac306beb650d60c7f069ae0f4b39d648f1e3914696b18c133ab33e6419",
+      "bff/node_modules/mime-types/package.json": "5053cc10259c3913ab6b6c8f13170a619c0d1836c1d9081238329a559fafeb3a",
+      "bff/node_modules/ms/index.js": "e5f0b6a946a9b2b356a28557728410717df54ea2f599edb619f9839df6b7b0e9",
+      "bff/node_modules/ms/license.md": "1662fae9b5314d11cf51284e2dcd1f006a354f7343f08712a730fcff9a359801",
+      "bff/node_modules/ms/package.json": "1a6b4d9739790c0b94ab96c8cc0507e281c164c311ff4fbf5e57fb8d26290b40",
+      "bff/node_modules/ms/readme.md": "8bf6c4f414b123ea2a9375b91982882d01d8561ce7d12e3bb4f448c23359f040",
+      "bff/node_modules/negotiator/HISTORY.md": "6b25039b6a40f7fcb7eb6dc891418d154c4b4154284f58c6bffcb10ad7587a6d",
+      "bff/node_modules/negotiator/LICENSE": "553d4d20029a24e315b428a1a54a9e109eaa340f2e958a4f50a92362c2c4070b",
+      "bff/node_modules/negotiator/README.md": "b0350b39c18cf8f0d28f078913c91cccfcbe3ece1ec6c3cb8eb4c9fd64adb160",
+      "bff/node_modules/negotiator/index.js": "4f9279bcffc74199c671739f2d0e91fe5176a7f7e4683ca59809a50463a842bd",
+      "bff/node_modules/negotiator/lib/charset.js": "e6522a2df58f21a6cdf8d146f7e85b9a49bcaf68b813dec15068a8e84fc582c3",
+      "bff/node_modules/negotiator/lib/encoding.js": "35421dc78d3c1b608922427bbd6e524518168621ff1a44919fc591ca297e813c",
+      "bff/node_modules/negotiator/lib/language.js": "4aebb44da06094f2d56f0b20b4fbdd542cda00a4c9295e10bbe55203701c9024",
+      "bff/node_modules/negotiator/lib/mediaType.js": "0dab239c924fa4d5f823548e25dc9f10315bf490b821827b640318b7aa200577",
+      "bff/node_modules/negotiator/package.json": "8672e91f7395ce51ec789d883d7f7d872a40847bb83a6a3f89c3d1ded39e55d9",
+      "bff/node_modules/object-assign/index.js": "e02cb9714ef6e561e971fe400644330212f07ca86120587199470d8b759a4b7c",
+      "bff/node_modules/object-assign/license": "6fb9754611c20f6649f68805e8c990e83261f29316e29de9e6cedae607b8634c",
+      "bff/node_modules/object-assign/package.json": "5990bbffa235fc675debd925d50f6c3f48a2b4526d8c9f7555cadec9029d0d7f",
+      "bff/node_modules/object-assign/readme.md": "3261c0b6a6fb04216942dcf3d71e57fe0be681c1a816b1a5941dac9f81cf862d",
+      "bff/node_modules/safe-buffer/LICENSE": "c7cc929b57080f4b9d0c6cf57669f0463fc5b39906344dfc8d3bc43426b30eac",
+      "bff/node_modules/safe-buffer/README.md": "d301a850808775718ddb510d4bf2a922d9b0afa72894e67137daa20fbeafac05",
+      "bff/node_modules/safe-buffer/index.d.ts": "5e379df3d61561c2ed7789b5995b9ba2143bbba21a905e2381e16efe7d1fa424",
+      "bff/node_modules/safe-buffer/index.js": "184d5c4a83512e3f49d4d5b52f7073f601f933bad11f1fbb3ad364ca5e6478e1",
+      "bff/node_modules/safe-buffer/package.json": "e4018fdbfe625433371f48274fee26f520bbe865e0d8c85bf3aa07424134b90c",
+      "bff/node_modules/semver/LICENSE": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b",
+      "bff/node_modules/semver/README.md": "f1a789dcec285150be24db2ea04dd3175031554fa9834ec92fab83fb5e025a57",
+      "bff/node_modules/semver/bin/semver.js": "bd6c871026985937dc945011fc54b74b47f5998154216d7b8d40d5ed782e4402",
+      "bff/node_modules/semver/classes/comparator.js": "054202956430d63d5ff4599fae09760ce465b489e4f0b5ef5ce7cc7ac21157ac",
+      "bff/node_modules/semver/classes/index.js": "3bb69280c2a788d0eb16f915bb9df4dbe812075182024c753dca2283bcea1b17",
+      "bff/node_modules/semver/classes/range.js": "a6544485aa8575aa9854c67e2caa67726815de18a482d0ceb8a1003244de3bc1",
+      "bff/node_modules/semver/classes/semver.js": "813b2c185512d30c9b931c2fed8140889d9d7490ceeeedc370da30337dc8ca57",
+      "bff/node_modules/semver/functions/clean.js": "4eadb0892844cf3ae295121a86163a66c73f89acd1b7f0b114ec115b4539512f",
+      "bff/node_modules/semver/functions/cmp.js": "a63d74e87b73788e78e9ce0a4892b5333d6b809c0de88b31e4ed76cbf17f94b3",
+      "bff/node_modules/semver/functions/coerce.js": "28a251c5ab210ddf9e97551b9f37a53329fcce91f0c3943dcbc02de1a1de915a",
+      "bff/node_modules/semver/functions/compare-build.js": "5ab651d5b40af289bd85c645a92b6d8cfe1a986dc413c797cfcc8d623d7c844c",
+      "bff/node_modules/semver/functions/compare-loose.js": "07b6a3a1db0a5210ceb784c1708bd4679f3a94fc73a9c9eb349349e7070a6f78",
+      "bff/node_modules/semver/functions/compare.js": "d404b5aa48aaddc8a654c5da8fb7d4443404b7948589b21ac4b045d1cee4e34c",
+      "bff/node_modules/semver/functions/diff.js": "7a11fd39b987cdf06c65e928cb1aca49bec583feb86fb5c8fe47a6fd61d7de31",
+      "bff/node_modules/semver/functions/eq.js": "b6e30a7168e52723216fc163d300e2bbabf92ec0251f9ac5438bb6ccf57c8936",
+      "bff/node_modules/semver/functions/gt.js": "135523704aa48cd98834dd170ee9f74f0e68043b379f32d021db11e6304c5c93",
+      "bff/node_modules/semver/functions/gte.js": "991c5bbe48ecb210a562646872f05862ad9fc0d42186d85aa60bdc6fa323eb9d",
+      "bff/node_modules/semver/functions/inc.js": "952069fc8690b7d3af0fe9d55f7c54fe2ac067b48c5e74f6a54f9ce19a334493",
+      "bff/node_modules/semver/functions/lt.js": "1c897a9bc849320e2e9dc0f6c09555c01ee3ddf30734515d717b88ad7740ea25",
+      "bff/node_modules/semver/functions/lte.js": "3a8d0b1d00423f60cc7cb810b36ab77b61330831ad237dbe73eb5cecfa412800",
+      "bff/node_modules/semver/functions/major.js": "5c678480d882f511200fed2c16ec3847dfedb08a1d70328dc2f031d35d825276",
+      "bff/node_modules/semver/functions/minor.js": "1b051794f1713adec2a236517196691687c35f82e0b596ff3316a78b3cc10ae6",
+      "bff/node_modules/semver/functions/neq.js": "a662883751918822c162183b46b9e20d09489132f82686c92ab78bee67f3a127",
+      "bff/node_modules/semver/functions/parse.js": "29a69e15b6d02fe381d573f861881a89590e9d0f0f0ca740c5f85eaf0234c4ad",
+      "bff/node_modules/semver/functions/patch.js": "f02d3c1b059fe3d96ce124886f7eef321d381a95638fd3c4a8d5ccd8e76ffadd",
+      "bff/node_modules/semver/functions/prerelease.js": "baedbf503d5610ad041bfb56071efa48feb331ca278295c399537d35d3ffb593",
+      "bff/node_modules/semver/functions/rcompare.js": "84fa5e88adf08d15c993cac8cdec6d1a65045b7e95a9c55184230a7f807f4dc0",
+      "bff/node_modules/semver/functions/rsort.js": "6ec659ce3b6c2b173c719286caab04409adba046c0917874ec3b5e36ddfbc7e3",
+      "bff/node_modules/semver/functions/satisfies.js": "8cf5e122b757251671ed6c9d9680904b71cd375845853f05312e608cf2cc2946",
+      "bff/node_modules/semver/functions/sort.js": "c2fe2d3ed0be8a4e9de8f02abdfd5d9c0d3bcc510d88e87af84185592882c4b8",
+      "bff/node_modules/semver/functions/truncate.js": "e145833a250311927c92f424f56498c52f1b7bb1271ce6afbf006db87773ff43",
+      "bff/node_modules/semver/functions/valid.js": "0de7ea736cb7807179d46dfac09c830a9338e02b6a07db12d7040cde2def6025",
+      "bff/node_modules/semver/index.js": "4b3e57d3d40e29e0706002eba113d09f35aea593578376bbeec83b777b9912ab",
+      "bff/node_modules/semver/internal/constants.js": "38a112baf27ceca0260082ff26ac2fd7a9861cab1af12dd65e720277f68e6ce9",
+      "bff/node_modules/semver/internal/debug.js": "8a9f420572260f3cf944463b5090d62a60f0730589dc23a7ec4ca25e2ee41bb3",
+      "bff/node_modules/semver/internal/identifiers.js": "b4916b09dc7869ae0eb05e71c855c942a3a7365f7e6e89185d59a9e45a2451d7",
+      "bff/node_modules/semver/internal/lrucache.js": "14d087c87da87b6f5c36fc4cdd7d2d14077874b14a68e20fce5b6138fa2ca34f",
+      "bff/node_modules/semver/internal/parse-options.js": "fdf51d0de8d5442c35a997ef58cd530d239ce206f961d14c5121354451b01d01",
+      "bff/node_modules/semver/internal/re.js": "5833262888e2b5d843a69193f83c05e374818dbe55379b497819b5bf58e48cd8",
+      "bff/node_modules/semver/package.json": "7c94cb7f2a53c27b20d76386ec144c062894dbcc909cfabd0f728c37874b1776",
+      "bff/node_modules/semver/preload.js": "edb6808911bebcb324b2df57e5c9935149e56984ff083b74c6cfe215f5b710ba",
+      "bff/node_modules/semver/range.bnf": "15d0baf9b7b98e6d862c0cb9e822d2533d2bc23e136bb75314d802ca1fcb0392",
+      "bff/node_modules/semver/ranges/gtr.js": "8fadad28e36d28e93d498ac7ac20badba2a407312845eabc18e82e90a0732b19",
+      "bff/node_modules/semver/ranges/intersects.js": "fe87ac5d3020010ad3ec00636dadbf0c669ff07d0f57e0a8165a8264f79a676f",
+      "bff/node_modules/semver/ranges/ltr.js": "e5186fcc03018acf9be6d968755d4c49727aeb0d981d179eb568ae5fbe983038",
+      "bff/node_modules/semver/ranges/max-satisfying.js": "e1a2c0d6144cc772cd20bbc8ecb9e8a3a4074e9172a3d8e794838b591cdeb416",
+      "bff/node_modules/semver/ranges/min-satisfying.js": "2681abf54098aa670f12826b76a6ec77a2441186ae4243afde3be8ae4908f7ca",
+      "bff/node_modules/semver/ranges/min-version.js": "fefba0a88c2bf74d5cede504b5ae50a8dc3edfd69cf0174a491e2cf3e442614b",
+      "bff/node_modules/semver/ranges/outside.js": "3a2b0b23593d2f49419c06af2af75450cab103b0c25d665d48fe5bca495a21ca",
+      "bff/node_modules/semver/ranges/simplify.js": "7b78581c13322bc68ece2088685386b2a9b51c15b94d0a2063bdf2546bd41934",
+      "bff/node_modules/semver/ranges/subset.js": "ceb9eb6ed5bfc6c7ac7af7f47e5c3535444a4e66a0e2b58cdad4bd02a35d454d",
+      "bff/node_modules/semver/ranges/to-comparators.js": "6c5e966210cff270fa2850668aaf8460fac7759f8d99f282521ef7a78f4564e9",
+      "bff/node_modules/semver/ranges/valid.js": "5ef6f995af801868925940cf8df5735d565ebabb090b068695cae65218bcd3ac",
+      "bff/node_modules/socket.io/LICENSE": "70aebb46c7195354683546b0ffebd5989cb18e726e715d9ba71d964f929f0075",
+      "bff/node_modules/socket.io/Readme.md": "3c1cfdfc5537276c4c5a5d31bc35e86b1707e50b87eecbbf8040f897c5327763",
+      "bff/node_modules/socket.io/client-dist/socket.io.esm.min.js": "6e1fe90688a686dcd6baadc5a3bdc7aa741f8a01c147381af515a2ccca05f2fc",
+      "bff/node_modules/socket.io/client-dist/socket.io.esm.min.js.map": "55053e267c50150a0565bc1b245fd32a620216bfb22c27ed955a2b4b65f2ae3a",
+      "bff/node_modules/socket.io/client-dist/socket.io.js": "238040837b5172381b31d5721c7ff8993bdb761be29547b503e3a9b4e14c0f13",
+      "bff/node_modules/socket.io/client-dist/socket.io.js.map": "0656a912d96fe36d2aecb18e9b9bc678918468b61c21e8d5ae9661ee68b273e1",
+      "bff/node_modules/socket.io/client-dist/socket.io.min.js": "b0e735814f8dcfecd6cdb8a7ce95a297a7e1e5f2727a29e6f5901801d52fa0c5",
+      "bff/node_modules/socket.io/client-dist/socket.io.min.js.map": "4a708dc26393eb54c528a717bb2673f7dac47abf578dbf6b3b5e8ed96217d520",
+      "bff/node_modules/socket.io/client-dist/socket.io.msgpack.min.js": "f0524c2523ebbf63d3d51cee565acad8d8b62a7ae0c517e116786d76ed6f40ad",
+      "bff/node_modules/socket.io/client-dist/socket.io.msgpack.min.js.map": "b997433e691501cb8593cfa3a2dd16e38c7891f017ee006e98b83e0e83e91b06",
+      "bff/node_modules/socket.io/dist/broadcast-operator.d.ts": "bf4f6b0d2ae8d11dc940c20891f9a4a558be906a530b9d9a8ff1032afa1962cd",
+      "bff/node_modules/socket.io/dist/broadcast-operator.js": "d568bd45f9d9496f15648747a7ed7c43f5600ac60fe338bd14aa3eba6b1fca27",
+      "bff/node_modules/socket.io/dist/client.d.ts": "3633bbd3f89923076da1a15c0f5dc0ad93d01b7e8107ecf3d8d67bc5a042f44a",
+      "bff/node_modules/socket.io/dist/client.js": "742c204d067d389891977bc9c0531ccbd3b51cba6b54c2a792805420daca98ff",
+      "bff/node_modules/socket.io/dist/index.d.ts": "635208b7be579f722db653d8103bf595c9aad0a3070f0986cd0e280bcdff2145",
+      "bff/node_modules/socket.io/dist/index.js": "4bc66005fe9a1ca52d1ae165b502ab6f9edd3dff06396fb0b28364e0d6442481",
+      "bff/node_modules/socket.io/dist/namespace.d.ts": "70a5cb56f988602271e772c65cb6735039148d5e90a4c270e5806f59fc51d3a0",
+      "bff/node_modules/socket.io/dist/namespace.js": "d8642daa0523803212e87df6ffad95db32f52da0c5dbc34fa93f380d549cfbcf",
+      "bff/node_modules/socket.io/dist/parent-namespace.d.ts": "13decfc60558f61749f2b3523db574703216d294392ec642de89ce94b1cfa80c",
+      "bff/node_modules/socket.io/dist/parent-namespace.js": "c4da9e62907223ea5ec3fb7b8a85ad0051ace2fc9ad9513530ab00f59e18b547",
+      "bff/node_modules/socket.io/dist/socket-types.d.ts": "70da4bfde55d1ec74e3aa7635eae741f81ced44d3c344e2d299e677404570ca9",
+      "bff/node_modules/socket.io/dist/socket-types.js": "fdb03dca9bf7890f5f87d807ee6c656e811a4b134479b51144a9ef9400e76c55",
+      "bff/node_modules/socket.io/dist/socket.d.ts": "9975431639f84750a914333bd3bfa9af47f86f54edbaa975617f196482cfee31",
+      "bff/node_modules/socket.io/dist/socket.js": "fa4cf92d8574982d24b73b73e12ee54de4bc2fafb90055076a4e2f791ce2a70a",
+      "bff/node_modules/socket.io/dist/typed-events.d.ts": "c2f041fe0e7ae2d5a19c477d19e8ec13de3d65ef45e442fa081cf6098cdcbe2d",
+      "bff/node_modules/socket.io/dist/typed-events.js": "b8d8c4c0e326eb8c8a337111156331cc1098c29de36cfa82a327dab8eab672c4",
+      "bff/node_modules/socket.io/dist/uws.d.ts": "ed0a12e11c1ebbf309f9689be49063e1adb52a56099a9661c42c30171ac2c86d",
+      "bff/node_modules/socket.io/dist/uws.js": "e11fd464fba93460670f9b39e3826e9068c7f21b0715780c93f101299b4f75a1",
+      "bff/node_modules/socket.io/package.json": "bf167f1b77ef57ecd3ab7de78ee268f58cb578d7e284cbdaf8fcf0cc8d53c3f4",
+      "bff/node_modules/socket.io/wrapper.mjs": "2192948887e56329fe90c7a133ef9c0dad233ead38bfc42c592652a216caa5bf",
+      "bff/node_modules/socket.io-adapter/LICENSE": "7fcf6b69636551493328a8cd9a5241843d7b246b3c42ed7b06c777fc5f044b86",
+      "bff/node_modules/socket.io-adapter/Readme.md": "8babb3532adb3e25b0ed586afd521e1ede02d99c962869f5193c88a0a4937636",
+      "bff/node_modules/socket.io-adapter/dist/cluster-adapter.d.ts": "6dc488fd3d01e4269f0492b3e0ee7961eec79f4fc3ae997c7d28cde0572dbd91",
+      "bff/node_modules/socket.io-adapter/dist/cluster-adapter.js": "cd09c9ced6201e09a3251a3f89b7225d7dddbe9810f27276506dae2bc6f4e72b",
+      "bff/node_modules/socket.io-adapter/dist/contrib/yeast.d.ts": "f6eba48c45f55e8014fa9cccf951684127b992c2904cf9afe31c33ddf175f1ba",
+      "bff/node_modules/socket.io-adapter/dist/contrib/yeast.js": "e3db11605c4b1361e76c16d45cfba14012e55e7dab043d2f69af6b6daee65e3e",
+      "bff/node_modules/socket.io-adapter/dist/in-memory-adapter.d.ts": "198ae766bb698feb66d3188cfce59fb33696c951b10f901aa3fc3db4847ce76a",
+      "bff/node_modules/socket.io-adapter/dist/in-memory-adapter.js": "03fdfacaed9bc8dc86afaca8d163f02de9e6d3ca9d88cecf00abe37870f41690",
+      "bff/node_modules/socket.io-adapter/dist/index.d.ts": "a09b706f16bda9372761bd70cf59814b6f0a0c2970d62a5b2976e2fd157b920f",
+      "bff/node_modules/socket.io-adapter/dist/index.js": "8b0cc43feece34417f0b3546a9c1f3520ce528a9218a8d4597c26f9bb294baf2",
+      "bff/node_modules/socket.io-adapter/node_modules/debug/LICENSE": "3a61c6c96caf5c1d9b623fb9b04c822b783dfcb78aa7e49c76a3f643e6ed7f95",
+      "bff/node_modules/socket.io-adapter/node_modules/debug/README.md": "486cb669048bd5014adf9ea117e27a45c4e61b0e668f464c724273beb8170797",
+      "bff/node_modules/socket.io-adapter/node_modules/debug/package.json": "ea8e33d63fe5f3a4c36609b6c3df8e2ef1f8b8ba2fc3a2e1e53cb27291f384af",
+      "bff/node_modules/socket.io-adapter/node_modules/debug/src/browser.js": "19920671f5902f64ad8ea11767fa50ea9d7a71ae0b7dff7ba5693c0075afc763",
+      "bff/node_modules/socket.io-adapter/node_modules/debug/src/common.js": "dbe83d2bb5837f3c4d7fe537b8004c585987270eceed5b06b8e078deb0ae214a",
+      "bff/node_modules/socket.io-adapter/node_modules/debug/src/index.js": "aa127ff1752b7d9c7415c5c7bb6994d9aa722b81bcbcab4bd48316b013d23bf3",
+      "bff/node_modules/socket.io-adapter/node_modules/debug/src/node.js": "d7b26d7c92f8ea7794b77ce11f3c11cd18c9084df7c357e3c7025344fa28aac6",
+      "bff/node_modules/socket.io-adapter/package.json": "d54f9b0107949be4d36eedd82ab32264fd789f305b0d82b7b3e1f8a1702f35ac",
+      "bff/node_modules/socket.io-parser/LICENSE": "7fcf6b69636551493328a8cd9a5241843d7b246b3c42ed7b06c777fc5f044b86",
+      "bff/node_modules/socket.io-parser/Readme.md": "0db77793d3c879b191f26d23bf7ba550aafcde8fa9e7172b1127fadece9dc756",
+      "bff/node_modules/socket.io-parser/build/cjs/binary.d.ts": "f233d56f423b86ffc2039c61ca75a3a6a8aa3a943cf1ff29cc160486185ecb9c",
+      "bff/node_modules/socket.io-parser/build/cjs/binary.js": "4fc5fe786ef32616d6cd66e72a20940dcd57545eccc7e2ac50cec6d7841207a0",
+      "bff/node_modules/socket.io-parser/build/cjs/index.d.ts": "ba0badf6398010ef0ba77947d4b52078fc84cb4f209f6b70194b3b2cfb1823d8",
+      "bff/node_modules/socket.io-parser/build/cjs/index.js": "165fc15d1a6b0aca0b9bd9634f326feb17732a8c2cd98a9beb2a9cbfacc47596",
+      "bff/node_modules/socket.io-parser/build/cjs/is-binary.d.ts": "18c2d00fd714ac53e624bf36195c5aa5c0490d6d72755063724a97ffb3d3b385",
+      "bff/node_modules/socket.io-parser/build/cjs/is-binary.js": "ff6910552f7d393a7ca95fc38db655941c356ab99d0917d1b053b193f19a2eff",
+      "bff/node_modules/socket.io-parser/build/cjs/package.json": "8005a3491db7d92f36ac66369861589f9c47123d3a7c71e643fc2c06168cd45a",
+      "bff/node_modules/socket.io-parser/build/esm/binary.d.ts": "f233d56f423b86ffc2039c61ca75a3a6a8aa3a943cf1ff29cc160486185ecb9c",
+      "bff/node_modules/socket.io-parser/build/esm/binary.js": "d6cf976d8453b83c37120f5bea26a57135176ce26c7a28cd9a307cd5d36663e9",
+      "bff/node_modules/socket.io-parser/build/esm/index.d.ts": "ba0badf6398010ef0ba77947d4b52078fc84cb4f209f6b70194b3b2cfb1823d8",
+      "bff/node_modules/socket.io-parser/build/esm/index.js": "24dc7d3144542d5bba64f5b5c858e8a88f28d8eafeb0bf0af3cd2d489c0619f4",
+      "bff/node_modules/socket.io-parser/build/esm/is-binary.d.ts": "18c2d00fd714ac53e624bf36195c5aa5c0490d6d72755063724a97ffb3d3b385",
+      "bff/node_modules/socket.io-parser/build/esm/is-binary.js": "9c17fb7d2b80050e07e5bbd56c516d4c461e777ccbdd2d8e56c390cebfd32265",
+      "bff/node_modules/socket.io-parser/build/esm/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "bff/node_modules/socket.io-parser/build/esm-debug/binary.d.ts": "f233d56f423b86ffc2039c61ca75a3a6a8aa3a943cf1ff29cc160486185ecb9c",
+      "bff/node_modules/socket.io-parser/build/esm-debug/binary.js": "d6cf976d8453b83c37120f5bea26a57135176ce26c7a28cd9a307cd5d36663e9",
+      "bff/node_modules/socket.io-parser/build/esm-debug/index.d.ts": "ba0badf6398010ef0ba77947d4b52078fc84cb4f209f6b70194b3b2cfb1823d8",
+      "bff/node_modules/socket.io-parser/build/esm-debug/index.js": "e92323ef75828d325da4669b746568710fa72078b577abea51d8bf62ce1fd55f",
+      "bff/node_modules/socket.io-parser/build/esm-debug/is-binary.d.ts": "18c2d00fd714ac53e624bf36195c5aa5c0490d6d72755063724a97ffb3d3b385",
+      "bff/node_modules/socket.io-parser/build/esm-debug/is-binary.js": "9c17fb7d2b80050e07e5bbd56c516d4c461e777ccbdd2d8e56c390cebfd32265",
+      "bff/node_modules/socket.io-parser/build/esm-debug/package.json": "3ca9d4afd21425087cf31893b8f9f63c81b0b8408db5e343ca76e5f8aa26ab9a",
+      "bff/node_modules/socket.io-parser/node_modules/debug/LICENSE": "3a61c6c96caf5c1d9b623fb9b04c822b783dfcb78aa7e49c76a3f643e6ed7f95",
+      "bff/node_modules/socket.io-parser/node_modules/debug/README.md": "486cb669048bd5014adf9ea117e27a45c4e61b0e668f464c724273beb8170797",
+      "bff/node_modules/socket.io-parser/node_modules/debug/package.json": "ea8e33d63fe5f3a4c36609b6c3df8e2ef1f8b8ba2fc3a2e1e53cb27291f384af",
+      "bff/node_modules/socket.io-parser/node_modules/debug/src/browser.js": "19920671f5902f64ad8ea11767fa50ea9d7a71ae0b7dff7ba5693c0075afc763",
+      "bff/node_modules/socket.io-parser/node_modules/debug/src/common.js": "dbe83d2bb5837f3c4d7fe537b8004c585987270eceed5b06b8e078deb0ae214a",
+      "bff/node_modules/socket.io-parser/node_modules/debug/src/index.js": "aa127ff1752b7d9c7415c5c7bb6994d9aa722b81bcbcab4bd48316b013d23bf3",
+      "bff/node_modules/socket.io-parser/node_modules/debug/src/node.js": "d7b26d7c92f8ea7794b77ce11f3c11cd18c9084df7c357e3c7025344fa28aac6",
+      "bff/node_modules/socket.io-parser/package.json": "26c2d96afa88fafe2a7fba00d73ed6c04a2dc11026a44fab27b6c84b4563a119",
+      "bff/node_modules/undici-types/LICENSE": "a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27",
+      "bff/node_modules/undici-types/README.md": "c8cced6ec588c55b07e35733258cb7d6b63e3426ee7490aa9267aab4bda0fb20",
+      "bff/node_modules/undici-types/agent.d.ts": "4893a895ea92c85345017a04ed427cbd6a1710453338df26881a6019432febdd",
+      "bff/node_modules/undici-types/api.d.ts": "0db18c6e78ea846316c012478888f33c11ffadab9efd1cc8bcc12daded7a60b6",
+      "bff/node_modules/undici-types/balanced-pool.d.ts": "ba7bc87d01492633cb5a0e5da8a4a42a1c86270e7b3d2dea5d156828a84e4882",
+      "bff/node_modules/undici-types/cache.d.ts": "c46e079fe54c76f95c67fb89081b3e399da2c7d109e7dca8e4b58d83e332e605",
+      "bff/node_modules/undici-types/client.d.ts": "1d6e127068ea8e104a912e42fc0a110e2aa5a66a356a917a163e8cf9a65e4a75",
+      "bff/node_modules/undici-types/connector.d.ts": "c6fd2c5a395f2432786c9cb8deb870b9b0e8ff7e22c029954fabdd692bff6195",
+      "bff/node_modules/undici-types/content-type.d.ts": "2e85db9e6fd73cfa3d7f28e0ab6b55417ea18931423bd47b409a96e4a169e8e6",
+      "bff/node_modules/undici-types/cookies.d.ts": "89167d696a849fce5ca508032aabfe901c0868f833a8625d5a9c6e861ef935d2",
+      "bff/node_modules/undici-types/diagnostics-channel.d.ts": "4732aec92b20fb28c5fe9ad99521fb59974289ed1e45aecb282616202184064f",
+      "bff/node_modules/undici-types/dispatcher.d.ts": "6bdc71028db658243775263e93a7db2fd2abfce3ca569c3cca5aee6ed5eb186d",
+      "bff/node_modules/undici-types/env-http-proxy-agent.d.ts": "24c6a117721e606c9984335f71711877293a9651e44f59f3d21c1ea0856f9cc9",
+      "bff/node_modules/undici-types/errors.d.ts": "5ded6427296cdf3b9542de4471d2aa8d3983671d4cac0f4bf9c637208d1ced43",
+      "bff/node_modules/undici-types/eventsource.d.ts": "8bd86b8e8f6a6aa6c49b71e14c4ffe1211a0e97c80f08d2c8cc98838006e4b88",
+      "bff/node_modules/undici-types/fetch.d.ts": "c464d66b20788266e5353b48dc4aa6bc0dc4a707276df1e7152ab0c9ae21fad8",
+      "bff/node_modules/undici-types/file.d.ts": "25c8056edf4314820382a5fdb4bb7816999acdcb929c8f75e3f39473b87e85bc",
+      "bff/node_modules/undici-types/filereader.d.ts": "317e63deeb21ac07f3992f5b50cdca8338f10acd4fbb7257ebf56735bf52ab00",
+      "bff/node_modules/undici-types/formdata.d.ts": "78d0d27c130d35c60b5e5566c9f1e5be77caf39804636bc1a40133919a949f21",
+      "bff/node_modules/undici-types/global-dispatcher.d.ts": "cadc8aced301244057c4e7e73fbcae534b0f5b12a37b150d80e5a45aa4bebcbd",
+      "bff/node_modules/undici-types/global-origin.d.ts": "385aab901643aa54e1c36f5ef3107913b10d1b5bb8cbcd933d4263b80a0d7f20",
+      "bff/node_modules/undici-types/handlers.d.ts": "11396ed8a44c02ab9798b7dca436009f866e8dae3c9c25e8c1fbc396880bf1bb",
+      "bff/node_modules/undici-types/header.d.ts": "5929864ce17fba74232584d90cb721a89b7ad277220627cc97054ba15a98ea8f",
+      "bff/node_modules/undici-types/index.d.ts": "bf67d53d168abc1298888693338cb82854bdb2e69ef83f8a0092093c2d562107",
+      "bff/node_modules/undici-types/interceptors.d.ts": "e61be3f894b41b7baa1fbd6a66893f2579bfad01d208b4ff61daef21493ef0a8",
+      "bff/node_modules/undici-types/mock-agent.d.ts": "13f6f39e12b1518c6650bbb220c8985999020fe0f21d818e28f512b7771d00f9",
+      "bff/node_modules/undici-types/mock-client.d.ts": "9b5369969f6e7175740bf51223112ff209f94ba43ecd3bb09eefff9fd675624a",
+      "bff/node_modules/undici-types/mock-errors.d.ts": "24515859bc0b836719105bb6cc3d68255042a9f02a6022b3187948b204946bd2",
+      "bff/node_modules/undici-types/mock-interceptor.d.ts": "c21dc52e277bcfc75fac0436ccb75c204f9e1b3fa5e12729670910639f27343e",
+      "bff/node_modules/undici-types/mock-pool.d.ts": "4fe9e626e7164748e8769bbf74b538e09607f07ed17c2f20af8d680ee49fc1da",
+      "bff/node_modules/undici-types/package.json": "c003ae7d36f477ebe991120ed2883ea0c2507d581c2a054bac6b6e82a8d3e9a7",
+      "bff/node_modules/undici-types/patch.d.ts": "615ba88d0128ed16bf83ef8ccbb6aff05c3ee2db1cc0f89ab50a4939bfc1943f",
+      "bff/node_modules/undici-types/pool-stats.d.ts": "9670d44354bab9d9982eca21945686b5c24a3f893db73c0dae0fd74217a4c219",
+      "bff/node_modules/undici-types/pool.d.ts": "0b8a9268adaf4da35e7fa830c8981cfa22adbbe5b3f6f5ab91f6658899e657a7",
+      "bff/node_modules/undici-types/proxy-agent.d.ts": "ea0148f897b45a76544ae179784c95af1bd6721b8610af9ffa467a518a086a43",
+      "bff/node_modules/undici-types/readable.d.ts": "24bd580b5743dc56402c440dc7f9a4f5d592ad7a419f25414d37a7bfe11e342b",
+      "bff/node_modules/undici-types/retry-agent.d.ts": "405822be75ad3e4d162e07439bac80c6bcc6dbae1929e179cf467ec0b9ee4e2e",
+      "bff/node_modules/undici-types/retry-handler.d.ts": "dd3273ead9fbde62a72949c97dbec2247ea08e0c6952e701a483d74ef92d6a17",
+      "bff/node_modules/undici-types/util.d.ts": "bd0532fd6556073727d28da0edfd1736417a3f9f394877b6d5ef6ad88fba1d1a",
+      "bff/node_modules/undici-types/webidl.d.ts": "a7cab89cc9452c06a6cd2c2a089d158ec51035b2cc886ae2d09dd2c3fef503ec",
+      "bff/node_modules/undici-types/websocket.d.ts": "a4d551dbf8746780194d550c88f26cf937caf8d56f102969a110cfaed4b06656",
+      "bff/node_modules/vary/HISTORY.md": "273b0ea4abb4c7357db4eed63e84f7a283847ed0165d041b25be37071284d7e5",
+      "bff/node_modules/vary/LICENSE": "bd47ce7b88c7759630d1e2b9fcfa170a0f1fde522be09e13fb1581a79d090400",
+      "bff/node_modules/vary/README.md": "03444f916ddb9a1c692c329f88b83b1a21d016dce46656091f21e903109dd65c",
+      "bff/node_modules/vary/index.js": "8e40311960636d40473c57e335bbca115036766bf150df296b941256432ab410",
+      "bff/node_modules/vary/package.json": "73edaee964d527117a9f69d6360fbe6cec534abd9127794be01a6af58a139daa",
+      "bff/node_modules/ws/LICENSE": "2b29dcfe0d6471f7e8c92c5fb38c9f93edee10330937055440192f1832b1ecef",
+      "bff/node_modules/ws/README.md": "bb979132f3cbff08ce47f36d041e18071f8f534d01f591c0b129ba7abf1e480e",
+      "bff/node_modules/ws/browser.js": "010da44addea1d88b2b732540c3f1fd0cbcb28926b96623d4c64222e0ead2d0e",
+      "bff/node_modules/ws/index.js": "924564d5be26d59b9682c4263f68320e48dde7240bd2d1ad17ec305537429dd2",
+      "bff/node_modules/ws/lib/buffer-util.js": "8b0a45739132f82e25ea13163780abf547ccfe989267f3eb7abb475beec92da3",
+      "bff/node_modules/ws/lib/constants.js": "391e823142b8b370e55a2fd32b022deaf03b8415c56000009674ebc86a0b4f86",
+      "bff/node_modules/ws/lib/event-target.js": "c45d3c6e12d170c860c0c3f1a050aa0f864d9806632b609a1e607d675aba128c",
+      "bff/node_modules/ws/lib/extension.js": "852564f0f6b460287043803eae732666fb5610f676874354fc89f06aa4e986ed",
+      "bff/node_modules/ws/lib/limiter.js": "e0469d4b83f6ba764b15f80e1766b75c136fbff68f048f4c050f0b1c7f065f69",
+      "bff/node_modules/ws/lib/permessage-deflate.js": "16a91536988a53c23047ee5882392068728a839a244178c3b09b8c54982f58b0",
+      "bff/node_modules/ws/lib/receiver.js": "a6ada33c9a2d54eaf595824b821ea89ca2c6395f89aa06755c52142148274884",
+      "bff/node_modules/ws/lib/sender.js": "d0791d30c3defd44dcabbddb879a901c757993fea2c00a7ffea01d53b23b4b77",
+      "bff/node_modules/ws/lib/stream.js": "a56fcb6e2b152097ee820b6f5410b1f71e59819b45d08d9f8bda588fe39070ec",
+      "bff/node_modules/ws/lib/subprotocol.js": "be3f6323d6f549568577dcba9004c1479d95c65a7abb0fe0c582875b9fac0b7c",
+      "bff/node_modules/ws/lib/validation.js": "41ce8e83d0d434132e1704895fedb91f6703a701b42d91c80954ab29b2845593",
+      "bff/node_modules/ws/lib/websocket-server.js": "6d8dd89a841748c80445fd5fcdb5ba8005369b53cc3525135e11304c8b9c55e5",
+      "bff/node_modules/ws/lib/websocket.js": "de5add831db49e159d3ee0adb1c5e042eba3af13166374c5584f4fc520d1e734",
+      "bff/node_modules/ws/package.json": "a56a3fd55945a3ce177e3ca165dafae6f7eb03b7aefd58c092ac723d5741a6fb",
+      "bff/node_modules/ws/wrapper.mjs": "fe154662301fd558f935f9c217fccbe7a7dac02ff39e648a000589403ff27c7f",
+      "bff/package-lock.json": "a86084499840b96f18cb985ec8cf850d58c2f48b84b55f5d85629d95f63f038d",
+      "bff/package.json": "9d49144c2c0c91a8bf48ce9ad516709142ab6050cc181804040da88b48ce755b",
+      "bin/cli": "5c2417be7aba14552eb11937b86c5b3a521e386c557cad9f120bee81242d078e",
+      "bin/server": "65b1273c3cf0079cff429cc5b5fa1c002cc81a8a8f09566620cb974368215ade",
+      "bin/worker": "767fa7b187608e4237fa7e660b1a5a6d5031b7847c0ce71d9a4e14d155715b28",
+      "web/assets/index-oZrvnOnV.js": "ff41c76de8ab3fa448faf577d14f03df7222ef314714b7594e8f9706419262e8",
+      "web/index.html": "d73ecc77a79fe7506ac8af3b9baa3914d994f3508de56a4a47083ab2a70b8ef2",
+      "web/vendor/builder_bundle.js": "acb126bd29eb60678f31ff7bbacf9511735c8ef3376f28a1901bb8876f90e2bd",
+      "web/vendor/sbadmin2/bootstrap.rtl.min.css": "17bc42466b068cd063bb2712863eca5edbc478e756483081f20e2114a38fc167",
+      "web/vendor/sbadmin2/fontawesome-free/LICENSE.txt": "e779748dfe75e84f974df3c7bc07f842011a100159158b0f1f49b2f2a5a515cb",
+      "web/vendor/sbadmin2/fontawesome-free/attribution.js": "9d03ca6ee84a1a6d98aa93f9dd127e38650c3934a5834958c989975f2075cd77",
+      "web/vendor/sbadmin2/fontawesome-free/css/all.css": "e5ad31a47913cdfc2470acd4e304982fae2bccf62098855fecf3b84c1e7fea34",
+      "web/vendor/sbadmin2/fontawesome-free/css/all.min.css": "d87ddf917b7a1449ab45e2b8e3c98354629bdd65b6659c37e6023bbea1ce1386",
+      "web/vendor/sbadmin2/fontawesome-free/css/brands.css": "5009a34e30063ffb89185274681b359ae8c7dac19a606d5b1456ee3524cbc9b0",
+      "web/vendor/sbadmin2/fontawesome-free/css/brands.min.css": "9cd63b8cea25045c14623c538d26752518a58c0c682795ce6ad3078976c65a37",
+      "web/vendor/sbadmin2/fontawesome-free/css/fontawesome.css": "6c8a43c064568306ec2b5683aff284eb653b6ecb7a9a0dcc10f71a7c791209e8",
+      "web/vendor/sbadmin2/fontawesome-free/css/fontawesome.min.css": "d01a2ba2805c78957e15a2958135de0f3cb88e95159dd0f6c0a032bd76b1b0e9",
+      "web/vendor/sbadmin2/fontawesome-free/css/regular.css": "24e7548e642e318f06ba0aa050d34114011823ee23493dfedffd5be475674bc3",
+      "web/vendor/sbadmin2/fontawesome-free/css/regular.min.css": "eea3d6ccda7f6503078cce9dc41176c1357af1c93a5b3625131ef7cf21c9d7c4",
+      "web/vendor/sbadmin2/fontawesome-free/css/solid.css": "93cf6e96459e42f9f656e03ec4800578dc2c021dcde475c9e5e891a7780b0866",
+      "web/vendor/sbadmin2/fontawesome-free/css/solid.min.css": "37bab6cd583982e8eff58501a99d7c5c4d63664c1ca34f9e3b7cf526c5b73ae2",
+      "web/vendor/sbadmin2/fontawesome-free/css/svg-with-js.css": "dbde840ede1ea6b43a448506ea4cc6852e0ea8ce96728e1bc1b77dd738ab390b",
+      "web/vendor/sbadmin2/fontawesome-free/css/svg-with-js.min.css": "68bafa0f646e385fe6da7a839ef32c0f0b6d0abd7284f0cce68435c770955025",
+      "web/vendor/sbadmin2/fontawesome-free/css/v4-shims.css": "506883bdac14441996fec728ae88d87ac48288e269505d7a35e77ac1e4cff8f6",
+      "web/vendor/sbadmin2/fontawesome-free/css/v4-shims.min.css": "c55902832fb84522d02ea1a60a30747403a140d8651fa748f13ba398b0c0df3a",
+      "web/vendor/sbadmin2/fontawesome-free/js/all.js": "beb46f3cba0f67d878f08b437a7b7c5f8fb70f0e00f5525567706c2c2e6927ef",
+      "web/vendor/sbadmin2/fontawesome-free/js/all.min.js": "bb5d7f5d023603a9a95dad23d69d25d14a4edd9ba2313227194a9a4f62bd6564",
+      "web/vendor/sbadmin2/fontawesome-free/js/brands.js": "4aa43bdb1440db701b9ad18869b735f0bfa80fb3abfa01984346f93f7f80a82e",
+      "web/vendor/sbadmin2/fontawesome-free/js/brands.min.js": "07d6409242e0d694a32c7bef08a184a485156f143d440c95c2490df60e9eabb7",
+      "web/vendor/sbadmin2/fontawesome-free/js/conflict-detection.js": "0a20967733e721ba225da1094fccd5cdc187727a6041521b4a6bb662f0a09d0b",
+      "web/vendor/sbadmin2/fontawesome-free/js/conflict-detection.min.js": "40a089458a1195f8e637038679d6c97c7d2311e0aaae48ea865c8c6fd554d81f",
+      "web/vendor/sbadmin2/fontawesome-free/js/fontawesome.js": "edce7b8d3a5dfe3e92ea353adcec272d807f2af4891ccfc34f8e60f162406ad8",
+      "web/vendor/sbadmin2/fontawesome-free/js/fontawesome.min.js": "c4b00ade203a089a1a0bcf4efc38689e9202bdfe5099d5a170f2722433b2c093",
+      "web/vendor/sbadmin2/fontawesome-free/js/regular.js": "f9430ca01ab54ec5f534cbd45d18f4a1d21537d45eb08915c35f83998830a880",
+      "web/vendor/sbadmin2/fontawesome-free/js/regular.min.js": "ac818c126a6e440118442b82da46942f0cc5cde78a8edee0061cf0f3e542f7a2",
+      "web/vendor/sbadmin2/fontawesome-free/js/solid.js": "a74098b412ecbdc6d9c44bd8111230e03813007b1954d44cbddf3421474a7ed6",
+      "web/vendor/sbadmin2/fontawesome-free/js/solid.min.js": "bf411a79f100105423e2d7b9d3aa96cc3e07b389798bf9d499dae2400b24b376",
+      "web/vendor/sbadmin2/fontawesome-free/js/v4-shims.js": "ad8842146be81b94ee9e6c75a9b3a8ae05648ced83f938b3bdd9e60caeb6e05a",
+      "web/vendor/sbadmin2/fontawesome-free/js/v4-shims.min.js": "20300100094e90346cf651b61131de9093dbb9651a1a862dfd28222c78234aa8",
+      "web/vendor/sbadmin2/fontawesome-free/package.json": "39680bc044e3b1642b677324a4e6f1b59d731a46b5708f62c3f79a1b2f83de15",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-brands-400.eot": "407a9723fc717c94e287496080d773e18e29c3cac49e2630172343c65c0864a8",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-brands-400.svg": "679b5a5216bbdf913cc22d6ae44778c1ef975ee387a6c4c5de87e75d19a22232",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-brands-400.ttf": "06f4d00923ea24697df5df0b92984175991d8bd25776a02d531bb401e393ec42",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-brands-400.woff": "aff76e5c986f295d4bc6f8142a78e2a31888b101c2d025db89f79c75f64fd90b",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-brands-400.woff2": "43c072c16c9ee6d67acdfa6c6d6685ff1e74eb4237b7cc3c1348ab1c108b26af",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-regular-400.eot": "cf83ffb8cf0023bd439dfdd5d02f1954b6ee027e85897d6cfc5f90bbca9ec1d2",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-regular-400.svg": "2326849b6c3dfa217a0e9ecaec9553c910a4e2987c87315c85073d2b95a484f3",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-regular-400.ttf": "c651b8a67d3193206f622c3c3b0fbca4a2f2727108c4212b52c1e2a2e84c9b31",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-regular-400.woff": "14c9db4ff87fde08f67b0a69dd594bab6d87174812a0dbd34c59833bfed8cc0e",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-regular-400.woff2": "8afc6e5e842baab16010c2ce6fcf48ec4ded8e1579a37c1f1bc027e120d04951",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-solid-900.eot": "75a761159ae266c5332a4f266e07a5543712ffb76ee0260b07782195c04dc364",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-solid-900.svg": "fa498fb2596a5235c5c86d7b68a7fbe76e9855c01af4b0e5ab41c41047c648e0",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-solid-900.ttf": "3d06af1f31cd83ace7a265a014b8fb5dee15770ecac8f7a55555190e627e03c2",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-solid-900.woff": "74edc18b67c487e32f181719fdb347e2e77020744651f446e9acd7bd6821e2e7",
+      "web/vendor/sbadmin2/fontawesome-free/webfonts/fa-solid-900.woff2": "d0b4256abed72481585662971262eabee345c19f837af00d7ce24239d3b40eef",
+      "web/vendor/sbadmin2/nunito/css/nunito/nunito-fontface.css": "44f3a0cc7891071574a619544e8a65ee8c5b763d929fb49ba20735ca7ef1dd90",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Black.eot": "019fbd20d0b71fd3486d33858965e75154c7a642f4c01b88bb39d90ccbe36bf4",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Black.svg": "c36efbb2b0a80f507d38f66480f6cf992a5d00fbd5c439919611320719373a63",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Black.ttf": "a9425121e39d5cb6c78a02c012305491490428183fe3b75909e5eaf668f10a16",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Black.woff": "89e7c46b9f62bb208a52828137ceac0ce4e6eb20c574bbf7c49a09642f6acee3",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Black.woff2": "b7997afba508bc024fb53d3bb1d95ca6b7a11d980c5b51514e59bffbb93d2732",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-BlackItalic.eot": "4148dfb24cf24e94019cae6b93e38a60482557b1ee2e83ae36154280034ea242",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-BlackItalic.svg": "f36d2ac7c935867468d4a91ad12441e8a6c32b1e9720bce6c667109a02891066",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-BlackItalic.ttf": "4d18e3a9d8e005c4b51cb346342327efa001188b5a6aebb820e5bea3a6bd0fef",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-BlackItalic.woff": "faea7f365a9db8f3c887d5558bf475970e4f6821e6945246e9cbb668fa2e0fa5",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-BlackItalic.woff2": "7349ff936199254e4afccafbec6706e009a7c3933b865d99c512b9ba24b47a4d",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Bold.eot": "313c7d715237602a21142a6efe86ee27a68105bdf876502de31ca71ee2a385ef",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Bold.svg": "676b8e942e57772a706722c52aab3f4f50b215ced151b139855f0fc50f2e351e",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Bold.ttf": "de974fc8769d2fe5a8977e4655a79a2e817ad7e65909e8cabde77576e60e9ff8",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Bold.woff": "e951003c4fa168eb481316255e8ffb6e31ac390b89b246710ff26a6fc8b1dd76",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Bold.woff2": "614ac1b8fd2c73a4328cb5c8357d18f818f7f5b6dcc4ee177e94dd451dbf35ee",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-BoldItalic.eot": "5590d490be12e0d30d96b3fab0cc0ff21816b7f120769d251c028b18df9f9afb",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-BoldItalic.svg": "5c4e55c91422c0c1b651daa68407787bcde7dba9fe4622074928df5d2a024f06",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-BoldItalic.ttf": "f07144d581bc6ad1b2e0c8073191f2ad3e2bd5ce873c081b087c51021705c2ef",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-BoldItalic.woff": "c677686054a0a4d6a62761277e1133541ec446193592ebcd8a2d6ab1abd393c9",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-BoldItalic.woff2": "cbfe23a01069e384bf55571c963418a36a52022a44f7356e2d5cb8d641e13ef3",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Extrabold.eot": "12d18a3184567d096534e1c35cfdbe61f4e7753e762d210a8b35c75631d22f30",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Extrabold.svg": "fd89cc0212186138dffd5e3cc06eddd298a7e067a75708cae7bd75f5c2b7dab5",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Extrabold.ttf": "646dab057c22aa8495c16c63083a596c7fc8bb95ef2a6ef541951188c126dabf",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Extrabold.woff": "5ab077363dcfbf223cd236d933096d41b1f7a5e1e1571df8eb37f7042c8ebbf6",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Extrabold.woff2": "10e01dad5a33417ae4247028469b419217a48fec8816768497b1ad61619785d9",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-ExtraboldItalic.eot": "c4cd0f5d4297adad3263398c45ae750bb9c941287b37af8474d99a929ff50f37",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-ExtraboldItalic.svg": "f95c8a6cedd0459154496b17facc44dd8a616841a1a808674f5146a97259b920",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-ExtraboldItalic.ttf": "6f3e35aeab62f612075c77fe4c59270034bfbe1a8f70e6a3d347f55740e64ae9",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-ExtraboldItalic.woff": "8d38cc6dbbe94ed8aeeac55a8569b5b9b8c36f8dec7dc176630f03bbaaf58adc",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-ExtraboldItalic.woff2": "3cee1e87b313e65fe9f1f0f8540345faa61daf11b052b160bf7702a93d12c9ec",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Extralight.eot": "7d9e7cb7281c6b16d51c5456ab0dc6be3a6384794d029320208b86561865cb80",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Extralight.svg": "25c9f90851080012ae9d9007a87fc63ead1080e0963894964f55cb38c167f8d8",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Extralight.ttf": "dcaa3651e4300601b14f99cdf2d6e07bb26bb9004a04637cb2c80eb09b6c454f",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Extralight.woff": "8a17e8703682f60973858438162ae57edcac937ca04b2bebc82974e73c9f517a",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Extralight.woff2": "0b70e23ecd449623fa34711351b465d386cd1a93e3d72728ea689414790147c3",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-ExtralightItalic.eot": "d94b53ab911fef1dffc5430dacf98098507d2639aec40bfee6bdd251cbba01bc",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-ExtralightItalic.svg": "43427a0931308ade6aefbeb29e44a34ef71e5e45ce70db497c8a301a0667d2d4",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-ExtralightItalic.ttf": "e7cbb1b014d850a2c1ebe73ac2d99b2538516cff1cc12576c15932a87acd3c70",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-ExtralightItalic.woff": "4acd20375c30023f434fd53510d499dcac312be1790cac93abe18556f989ced3",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-ExtralightItalic.woff2": "c16d00585b5ff73c376c8b42af55babcdfe5f7fe32d3138150790a7305818c77",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Light.eot": "202e2816a4e89cc15637a293e660556046e23145ed321dda90d8195a128a9360",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Light.svg": "063b79178fc880ec3771f8acec40ff60fd368e1eab8a0eae230b2a8ce2f351da",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Light.ttf": "486538f824c35e160a364dd294bc3ac8e58ac0d3abf05da15881c0794348ab21",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Light.woff": "95ea893c8077511d5ba61c6062e9da88a6e7e21f9ea3e5cca57b3b09a3559673",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Light.woff2": "234c40cb34a885c71333f18dba31a6ede7cede2ad053c6fe59892c67cbb42ff3",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-LightItalic.eot": "287de24a74f2668512f653c9d8afe30e68a34e25ff7b5d9ad3c905078d31359d",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-LightItalic.svg": "f8efd3dd4459b208c7d648e23af46ffa79af81be19a3ef0c65000cf29d753aec",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-LightItalic.ttf": "648d34fd26998acae8dec28840b446b880cad77a98da6cff6749bea1664bedf0",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-LightItalic.woff": "70185695afd636530177151db245fa6f4730b28b8aed680093c16bf5ab06512d",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-LightItalic.woff2": "06312fd17b269b536852031d4c9aab39bc5efac6d182ff1a9b5bb0f761e61a89",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Medium.eot": "690484f36a2b1d28bcb4d7e590d446607fd3a7cf0cd0a762ba5faec009119cfe",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Medium.svg": "15f98ab0368d522c0a71d0fc08c68e547a40694a5a4eb47ea523ec0349fb1bab",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Medium.ttf": "2383f9c5f185b8881f674a98ef90958b45183eb292c54a4130f3546930d34a47",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Medium.woff": "58324e0768d83c138fd1eadeb62680717ed150f7d85623eab11d4850af98a38a",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Medium.woff2": "9ee66e7d71e50fb9a8c22e39833cd841338a613286bf712abc8deb8327cd83b6",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-MediumItalic.eot": "038a8dd876c52a08e9241f2ee85e5dd8b7f8ba22436afaae9870655896d38b1f",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-MediumItalic.svg": "c3dbe7da101bdc15fa0256e1376f4561fb50e96022e0b8759cc087430ba358e0",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-MediumItalic.ttf": "9f3646d6e0014a62a9508b486d711f97f2c0eb068b4ec988eaeea3fa1bf5716b",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-MediumItalic.woff": "eb44a32a697bb5325aea3fd62dee672a22f1166bdb4268684d7a67c6a30c9951",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-MediumItalic.woff2": "84dbdb82a4ce43a16643c6dba76e19d6a332e694d0b8a42d287598c889c03f6e",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Regular.eot": "b40a2df678abcb3d328128829adee86c1bc4f2991e18e7c7fc426ceec46ff9a0",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Regular.svg": "a451d15d39cee1d71ac15b23c892b4241d45282a01048295ba0d472a3164e9ee",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Regular.ttf": "d9b2918dc408f5ce243ca95bcda5a6566434579856e39a4fe794f18d1c0f55be",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Regular.woff": "bc5029c635f9ac707fc42bb6b10ddc89402bde6a06bf165c670b135a5339ba37",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-Regular.woff2": "919c46d3e699709f213eeeeb27960faace72df511bdf2bda486bfcaf04fd2a1c",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-RegularItalic.eot": "eba170779a335f694162c5d9e184a57573cc1d04baac0b5edb851b94b63993b6",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-RegularItalic.svg": "2fd4201d76ac254b606fc0dc3892c4857fd15034cdaae8f5abd9a6fbf5a007c5",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-RegularItalic.ttf": "b738bbd6255bdeca5a17c5206794477238fce2d463b56c31d3b5a2746ea55ea3",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-RegularItalic.woff": "b4bf8a455159a50da8f604c6b8b7a712a994d39c55850a8d8017e9b7e68225d3",
+      "web/vendor/sbadmin2/nunito/fonts/nunito/nunito-RegularItalic.woff2": "9f573021f5f21a3a249693809b0b67e7c055fb0860c6e446516e1d9539731e75",
+      "web/vendor/sbadmin2/sb-admin-2.min.css": "43c3b400aca331cc09aa944a7c7fe821e26c7506b03d3e008538b93df053670b"
+    }
+  },
+  "capabilities": [
+    {
+      "id": "CAP-001",
+      "capability": "Autenticação local (usuário/senha, bcrypt)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [
+        "internal/identity"
+      ],
+      "coverage": "Hash bcrypt, identidade delegada e sessão de operador",
+      "gap": "Login/senha de usuário final não integrado ao BFF; recuperação e políticas de conta pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-002",
+      "capability": "Autenticação via token de API (Bearer)",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/identity"
+      ],
+      "coverage": "Primitivas de identidade/token",
+      "gap": "Compatibilidade da API pública e tokens legados sem fluxo HTTP completo",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-003",
+      "capability": "TOTP / MFA",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/identity"
+      ],
+      "coverage": "Geração e validação TOTP",
+      "gap": "Cadastro, desafio e políticas MFA não integrados à interface",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-004",
+      "capability": "Login social / OAuth via plugin",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Levantamento GO-029 de métodos externos",
+      "gap": "Inventário/código de plugins OAuth/SAML de produção ausentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "BLOCKED",
+      "missing": []
+    },
+    {
+      "id": "CAP-005",
+      "capability": "Handoff de sessão para app móvel (JWT curto)",
+      "pilot": false,
+      "suites": [
+        "backend",
+        "mobile"
+      ],
+      "go_packages": [
+        "internal/identity",
+        "internal/sync"
+      ],
+      "coverage": "Identidade delegada e sync autenticado",
+      "gap": "Handoff JWT do app Capacitor não exercitado em dispositivo",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-006",
+      "capability": "Sessão HTTP (cookie + store)",
+      "pilot": true,
+      "suites": [
+        "bff",
+        "distribution"
+      ],
+      "go_packages": [],
+      "coverage": "Cookie, CSRF, expiração e sessão de operador",
+      "gap": "Store de sessão em memória; login final e durabilidade multi-instância pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-007",
+      "capability": "CSRF",
+      "pilot": true,
+      "suites": [
+        "bff"
+      ],
+      "go_packages": [],
+      "coverage": "CSRF, origem, cookie e negação de mutação sem token",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PASS",
+      "missing": []
+    },
+    {
+      "id": "CAP-008",
+      "capability": "Rate limiting de login",
+      "pilot": true,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário de limitadores legados",
+      "gap": "Fluxo de login de usuário final e limitadores sem prova de paridade",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "BLOCKED",
+      "missing": []
+    },
+    {
+      "id": "CAP-009",
+      "capability": "Resolução de tenant (subdomínio)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [
+        "internal/platform/tenancy"
+      ],
+      "coverage": "Resolução/validação de tenant e contexto",
+      "gap": "DNS/proxy de subdomínios reais não ensaiados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-010",
+      "capability": "Propagação de contexto de tenant/transação",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/database"
+      ],
+      "coverage": "Contexto transacional, reutilização de conexão e isolamento entre tenants",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PASS",
+      "missing": []
+    },
+    {
+      "id": "CAP-011",
+      "capability": "Defesa contra \"tenant drift\" (sessão de um tenant usada em outro)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [
+        "internal/identity",
+        "internal/platform/database"
+      ],
+      "coverage": "Negativos de identidade delegada, papel e tenant",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PASS",
+      "missing": []
+    },
+    {
+      "id": "CAP-012",
+      "capability": "Autorização por papel (role_id)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [
+        "internal/identity",
+        "internal/records",
+        "internal/views"
+      ],
+      "coverage": "Negativos de leitura/escrita e publicação por papel",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PASS",
+      "missing": []
+    },
+    {
+      "id": "CAP-013",
+      "capability": "Ownership por campo",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/identity",
+        "internal/records"
+      ],
+      "coverage": "Ownership por campo e autorização de registros",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PASS",
+      "missing": []
+    },
+    {
+      "id": "CAP-014",
+      "capability": "Ownership por fórmula JS",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "pluginhost"
+      ],
+      "go_packages": [
+        "internal/expression",
+        "internal/identity"
+      ],
+      "coverage": "Expressões com leitura autorizada e primitivas de ownership",
+      "gap": "Fórmulas arbitrárias de ownership não ligadas ao HTTP",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-015",
+      "capability": "RLS nativa Postgres (políticas `CREATE POLICY`, GUC por conexão)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/database"
+      ],
+      "coverage": "RLS real com conexão NOSUPERUSER/NOBYPASSRLS e usuários concorrentes",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PASS",
+      "missing": []
+    },
+    {
+      "id": "CAP-016",
+      "capability": "Filtragem de leitura em JS (fallback SQLite / RLS desabilitada)",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/sqlite"
+      ],
+      "coverage": "Isolamento de arquivos SQLite por tenant",
+      "gap": "Fallback JS/ownership SQLite web não portado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-017",
+      "capability": "Tabelas/campos/relações dinâmicos",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/metadata",
+        "internal/records"
+      ],
+      "coverage": "DDL, campos básicos, concorrência e consulta",
+      "gap": "Relações/constraints arbitrárias do legado não cobertas integralmente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-018",
+      "capability": "Constraints de tabela definidas pelo usuário",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/metadata"
+      ],
+      "coverage": "Validação e constraints básicas",
+      "gap": "Catálogo completo de constraints definidas pelo usuário não portado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-019",
+      "capability": "Config key/value (global e por tenant)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "distribution"
+      ],
+      "go_packages": [
+        "internal/config",
+        "internal/installation"
+      ],
+      "coverage": "Config versionada por tenant, CLI, backup e restore",
+      "gap": "Configuração global legada completa sem equivalência comprovada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-020",
+      "capability": "Discovery de tabelas existentes (reverse engineering)",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário GO-001 de discovery",
+      "gap": "Reverse engineering de bancos existentes não implementado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "BLOCKED",
+      "missing": []
+    },
+    {
+      "id": "CAP-021",
+      "capability": "Facade de banco (`db/index.ts`)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/database",
+        "internal/platform/sqlite"
+      ],
+      "coverage": "Contrato transacional compartilhado",
+      "gap": "Domínios ainda acoplados a pgx impedem facade integral PG/SQLite",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-022",
+      "capability": "Adapter Postgres",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/database"
+      ],
+      "coverage": "Adapter PostgreSQL e transações",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PASS",
+      "missing": []
+    },
+    {
+      "id": "CAP-023",
+      "capability": "Adapter SQLite",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/sqlite",
+        "internal/installation",
+        "internal/sync"
+      ],
+      "coverage": "Registros/outbox/sync e recuperação SQLite",
+      "gap": "Identidade/views/worker/web SQLite não disponíveis",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-024",
+      "capability": "Sanitização de identificadores (`sqlsanitize`/`sqlsanitizeAllowDots`)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/database",
+        "internal/metadata"
+      ],
+      "coverage": "Identificadores escapados e ataques de nomes nas fixtures",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PASS",
+      "missing": []
+    },
+    {
+      "id": "CAP-025",
+      "capability": "DSL de filtros parametrizados (`mkWhere`)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/records"
+      ],
+      "coverage": "Filtros parametrizados e autorização",
+      "gap": "DSL relacional completa do legado não demonstrada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-026",
+      "capability": "Migrations do framework (tabelas `_sc_*`)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "distribution"
+      ],
+      "go_packages": [
+        "internal/installation"
+      ],
+      "coverage": "Instalação limpa, schema 1→2, journal e recuperação PG/SQLite",
+      "gap": "Adoção/upgrade de schema legado existente recusado; GO-034 pendente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-027",
+      "capability": "Pack (import/export de aplicação)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/pack"
+      ],
+      "coverage": "Export/import versionado, rollback, remapeamento e repetição",
+      "gap": "Formato não importa diretamente backup legado guitars completo",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-028",
+      "capability": "Loja remota de packs (fetch HTTP)",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/pack"
+      ],
+      "coverage": "Cliente remoto e validações de pack",
+      "gap": "Catálogo remoto real e packs de terceiros não ensaiados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-029",
+      "capability": "Componentes de biblioteca (snippets reutilizáveis)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/library"
+      ],
+      "coverage": "Componentes versionados, referências e round-trip",
+      "gap": "Integração completa no editor e snippets legados pendente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-030",
+      "capability": "Log de eventos / auditoria",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/outbox",
+        "internal/platform/telemetry"
+      ],
+      "coverage": "Eventos transacionais, idempotência e observabilidade",
+      "gap": "Histórico/auditoria administrativa equivalente ao legado sem prova",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-031",
+      "capability": "Log de erros/crash",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/platform/telemetry"
+      ],
+      "coverage": "Logs/erros estruturados e HTTP",
+      "gap": "Catálogo de crashes e interface administrativa não portados integralmente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-032",
+      "capability": "Modelo de ML (`Model`/`ModelInstance`)",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário GO-001 identifica lacuna de ML",
+      "gap": "Model/ModelInstance sem levantamento e implementação equivalentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "BLOCKED",
+      "missing": []
+    },
+    {
+      "id": "CAP-033",
+      "capability": "Modelo de View (config JSON, execução)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "frontend",
+        "web"
+      ],
+      "go_packages": [
+        "internal/views"
+      ],
+      "coverage": "Catálogo, edição, publicação e execução List",
+      "gap": "Execução dos demais templates e páginas não implementada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-034",
+      "capability": "Viewtemplates nativos (List/Show/Edit/Feed/Filter/ListShowList/Room/WorkflowRoom)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "web"
+      ],
+      "go_packages": [
+        "internal/views"
+      ],
+      "coverage": "Template List com filtros e paginação",
+      "gap": "Show/Edit/Feed/Filter/ListShowList/Room/WorkflowRoom pendentes; formulário P0 do piloto bloqueado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-035",
+      "capability": "Árvore de layout (`layout.ts`)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "frontend",
+        "web"
+      ],
+      "go_packages": [
+        "internal/views"
+      ],
+      "coverage": "Validação de árvore e round-trip",
+      "gap": "Catálogo completo de nós legados e canvas persistente não integrado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-036",
+      "capability": "Geração de HTML server-side (`@saltcorn/markup`)",
+      "pilot": true,
+      "suites": [
+        "frontend",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Renderização React, sanitização e contrato de dados",
+      "gap": "Todos os elementos/HTML legado não comparados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-037",
+      "capability": "Tema SB Admin 2 (server-side hoje)",
+      "pilot": true,
+      "suites": [
+        "frontend",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Shell SB Admin 2, teclado e responsividade",
+      "gap": "Substituição visual do tema do piloto sem validação da aplicação completa",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-038",
+      "capability": "Builder de views/páginas (React + Craft.js)",
+      "pilot": true,
+      "suites": [
+        "frontend",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Editor de configuração com save/publish e widget isolado",
+      "gap": "Alterações do canvas Craft.js não persistem por ponte completa ao editor conectado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-039",
+      "capability": "Páginas e grupos de páginas",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário GO-001 de páginas/grupos",
+      "gap": "Domínio e UI completos de páginas/grupos não portados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "BLOCKED",
+      "missing": []
+    },
+    {
+      "id": "CAP-040",
+      "capability": "Formulários (`Form`)",
+      "pilot": true,
+      "suites": [
+        "frontend",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Campos de configuração do editor",
+      "gap": "Formulários finais Edit e validação equivalentes ao legado pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-041",
+      "capability": "Arquivos: upload/download/miniaturas",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/files"
+      ],
+      "coverage": "Upload/download, limites, permissões e limpeza",
+      "gap": "Miniaturas e todas as variantes de armazenamento legadas não demonstradas",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-042",
+      "capability": "Carregador de plugins (npm install em runtime, `import()` dinâmico)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "pluginhost"
+      ],
+      "go_packages": [
+        "internal/pluginhost"
+      ],
+      "coverage": "Host isolado, capacidades e limites",
+      "gap": "npm dinâmico e todos os plugins legados não portados; host temporário permanece",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-043",
+      "capability": "Contrato de plugin (types/viewtemplates/actions/fieldviews/auth)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "pluginhost"
+      ],
+      "go_packages": [
+        "internal/pluginhost",
+        "internal/triggers"
+      ],
+      "coverage": "SDK de ações/tipos e callback autorizado",
+      "gap": "Extensões arbitrárias types/views/fieldviews/auth não cobertas",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-044",
+      "capability": "Plugins fixos (base-plugin, sbadmin2)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "frontend"
+      ],
+      "go_packages": [
+        "internal/types",
+        "internal/triggers"
+      ],
+      "coverage": "Tipos básicos, send_email/webhook e shell SB Admin 2",
+      "gap": "Catálogo completo base-plugin e templates não portado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-045",
+      "capability": "Plugins de terceiro do pack piloto (`@saltcorn/any-bootstrap-theme`, `@saltcorn/flatpickr-date`)",
+      "pilot": true,
+      "suites": [
+        "frontend"
+      ],
+      "go_packages": [],
+      "coverage": "Substituição proposta por SB Admin 2 e data HTML5",
+      "gap": "any-bootstrap-theme/flatpickr-date ausentes; aplicação guitars substituída não validada ponta a ponta",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-046",
+      "capability": "Motor de expressões JS (fórmulas de usuário)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "pluginhost"
+      ],
+      "go_packages": [
+        "internal/expression",
+        "internal/pluginhost"
+      ],
+      "coverage": "Avaliação JS em processo isolado, timeout e leitura autorizada",
+      "gap": "Host temporário requerido; fórmulas legadas com acesso direto a modelos não equivalentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-047",
+      "capability": "Triggers (Insert/Update/Delete/Weekly/Daily/Hourly/Often/Cron/API call/PageLoad/Login/…)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/triggers"
+      ],
+      "coverage": "Dispatch transacional em testes de domínio",
+      "gap": "HTTP CreateRecord recebe hooks nil; eventos reais não disparam cadeia de automação do piloto",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-048",
+      "capability": "Ações multi-etapa",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/triggers"
+      ],
+      "coverage": "Ações compostas e idempotência no domínio",
+      "gap": "Catálogo de ~29 ações e CRUD por trigger incompleto; sem wiring HTTP",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-049",
+      "capability": "E-mail (ação `send_email`, notificações)",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/notify",
+        "internal/triggers"
+      ],
+      "coverage": "Fila transacional, interpolação e entrega SMTP de teste",
+      "gap": "Provedor SMTP real e automação originada por HTTP não ensaiados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-050",
+      "capability": "Webhook (ação `webhook`)",
+      "pilot": false,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/notify",
+        "internal/triggers"
+      ],
+      "coverage": "Entrega HTTP local, idempotência e retries",
+      "gap": "Automação originada por HTTP não ligada ao dispatcher",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-051",
+      "capability": "Motor de workflow (estado, retomada)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/workflow"
+      ],
+      "coverage": "Estado durável, concorrência e retomada do workflow",
+      "gap": "Waiting/formulário, subworkflow e wiring no processo real pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-052",
+      "capability": "Mutex distribuído entre nós (workflow)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/workflow"
+      ],
+      "coverage": "Serialização de avanço concorrente por linha do workflow",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PASS",
+      "missing": []
+    },
+    {
+      "id": "CAP-053",
+      "capability": "Scheduler (tick loop + eleição de líder)",
+      "pilot": true,
+      "suites": [
+        "backend"
+      ],
+      "go_packages": [
+        "internal/scheduler",
+        "internal/platform/lease"
+      ],
+      "coverage": "Agendamento persistido, timezone e lease exclusivo",
+      "gap": "Often tem granularidade de minuto; catálogo de ações do worker limitado",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-054",
+      "capability": "Ações registradas por plugin (`state.actions`)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "pluginhost"
+      ],
+      "go_packages": [
+        "internal/triggers",
+        "internal/pluginhost"
+      ],
+      "coverage": "Chamadas nomeadas com capacidades explícitas",
+      "gap": "Closures/efeitos e inventário completo de ações de terceiros ausentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-055",
+      "capability": "App móvel (shell Capacitor)",
+      "pilot": false,
+      "suites": [
+        "mobile",
+        "backend"
+      ],
+      "go_packages": [
+        "internal/sync"
+      ],
+      "coverage": "Cliente JS real SQLite → BFF → Go → PG",
+      "gap": "Build/instalação Android/iOS, dispositivos e plugins Capacitor não executados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-056",
+      "capability": "Builder de app móvel nativo",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Shell/builder legados preservados",
+      "gap": "Build e assinatura nativos não executados; pipeline externo",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "BLOCKED",
+      "missing": []
+    },
+    {
+      "id": "CAP-057",
+      "capability": "Driver SQLite embarcado no mobile",
+      "pilot": false,
+      "suites": [
+        "mobile",
+        "backend"
+      ],
+      "go_packages": [
+        "internal/sync",
+        "internal/platform/sqlite"
+      ],
+      "coverage": "SQLite real no cliente e recuperação de fila/checkpoint",
+      "gap": "Driver Capacitor nativo não executado em Android/iOS",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-058",
+      "capability": "Protocolo de sincronização (cursor, paginação)",
+      "pilot": false,
+      "suites": [
+        "mobile",
+        "backend"
+      ],
+      "go_packages": [
+        "internal/sync"
+      ],
+      "coverage": "Protocolo 1, snapshot, limite de lote e negação de versão",
+      "gap": "Sem paginação incremental equivalente ao legado; migração de filas legadas bloqueia corte",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-059",
+      "capability": "Resolução de conflitos (ordenação topológica, last-write-wins por campo)",
+      "pilot": false,
+      "suites": [
+        "mobile",
+        "backend"
+      ],
+      "go_packages": [
+        "internal/sync"
+      ],
+      "coverage": "Conflitos explícitos por versão, draft preservado, IDs repetidos",
+      "gap": "Mudança deliberada frente ao LWW; filas/FKs legadas exigem reconciliação",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-060",
+      "capability": "Execução de upload de sync como processo CLI separado",
+      "pilot": false,
+      "suites": [
+        "mobile",
+        "backend"
+      ],
+      "go_packages": [
+        "internal/sync"
+      ],
+      "coverage": "Upload transacional HTTP sem subprocesso e replay",
+      "gap": "",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PASS",
+      "missing": []
+    },
+    {
+      "id": "CAP-061",
+      "capability": "Notificações (catálogo + e-mail)",
+      "pilot": false,
+      "suites": [
+        "backend",
+        "bff",
+        "frontend"
+      ],
+      "go_packages": [
+        "internal/notify",
+        "internal/realtime"
+      ],
+      "coverage": "Notificações por usuário, e-mail enfileirado e dynamic_update",
+      "gap": "Canais push e integração completa de UI não cobertos",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-062",
+      "capability": "Comunicação em tempo real (Socket.IO: dynamic_update, colaboração por view, stream de logs, progresso de restore, `/datastream`)",
+      "pilot": false,
+      "suites": [
+        "backend",
+        "bff",
+        "frontend"
+      ],
+      "go_packages": [
+        "internal/realtime"
+      ],
+      "coverage": "Socket.IO, reconexão, replay, tenant/destinatário",
+      "gap": "Colaboração, logs, restore e datastream pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-063",
+      "capability": "Notificações push (registro de dispositivo)",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário de canais push",
+      "gap": "FCM/APNS/WebPush sem credenciais/implementação equivalente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "BLOCKED",
+      "missing": []
+    },
+    {
+      "id": "CAP-064",
+      "capability": "Roteamento HTTP builder/admin (39 arquivos em `routes/`)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff",
+        "web"
+      ],
+      "go_packages": [
+        "cmd/server"
+      ],
+      "coverage": "Rotas de editor/registros/views e autenticação delegada",
+      "gap": "39 grupos de rotas administrativas não substituídos integralmente",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-065",
+      "capability": "API REST genérica sobre tabelas",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [
+        "cmd/server"
+      ],
+      "coverage": "HTTP de registros tipado, idempotência e negativos",
+      "gap": "Compatibilidade da API pública legada e integrações externas não comprovada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-066",
+      "capability": "API interna de introspecção (`scapi.ts`)",
+      "pilot": false,
+      "suites": [],
+      "go_packages": [],
+      "coverage": "Inventário de scapi",
+      "gap": "API de introspecção/cloud sem substituição equivalente comprovada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "BLOCKED",
+      "missing": []
+    },
+    {
+      "id": "CAP-067",
+      "capability": "Segurança de cabeçalhos (Helmet/CSP)",
+      "pilot": true,
+      "suites": [
+        "bff",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Borda HTTP, sanitização de conteúdo e sessão",
+      "gap": "Paridade de Helmet/CSP e política para todas as extensões não demonstrada",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-068",
+      "capability": "CORS",
+      "pilot": true,
+      "suites": [
+        "bff",
+        "web"
+      ],
+      "go_packages": [],
+      "coverage": "Topologia same-origin no BFF",
+      "gap": "Origens mobile reais e todos os cenários CORS não validados",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-069",
+      "capability": "Mitigação de poluição de protótipo",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "bff"
+      ],
+      "go_packages": [],
+      "coverage": "Go elimina prototype JS no domínio; Node permanece na borda",
+      "gap": "Não há teste específico de prototype pollution no BFF/host",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    },
+    {
+      "id": "CAP-070",
+      "capability": "CLI (`saltcorn`, oclif)",
+      "pilot": true,
+      "suites": [
+        "backend",
+        "distribution"
+      ],
+      "go_packages": [
+        "internal/installation",
+        "cmd/cli"
+      ],
+      "coverage": "Setup/upgrade/backup/restore/config/serve/login e pacote Linux real",
+      "gap": "CLI geral tenant/user/trigger/mobile-build e outras plataformas pendentes",
+      "source": "docs/migracao-go/inventario/GO-001-matriz-capacidades.md",
+      "status": "PARTIAL",
+      "missing": []
+    }
+  ],
+  "gates": {
+    "pilot": {
+      "eligible": false,
+      "blockers": [
+        "CAP-001",
+        "CAP-006",
+        "CAP-008",
+        "CAP-009",
+        "CAP-014",
+        "CAP-017",
+        "CAP-018",
+        "CAP-019",
+        "CAP-021",
+        "CAP-025",
+        "CAP-026",
+        "CAP-027",
+        "CAP-029",
+        "CAP-030",
+        "CAP-031",
+        "CAP-033",
+        "CAP-034",
+        "CAP-035",
+        "CAP-036",
+        "CAP-037",
+        "CAP-038",
+        "CAP-040",
+        "CAP-041",
+        "CAP-042",
+        "CAP-043",
+        "CAP-044",
+        "CAP-045",
+        "CAP-046",
+        "CAP-047",
+        "CAP-048",
+        "CAP-051",
+        "CAP-053",
+        "CAP-054",
+        "CAP-064",
+        "CAP-065",
+        "CAP-067",
+        "CAP-068",
+        "CAP-069",
+        "CAP-070"
+      ],
+      "suite_failures": [],
+      "capabilities": 48
+    },
+    "integral": {
+      "eligible": false,
+      "blockers": [
+        "CAP-001",
+        "CAP-002",
+        "CAP-003",
+        "CAP-004",
+        "CAP-005",
+        "CAP-006",
+        "CAP-008",
+        "CAP-009",
+        "CAP-014",
+        "CAP-016",
+        "CAP-017",
+        "CAP-018",
+        "CAP-019",
+        "CAP-020",
+        "CAP-021",
+        "CAP-023",
+        "CAP-025",
+        "CAP-026",
+        "CAP-027",
+        "CAP-028",
+        "CAP-029",
+        "CAP-030",
+        "CAP-031",
+        "CAP-032",
+        "CAP-033",
+        "CAP-034",
+        "CAP-035",
+        "CAP-036",
+        "CAP-037",
+        "CAP-038",
+        "CAP-039",
+        "CAP-040",
+        "CAP-041",
+        "CAP-042",
+        "CAP-043",
+        "CAP-044",
+        "CAP-045",
+        "CAP-046",
+        "CAP-047",
+        "CAP-048",
+        "CAP-049",
+        "CAP-050",
+        "CAP-051",
+        "CAP-053",
+        "CAP-054",
+        "CAP-055",
+        "CAP-056",
+        "CAP-057",
+        "CAP-058",
+        "CAP-059",
+        "CAP-061",
+        "CAP-062",
+        "CAP-063",
+        "CAP-064",
+        "CAP-065",
+        "CAP-066",
+        "CAP-067",
+        "CAP-068",
+        "CAP-069",
+        "CAP-070"
+      ],
+      "suite_failures": [],
+      "capabilities": 70
+    }
+  },
+  "inputs_unchanged": true,
+  "audit_passed": true,
+  "finished": "2026-09-20T11:17:13.754844+00:00"
+}

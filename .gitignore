@@ -152,3 +152,7 @@ cireport.html
 CLAUDE.md
 .claude/
 .claude
+
+# GO-033: instalações reproduzíveis dos harnesses de paridade.
+!/migracao/e2e/package-lock.json
+!/migracao/packages/pluginhost/package-lock.json
