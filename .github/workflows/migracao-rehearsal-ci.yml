@@ -1,0 +1,54 @@
+name: migracao-rehearsal-ci
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'migracao/backend/**'
+      - 'migracao/rehearsal/**'
+      - '.github/workflows/migracao-rehearsal-ci.yml'
+  pull_request:
+    paths:
+      - 'migracao/backend/**'
+      - 'migracao/rehearsal/**'
+      - '.github/workflows/migracao-rehearsal-ci.yml'
+permissions:
+  contents: read
+jobs:
+  migration-rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: rehearsal_ci_only
+          POSTGRES_DB: go034_rehearsal
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d go034_rehearsal"
+          --health-interval 5s --health-timeout 5s --health-retries 5
+    env:
+      SALTCORN_GO_REHEARSAL_DISPOSABLE: '1'
+      SALTCORN_GO_TEST_INSTALLATION_DATABASE_URL: postgres://postgres:rehearsal_ci_only@127.0.0.1:5432/go034_rehearsal
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: migracao/backend/go.sum
+      - name: Ferramentas PostgreSQL 16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
+      - name: Ensaio de pausa, reconciliação e recuperação
+        run: python3 migracao/rehearsal/run.py --output "$RUNNER_TEMP/go034-rehearsal"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: go034-recovery-evidence
+          if-no-files-found: error
+          path: |
+            ${{ runner.temp }}/go034-rehearsal/*.json
+            ${{ runner.temp }}/go034-rehearsal/*.log
