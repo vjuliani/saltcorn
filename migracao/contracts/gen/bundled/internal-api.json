@@ -202,6 +202,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -247,6 +257,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -300,6 +320,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -347,6 +377,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       },
@@ -388,6 +428,16 @@
           },
           "409": {
             "$ref": "#/components/responses/IdempotencyConflict"
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -434,6 +484,16 @@
           },
           "404": {
             "description": "view não encontrada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
             "content": {
               "application/json": {
                 "schema": {
@@ -502,6 +562,16 @@
                     "code": "view_unsupported",
                     "message": "template \"Show\" não suportado neste runtime (só \"List\")"
                   }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -582,6 +652,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -651,6 +731,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -735,6 +825,16 @@
           },
           "403": {
             "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       },
@@ -776,6 +876,16 @@
           },
           "409": {
             "$ref": "#/components/responses/IdempotencyConflict"
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -836,6 +946,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       },
@@ -885,6 +1005,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       },
@@ -908,6 +1038,16 @@
           },
           "404": {
             "description": "já não existia (delete é idempotente)"
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }

@@ -2683,6 +2683,8 @@ type GetActorResponse struct {
 	JSON401 *Unauthorized
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *Forbidden
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2698,6 +2700,11 @@ func (r GetActorResponse) GetJSON401() *Unauthorized {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r GetActorResponse) GetJSON403() *Forbidden {
 	return r.JSON403
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r GetActorResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -2743,6 +2750,8 @@ type ListRealtimeEventsResponse struct {
 	JSON401 *Unauthorized
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *Forbidden
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2763,6 +2772,11 @@ func (r ListRealtimeEventsResponse) GetJSON401() *Unauthorized {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r ListRealtimeEventsResponse) GetJSON403() *Forbidden {
 	return r.JSON403
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ListRealtimeEventsResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -2900,6 +2914,8 @@ type CreateTableResponse struct {
 	JSON401 *Unauthorized
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *Forbidden
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON201 returns the response for an HTTP 201 `application/json` response
@@ -2915,6 +2931,11 @@ func (r CreateTableResponse) GetJSON401() *Unauthorized {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r CreateTableResponse) GetJSON403() *Forbidden {
 	return r.JSON403
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CreateTableResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -2955,6 +2976,8 @@ type AddFieldResponse struct {
 	JSON401 *Unauthorized
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *Forbidden
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON201 returns the response for an HTTP 201 `application/json` response
@@ -2970,6 +2993,11 @@ func (r AddFieldResponse) GetJSON401() *Unauthorized {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r AddFieldResponse) GetJSON403() *Forbidden {
 	return r.JSON403
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r AddFieldResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -3015,6 +3043,8 @@ type ListRecordsResponse struct {
 	JSON401 *Unauthorized
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *Forbidden
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3035,6 +3065,11 @@ func (r ListRecordsResponse) GetJSON401() *Unauthorized {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r ListRecordsResponse) GetJSON403() *Forbidden {
 	return r.JSON403
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ListRecordsResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -3077,6 +3112,8 @@ type CreateRecordResponse struct {
 	JSON403 *Forbidden
 	// JSON409 the response for an HTTP 409 `application/json` response
 	JSON409 *IdempotencyConflict
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON201 returns the response for an HTTP 201 `application/json` response
@@ -3097,6 +3134,11 @@ func (r CreateRecordResponse) GetJSON403() *Forbidden {
 // GetJSON409 returns the response for an HTTP 409 `application/json` response
 func (r CreateRecordResponse) GetJSON409() *IdempotencyConflict {
 	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CreateRecordResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -3135,6 +3177,8 @@ type DeleteRecordResponse struct {
 	JSON401 *Unauthorized
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *Forbidden
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
@@ -3145,6 +3189,11 @@ func (r DeleteRecordResponse) GetJSON401() *Unauthorized {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r DeleteRecordResponse) GetJSON403() *Forbidden {
 	return r.JSON403
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r DeleteRecordResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -3187,6 +3236,8 @@ type GetRecordResponse struct {
 	JSON403 *Forbidden
 	// JSON404 the response for an HTTP 404 `application/json` response
 	JSON404 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3207,6 +3258,11 @@ func (r GetRecordResponse) GetJSON403() *Forbidden {
 // GetJSON404 returns the response for an HTTP 404 `application/json` response
 func (r GetRecordResponse) GetJSON404() *Error {
 	return r.JSON404
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r GetRecordResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -3249,6 +3305,8 @@ type UpdateRecordResponse struct {
 	JSON403 *Forbidden
 	// JSON409 the response for an HTTP 409 `application/json` response
 	JSON409 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3269,6 +3327,11 @@ func (r UpdateRecordResponse) GetJSON403() *Forbidden {
 // GetJSON409 returns the response for an HTTP 409 `application/json` response
 func (r UpdateRecordResponse) GetJSON409() *Error {
 	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r UpdateRecordResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -3309,6 +3372,8 @@ type ListViewsResponse struct {
 	JSON401 *Unauthorized
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *Forbidden
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3324,6 +3389,11 @@ func (r ListViewsResponse) GetJSON401() *Unauthorized {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r ListViewsResponse) GetJSON403() *Forbidden {
 	return r.JSON403
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r ListViewsResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -3366,6 +3436,8 @@ type CreateViewResponse struct {
 	JSON403 *Forbidden
 	// JSON409 the response for an HTTP 409 `application/json` response
 	JSON409 *IdempotencyConflict
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON201 returns the response for an HTTP 201 `application/json` response
@@ -3386,6 +3458,11 @@ func (r CreateViewResponse) GetJSON403() *Forbidden {
 // GetJSON409 returns the response for an HTTP 409 `application/json` response
 func (r CreateViewResponse) GetJSON409() *IdempotencyConflict {
 	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r CreateViewResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -3428,6 +3505,8 @@ type GetViewResponse struct {
 	JSON403 *Forbidden
 	// JSON404 the response for an HTTP 404 `application/json` response
 	JSON404 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3448,6 +3527,11 @@ func (r GetViewResponse) GetJSON403() *Forbidden {
 // GetJSON404 returns the response for an HTTP 404 `application/json` response
 func (r GetViewResponse) GetJSON404() *Error {
 	return r.JSON404
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r GetViewResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -3492,6 +3576,8 @@ type UpdateViewResponse struct {
 	JSON409 *Error
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3517,6 +3603,11 @@ func (r UpdateViewResponse) GetJSON409() *Error {
 // GetJSON422 returns the response for an HTTP 422 `application/json` response
 func (r UpdateViewResponse) GetJSON422() *Error {
 	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r UpdateViewResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -3561,6 +3652,8 @@ type RenderViewResponse struct {
 	JSON404 *Error
 	// JSON422 the response for an HTTP 422 `application/json` response
 	JSON422 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -3586,6 +3679,11 @@ func (r RenderViewResponse) GetJSON404() *Error {
 // GetJSON422 returns the response for an HTTP 422 `application/json` response
 func (r RenderViewResponse) GetJSON422() *Error {
 	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r RenderViewResponse) GetJSON503() *Error {
+	return r.JSON503
 }
 
 // GetBody returns the raw response body bytes
@@ -4036,6 +4134,13 @@ func ParseGetActorResponse(rsp *http.Response) (*GetActorResponse, error) {
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -4080,6 +4185,13 @@ func ParseListRealtimeEventsResponse(rsp *http.Response) (*ListRealtimeEventsRes
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -4203,6 +4315,13 @@ func ParseCreateTableResponse(rsp *http.Response) (*CreateTableResponse, error) 
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -4242,6 +4361,13 @@ func ParseAddFieldResponse(rsp *http.Response) (*AddFieldResponse, error) {
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -4287,6 +4413,13 @@ func ParseListRecordsResponse(rsp *http.Response) (*ListRecordsResponse, error) 
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -4335,6 +4468,13 @@ func ParseCreateRecordResponse(rsp *http.Response) (*CreateRecordResponse, error
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -4373,6 +4513,13 @@ func ParseDeleteRecordResponse(rsp *http.Response) (*DeleteRecordResponse, error
 
 	case rsp.StatusCode == 404:
 		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -4421,6 +4568,13 @@ func ParseGetRecordResponse(rsp *http.Response) (*GetRecordResponse, error) {
 		}
 		response.JSON404 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -4468,6 +4622,13 @@ func ParseUpdateRecordResponse(rsp *http.Response) (*UpdateRecordResponse, error
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -4507,6 +4668,13 @@ func ParseListViewsResponse(rsp *http.Response) (*ListViewsResponse, error) {
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -4555,6 +4723,13 @@ func ParseCreateViewResponse(rsp *http.Response) (*CreateViewResponse, error) {
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -4601,6 +4776,13 @@ func ParseGetViewResponse(rsp *http.Response) (*GetViewResponse, error) {
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 
@@ -4656,6 +4838,13 @@ func ParseUpdateViewResponse(rsp *http.Response) (*UpdateViewResponse, error) {
 		}
 		response.JSON422 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
 	}
 
 	return response, nil
@@ -4709,6 +4898,13 @@ func ParseRenderViewResponse(rsp *http.Response) (*RenderViewResponse, error) {
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
 
 	}
 

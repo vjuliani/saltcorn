@@ -134,6 +134,12 @@ paths:
         alhures. `id`/`role_id` são resolvidos do `sub` do token, não de
         parâmetro algum — não é possível consultar o ator de outra pessoa.
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "200":
           description: papel atual do ator autenticado
           content:
@@ -167,6 +173,12 @@ paths:
             schema:
               $ref: "#/components/schemas/TableInput"
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "201":
           description: tabela criada (ou já existente, idempotente)
           content:
@@ -201,6 +213,12 @@ paths:
             schema:
               $ref: "#/components/schemas/FieldInput"
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "201":
           description: campo criado (ou já existente, idempotente)
           content:
@@ -234,6 +252,12 @@ paths:
           schema:
             type: string
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "200":
           description: views visíveis ao ator
           content:
@@ -266,6 +290,12 @@ paths:
             schema:
               $ref: "#/components/schemas/ViewInput"
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "201":
           description: view criada
           content:
@@ -296,6 +326,12 @@ paths:
       summary: "Query: reabre uma view"
       description: O papel do ator é resolvido de novo a cada chamada — uma view despublicada nega a leitura seguinte sem nenhum resquício da anterior (mesmo espírito de GO-015).
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "200":
           description: view encontrada
           content:
@@ -336,6 +372,12 @@ paths:
             schema:
               $ref: "#/components/schemas/ViewUpdateInput"
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "200":
           description: view atualizada
           content:
@@ -395,6 +437,12 @@ paths:
         - $ref: "./common.yaml#/components/parameters/Cursor"
         - $ref: "./common.yaml#/components/parameters/Limit"
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "200":
           description: plano de renderização (colunas + linhas + paginação)
           content:
@@ -456,6 +504,12 @@ paths:
             default: 0
         - $ref: "./common.yaml#/components/parameters/Limit"
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "200":
           description: página de eventos endereçados ao ator autenticado, em ordem de publicação
           content:
@@ -500,6 +554,12 @@ paths:
         - $ref: "./common.yaml#/components/parameters/Cursor"
         - $ref: "./common.yaml#/components/parameters/Limit"
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "200":
           description: página de registros
           content:
@@ -544,6 +604,12 @@ paths:
             schema:
               $ref: "#/components/schemas/RecordInput"
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "201":
           description: registro criado
           content:
@@ -578,6 +644,12 @@ paths:
       operationId: getRecord
       summary: "Query: busca um registro por ID"
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "200":
           description: registro encontrado
           content:
@@ -611,6 +683,12 @@ paths:
               type: object
               additionalProperties: true
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "200":
           description: registro atualizado
           content:
@@ -633,6 +711,12 @@ paths:
       parameters:
         - $ref: "./common.yaml#/components/parameters/IdempotencyKey"
       responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "204":
           description: removido
         "401":

@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
@@ -200,7 +201,7 @@ func main() {
 				cutover.RequireOwnership(guard, realtimeCapability, realtimeEventsHandler(tracker, db)))))
 	}
 
-	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux, BaseContext: func(net.Listener) context.Context {
+	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: telemetry.LimitRequests(mux, 128, 10*time.Second, registry), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, BaseContext: func(net.Listener) context.Context {
 		return telemetry.WithLogger(context.Background(), logger)
 	}}
 

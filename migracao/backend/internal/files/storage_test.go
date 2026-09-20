@@ -179,3 +179,34 @@ func TestNewStorageKey_NeverEmptyNeverRepeatsObviously(t *testing.T) {
 		t.Fatalf("NewStorageKey() = %q contém caracteres perigosos para um caminho de arquivo", a)
 	}
 }
+
+// An unavailable mount/path must fail without publishing a partial object;
+// restoring the path must allow a retry with the same storage key.
+func TestLocalBackend_UnavailablePathRecovers(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "mount")
+	if err := os.WriteFile(root, []byte("unavailable mount"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	backend := NewLocalBackend(root)
+	if _, err := backend.Save(context.Background(), "retry-key", strings.NewReader("payload")); err == nil {
+		t.Fatal("expected filesystem failure")
+	}
+	if err := os.Remove(root); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := backend.Save(context.Background(), "retry-key", strings.NewReader("payload")); err != nil {
+		t.Fatal(err)
+	}
+	r, err := backend.Open(context.Background(), "retry-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	data, err := io.ReadAll(r)
+	if err != nil || string(data) != "payload" {
+		t.Fatalf("retry content %q: %v", data, err)
+	}
+}
