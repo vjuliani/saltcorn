@@ -663,7 +663,7 @@ Execute a task GO-033 — Executar matriz completa de paridade, de docs/migracao
 
 ### GO-034 — Ensaiar migração de dados e rollback
 
-- [ ] **Status:** VALIDATING — histórico em [execucoes/GO-034.md](execucoes/GO-034.md)
+- [ ] **Status:** IN_REVIEW — PR [#38](https://github.com/vjuliani/saltcorn/pull/38); [runbook](recuperacao/RUNBOOK.md) e [histórico](execucoes/GO-034.md)
 - **Fase:** F6 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Plataforma
 - **Depende de:** GO-009, GO-027, GO-032
