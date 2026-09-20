@@ -682,7 +682,7 @@ Execute a task GO-034 — Ensaiar migração de dados e rollback, de docs/migrac
 
 ### GO-035 — Validar carga e falhas operacionais
 
-- [ ] **Status:** VALIDATING — [histórico](execucoes/GO-035.md)
+- [ ] **Status:** IN_REVIEW — PR [#39](https://github.com/vjuliani/saltcorn/pull/39); [resultados](operacao/RESULTADOS.md) e [histórico](execucoes/GO-035.md)
 - **Fase:** F6 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** QA + Plataforma
 - **Depende de:** GO-002, GO-010, GO-014, GO-025, GO-033
