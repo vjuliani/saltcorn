@@ -644,7 +644,7 @@ Execute a task GO-032 — Portar CLI e distribuição self-hosted, de docs/migra
 
 ### GO-033 — Executar matriz completa de paridade
 
-- [ ] **Status:** IN_REVIEW — PR [#37](https://github.com/vjuliani/saltcorn/pull/37); matriz em [paridade/RESULTADOS.md](paridade/RESULTADOS.md); histórico em [execucoes/GO-033.md](execucoes/GO-033.md)
+- [x] **Status:** DONE — histórico em [execucoes/GO-033.md](execucoes/GO-033.md)
 - **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** QA
 - **Depende de:** GO-021, GO-025, GO-026, GO-027, GO-028, GO-029, GO-030, GO-031, GO-032
@@ -663,7 +663,7 @@ Execute a task GO-033 — Executar matriz completa de paridade, de docs/migracao
 
 ### GO-034 — Ensaiar migração de dados e rollback
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — PR [#38](https://github.com/vjuliani/saltcorn/pull/38); [runbook](recuperacao/RUNBOOK.md) e [histórico](execucoes/GO-034.md)
 - **Fase:** F6 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Plataforma
 - **Depende de:** GO-009, GO-027, GO-032

@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "commit": "c5c37b7a5d337ae58bc8000c48fc65e109b8d100",
+  "command": [
+    "go",
+    "test",
+    "-json",
+    "-race",
+    "-count=1",
+    "./internal/installation",
+    "./internal/platform/cutover",
+    "./internal/pack",
+    "./cmd/cli"
+  ],
+  "cwd": "migracao/backend",
+  "exit": 0,
+  "seconds": 16.944958448410034,
+  "go": "go version go1.22.2 linux/amd64",
+  "pg_tools": "pg_dump (PostgreSQL) 16.15 (Ubuntu 16.15-0ubuntu0.24.04.1)",
+  "passed": 36,
+  "failed": [],
+  "skipped": [],
+  "tests_sha256": "f53687e77d53fe5ed15b6542e08668a9d7f7ff343183fa5ff99931e753696227",
+  "inputs_sha256": "7cc4d4f74613fa7b488d284d4d954ffb04e65a079400889e46bed38d5de9b4a4"
+}

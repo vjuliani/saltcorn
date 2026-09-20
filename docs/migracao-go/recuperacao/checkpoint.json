@@ -1,0 +1,527 @@
+{
+  "confirmed_go_writes": 3,
+  "contraction_only_after_window": true,
+  "fixture": "synthetic-authors-books-v1",
+  "format": 1,
+  "go_candidate_validated": true,
+  "legacy_traffic_allowed": false,
+  "migrated": {
+    "sha256": "adf76871bbdaeb52d0dcf07e31069d2d4ce6563f952db5d9df329bd8dcb32960",
+    "tables": {
+      "_sc_config": [
+        {
+          "key": "site_name",
+          "value": "GO-034 synthetic copy"
+        }
+      ],
+      "_sc_fields": [
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 1,
+          "is_unique": false,
+          "name": "name",
+          "references_table_id": null,
+          "required": true,
+          "table_id": 1,
+          "type": "text"
+        },
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 2,
+          "is_unique": false,
+          "name": "title",
+          "references_table_id": null,
+          "required": true,
+          "table_id": 2,
+          "type": "text"
+        },
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 3,
+          "is_unique": false,
+          "name": "author",
+          "references_table_id": 1,
+          "required": true,
+          "table_id": 2,
+          "type": "key"
+        }
+      ],
+      "_sc_idempotency_keys": [],
+      "_sc_migrations": [
+        {
+          "name": "initial-catalog",
+          "version": 1
+        },
+        {
+          "name": "plugin-inventory",
+          "version": 2
+        }
+      ],
+      "_sc_outbox": [],
+      "_sc_plugin_versions": [],
+      "_sc_tables": [
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 1,
+          "min_role_read": 80,
+          "min_role_write": 1,
+          "name": "authors"
+        },
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 2,
+          "min_role_read": 80,
+          "min_role_write": 1,
+          "name": "books"
+        }
+      ],
+      "authors": [
+        {
+          "id": 10,
+          "name": "Synthetic author A"
+        },
+        {
+          "id": 40,
+          "name": "Synthetic author B"
+        }
+      ],
+      "books": [
+        {
+          "author": 10,
+          "id": 100,
+          "title": "Before migration"
+        },
+        {
+          "author": 40,
+          "id": 300,
+          "title": "To delete after cutover"
+        }
+      ]
+    }
+  },
+  "negative_checks": [
+    "concurrent_executor",
+    "destructive_ddl_during_window",
+    "drain_timeout",
+    "write_during_pause",
+    "restart_while_paused",
+    "uncommitted_write",
+    "stale_backup",
+    "future_schema",
+    "corrupt_backup",
+    "idempotent_replay"
+  ],
+  "ownership": "legacy registry; Go denied; edge and legacy stopped",
+  "pack": {
+    "Version": 1,
+    "Tables": [
+      {
+        "Name": "authors",
+        "MinRoleRead": 80,
+        "MinRoleWrite": 1,
+        "Fields": [
+          {
+            "Name": "name",
+            "Type": "text",
+            "Required": true,
+            "Unique": false,
+            "References": ""
+          }
+        ]
+      },
+      {
+        "Name": "books",
+        "MinRoleRead": 80,
+        "MinRoleWrite": 1,
+        "Fields": [
+          {
+            "Name": "title",
+            "Type": "text",
+            "Required": true,
+            "Unique": false,
+            "References": ""
+          },
+          {
+            "Name": "author",
+            "Type": "key",
+            "Required": true,
+            "Unique": false,
+            "References": "authors"
+          }
+        ]
+      }
+    ],
+    "Views": null,
+    "Triggers": null,
+    "ScheduledTriggers": null,
+    "Library": null,
+    "Config": {
+      "site_name": "GO-034 synthetic copy"
+    },
+    "Plugins": null
+  },
+  "phase": "complete",
+  "post_go": {
+    "sha256": "9c4609c3bf111ae89a3446a60ad645a74d590a893e1d8a633de0eaf6d0e482cd",
+    "tables": {
+      "_sc_config": [
+        {
+          "key": "site_name",
+          "value": "GO-034 synthetic copy"
+        }
+      ],
+      "_sc_fields": [
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 1,
+          "is_unique": false,
+          "name": "name",
+          "references_table_id": null,
+          "required": true,
+          "table_id": 1,
+          "type": "text"
+        },
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 2,
+          "is_unique": false,
+          "name": "title",
+          "references_table_id": null,
+          "required": true,
+          "table_id": 2,
+          "type": "text"
+        },
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 3,
+          "is_unique": false,
+          "name": "author",
+          "references_table_id": 1,
+          "required": true,
+          "table_id": 2,
+          "type": "key"
+        }
+      ],
+      "_sc_idempotency_keys": [
+        {
+          "created_at": "2026-09-20T11:42:48.491124+00:00",
+          "key": "go034-delete",
+          "payload_hash": "b1ecc526a8facdb936d8f5a2546d5a6158abedfca2bd4665f89bcef2f3c6dbb3",
+          "result_json": {
+            "confirmed": true
+          }
+        },
+        {
+          "created_at": "2026-09-20T11:42:48.479564+00:00",
+          "key": "go034-insert",
+          "payload_hash": "40fca2d68ea270247df8605111a4f9ba925e306dc562608a49be540909a38092",
+          "result_json": {
+            "confirmed": true
+          }
+        },
+        {
+          "created_at": "2026-09-20T11:42:48.485998+00:00",
+          "key": "go034-update",
+          "payload_hash": "d9a998cc98eb3ec34d94ea93f8983956f9bcdf645b3bfff3cf6e6b4f0edb087b",
+          "result_json": {
+            "confirmed": true
+          }
+        }
+      ],
+      "_sc_migrations": [
+        {
+          "name": "initial-catalog",
+          "version": 1
+        },
+        {
+          "name": "plugin-inventory",
+          "version": 2
+        }
+      ],
+      "_sc_outbox": [
+        {
+          "attempts": 0,
+          "created_at": "2026-09-20T11:42:48.479564+00:00",
+          "event_type": "go034.pending",
+          "id": 1,
+          "idempotency_key": "go034-insert",
+          "last_error": null,
+          "payload_json": {
+            "key": "go034-insert"
+          },
+          "processed_at": null,
+          "status": "pending"
+        },
+        {
+          "attempts": 0,
+          "created_at": "2026-09-20T11:42:48.485998+00:00",
+          "event_type": "go034.pending",
+          "id": 2,
+          "idempotency_key": "go034-update",
+          "last_error": null,
+          "payload_json": {
+            "key": "go034-update"
+          },
+          "processed_at": null,
+          "status": "pending"
+        },
+        {
+          "attempts": 0,
+          "created_at": "2026-09-20T11:42:48.491124+00:00",
+          "event_type": "go034.pending",
+          "id": 3,
+          "idempotency_key": "go034-delete",
+          "last_error": null,
+          "payload_json": {
+            "key": "go034-delete"
+          },
+          "processed_at": null,
+          "status": "pending"
+        }
+      ],
+      "_sc_plugin_versions": [],
+      "_sc_tables": [
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 1,
+          "min_role_read": 80,
+          "min_role_write": 1,
+          "name": "authors"
+        },
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 2,
+          "min_role_read": 80,
+          "min_role_write": 1,
+          "name": "books"
+        }
+      ],
+      "authors": [
+        {
+          "id": 10,
+          "name": "Synthetic author A"
+        },
+        {
+          "id": 40,
+          "name": "Synthetic author B"
+        }
+      ],
+      "books": [
+        {
+          "author": 10,
+          "id": 100,
+          "title": "Updated by Go"
+        },
+        {
+          "author": 10,
+          "id": 301,
+          "title": "Created by Go"
+        }
+      ]
+    }
+  },
+  "recovered": {
+    "sha256": "9c4609c3bf111ae89a3446a60ad645a74d590a893e1d8a633de0eaf6d0e482cd",
+    "tables": {
+      "_sc_config": [
+        {
+          "key": "site_name",
+          "value": "GO-034 synthetic copy"
+        }
+      ],
+      "_sc_fields": [
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 1,
+          "is_unique": false,
+          "name": "name",
+          "references_table_id": null,
+          "required": true,
+          "table_id": 1,
+          "type": "text"
+        },
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 2,
+          "is_unique": false,
+          "name": "title",
+          "references_table_id": null,
+          "required": true,
+          "table_id": 2,
+          "type": "text"
+        },
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 3,
+          "is_unique": false,
+          "name": "author",
+          "references_table_id": 1,
+          "required": true,
+          "table_id": 2,
+          "type": "key"
+        }
+      ],
+      "_sc_idempotency_keys": [
+        {
+          "created_at": "2026-09-20T11:42:48.491124+00:00",
+          "key": "go034-delete",
+          "payload_hash": "b1ecc526a8facdb936d8f5a2546d5a6158abedfca2bd4665f89bcef2f3c6dbb3",
+          "result_json": {
+            "confirmed": true
+          }
+        },
+        {
+          "created_at": "2026-09-20T11:42:48.479564+00:00",
+          "key": "go034-insert",
+          "payload_hash": "40fca2d68ea270247df8605111a4f9ba925e306dc562608a49be540909a38092",
+          "result_json": {
+            "confirmed": true
+          }
+        },
+        {
+          "created_at": "2026-09-20T11:42:48.485998+00:00",
+          "key": "go034-update",
+          "payload_hash": "d9a998cc98eb3ec34d94ea93f8983956f9bcdf645b3bfff3cf6e6b4f0edb087b",
+          "result_json": {
+            "confirmed": true
+          }
+        }
+      ],
+      "_sc_migrations": [
+        {
+          "name": "initial-catalog",
+          "version": 1
+        },
+        {
+          "name": "plugin-inventory",
+          "version": 2
+        }
+      ],
+      "_sc_outbox": [
+        {
+          "attempts": 0,
+          "created_at": "2026-09-20T11:42:48.479564+00:00",
+          "event_type": "go034.pending",
+          "id": 1,
+          "idempotency_key": "go034-insert",
+          "last_error": null,
+          "payload_json": {
+            "key": "go034-insert"
+          },
+          "processed_at": null,
+          "status": "pending"
+        },
+        {
+          "attempts": 0,
+          "created_at": "2026-09-20T11:42:48.485998+00:00",
+          "event_type": "go034.pending",
+          "id": 2,
+          "idempotency_key": "go034-update",
+          "last_error": null,
+          "payload_json": {
+            "key": "go034-update"
+          },
+          "processed_at": null,
+          "status": "pending"
+        },
+        {
+          "attempts": 0,
+          "created_at": "2026-09-20T11:42:48.491124+00:00",
+          "event_type": "go034.pending",
+          "id": 3,
+          "idempotency_key": "go034-delete",
+          "last_error": null,
+          "payload_json": {
+            "key": "go034-delete"
+          },
+          "processed_at": null,
+          "status": "pending"
+        }
+      ],
+      "_sc_plugin_versions": [],
+      "_sc_tables": [
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 1,
+          "min_role_read": 80,
+          "min_role_write": 1,
+          "name": "authors"
+        },
+        {
+          "created_at": "2026-09-20T11:42:47.674589+00:00",
+          "id": 2,
+          "min_role_read": 80,
+          "min_role_write": 1,
+          "name": "books"
+        }
+      ],
+      "authors": [
+        {
+          "id": 10,
+          "name": "Synthetic author A"
+        },
+        {
+          "id": 40,
+          "name": "Synthetic author B"
+        }
+      ],
+      "books": [
+        {
+          "author": 10,
+          "id": 100,
+          "title": "Updated by Go"
+        },
+        {
+          "author": 10,
+          "id": 301,
+          "title": "Created by Go"
+        }
+      ]
+    }
+  },
+  "release": "0.1.0-go032",
+  "row_counts": {
+    "confirmed_keys": 3,
+    "outbox_events": 3,
+    "recovered_authors": 2,
+    "recovered_books": 2,
+    "source_authors": 2,
+    "source_books": 2
+  },
+  "rpo_lost_commits": 0,
+  "rpo_target_lost_commits": 0,
+  "rto_seconds": 1.4832671290000001,
+  "rto_target_seconds": 60,
+  "schema": 2,
+  "scope": "PostgreSQL/pack1; paused recovery, legacy traffic remains blocked",
+  "sequence_high_water_mark": 302,
+  "source": {
+    "sha256": "38fbf961abadd99f2358a92427cf8f65a8114a7eaae2656e97baed3d4de16a1d",
+    "tables": {
+      "authors": [
+        {
+          "id": 10,
+          "name": "Synthetic author A"
+        },
+        {
+          "id": 40,
+          "name": "Synthetic author B"
+        }
+      ],
+      "books": [
+        {
+          "author": 10,
+          "id": 100,
+          "title": "Before migration"
+        },
+        {
+          "author": 40,
+          "id": 300,
+          "title": "To delete after cutover"
+        }
+      ]
+    }
+  },
+  "source_preserved": true,
+  "updated_utc": "2026-09-20T11:42:51.370032191Z"
+}
