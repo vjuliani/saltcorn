@@ -267,7 +267,7 @@ test("GET /api/bff/views/:id/render devolve colunas/linhas/paginação para uma 
         name: "booklist",
         table: "books",
         template: "List",
-        configuration: { layout: { besides: [{ header_label: "Título", contents: { type: "Field", field_name: "title" } }] } },
+        configuration: { columns: [{ type: "Field", field_name: "title", header_label: "Título" }] },
       }),
     });
     const created = (await createRes.json()) as any;
@@ -275,7 +275,7 @@ test("GET /api/bff/views/:id/render devolve colunas/linhas/paginação para uma 
     const renderRes = await fetch(`${baseUrl}/api/bff/views/${created.id}/render?limit=2`, { headers: { Cookie: cookie } });
     assert.equal(renderRes.status, 200);
     const plan = (await renderRes.json()) as any;
-    assert.deepEqual(plan.columns, [{ field_name: "title", header_label: "Título" }]);
+    assert.deepEqual(plan.columns, [{ kind: "field", field_name: "title", header_label: "Título" }]);
     assert.equal(plan.rows.length, 2);
     assert.ok(plan.next_cursor, "esperado next_cursor (há um 3º registro no mock)");
 
@@ -306,6 +306,180 @@ test("GET /api/bff/views/:id/render propaga 422 view_unsupported do Go, sem masc
     assert.equal(renderRes.status, 422);
     const body = (await renderRes.json()) as any;
     assert.equal(body.error.code, "view_unsupported");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+// GO-039: Show/Edit/submit/rows — os mesmos princípios de propagação
+// (sessão, CSRF, Idempotency-Key, query params) exercitados para os
+// templates novos, contra o mock estendido (mockGoServer.ts) que agora
+// mantém registros de "books" mutáveis.
+test("GET /api/bff/views/:id/render (Show) exige ?record= e devolve os valores reais", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const createRes = await fetch(`${baseUrl}/api/bff/views`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken },
+      body: JSON.stringify({ name: "showbook", table: "books", template: "Show", configuration: { columns: [{ type: "Field", field_name: "title" }] } }),
+    });
+    const created = (await createRes.json()) as any;
+
+    const missingRecordRes = await fetch(`${baseUrl}/api/bff/views/${created.id}/render`, { headers: { Cookie: cookie } });
+    assert.equal(missingRecordRes.status, 400, "sem ?record= deveria ser 400 (propagado do Go)");
+
+    const renderRes = await fetch(`${baseUrl}/api/bff/views/${created.id}/render?record=1`, { headers: { Cookie: cookie } });
+    assert.equal(renderRes.status, 200);
+    const plan = (await renderRes.json()) as any;
+    assert.equal(plan.values.title, "Dune");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("GET /api/bff/views/:id/render (Edit) sem ?record= monta formulário de criação em branco", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const createRes = await fetch(`${baseUrl}/api/bff/views`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken },
+      body: JSON.stringify({
+        name: "createbook",
+        table: "books",
+        template: "Edit",
+        configuration: { columns: [{ type: "Field", field_name: "title", fieldview: "edit" }, { type: "Action", action_name: "Save" }] },
+      }),
+    });
+    const created = (await createRes.json()) as any;
+
+    const renderRes = await fetch(`${baseUrl}/api/bff/views/${created.id}/render`, { headers: { Cookie: cookie } });
+    assert.equal(renderRes.status, 200);
+    const plan = (await renderRes.json()) as any;
+    assert.equal(plan.record_id, 0);
+    assert.equal(plan.fields[0].value, null);
+    assert.equal(plan.action_name, "Save");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/views/:id/submit sem CSRF é rejeitado antes de chegar ao Go", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/views/1/submit`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ values: { title: "x" } }),
+    });
+    assert.equal(res.status, 403);
+    const body = (await res.json()) as any;
+    assert.equal(body.error.code, "csrf_invalid");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/views/:id/submit cria um registro real (201) e retry idêntico não duplica", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const doSubmit = () =>
+      fetch(`${baseUrl}/api/bff/views/1/submit`, {
+        method: "POST",
+        headers: { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken },
+        body: JSON.stringify({ values: { title: "Neuromancer 2" } }),
+      });
+
+    const first = await doSubmit();
+    assert.equal(first.status, 201);
+    const firstBody = (await first.json()) as any;
+    assert.equal(firstBody.record.title, "Neuromancer 2");
+    assert.equal(firstBody.navigate.type, "reload");
+
+    const second = await doSubmit();
+    assert.equal(second.status, 201);
+    const secondBody = (await second.json()) as any;
+    assert.equal(secondBody.record.id, firstBody.record.id, "retry (mesmo ator/tenant/view/corpo) deveria reaproveitar a MESMA chave, não criar de novo");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/views/:id/submit (update) propaga 409 version_conflict do Go, sem mascarar", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/views/1/submit`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken },
+      body: JSON.stringify({ record_id: 1, _version: "obsoleta", values: { title: "x" } }),
+    });
+    assert.equal(res.status, 409);
+    const body = (await res.json()) as any;
+    assert.equal(body.error.code, "version_conflict");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("DELETE /api/bff/views/:id/rows/:recordId remove o registro real com a versão certa", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/views/1/rows/2?version=1`, {
+      method: "DELETE",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: csrfToken },
+    });
+    assert.equal(res.status, 204);
+
+    // Repetir a mesma exclusão encontra o registro já removido — prova
+    // que o efeito é real (não só a forma da resposta), sem depender de
+    // nenhuma view Show específica para o registro 2.
+    const again = await fetch(`${baseUrl}/api/bff/views/1/rows/2?version=1`, {
+      method: "DELETE",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: csrfToken },
+    });
+    assert.equal(again.status, 404);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("DELETE /api/bff/views/:id/rows/:recordId sem CSRF é rejeitado antes de chegar ao Go", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/views/1/rows/3?version=1`, {
+      method: "DELETE",
+      headers: { Cookie: cookie },
+    });
+    assert.equal(res.status, 403);
+    const body = (await res.json()) as any;
+    assert.equal(body.error.code, "csrf_invalid");
   } finally {
     server.close();
     await mockGo.close();

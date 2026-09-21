@@ -202,7 +202,16 @@ func main() {
 				cutover.RequireOwnership(guard, viewsCapability, updateViewHandler(tracker, db)))))
 		mux.Handle("GET /v1/tenants/{tenant}/views/{id}/render",
 			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
-				cutover.RequireOwnership(guard, viewsCapability, renderListHandler(tracker, db)))))
+				cutover.RequireOwnership(guard, viewsCapability, renderViewHandler(tracker, db)))))
+		// submit (form_action) e rows/{recordId} (ação de coluna "Delete")
+		// — GO-039, o formulário de escrita real de Edit e a exclusão de
+		// linha de List.
+		mux.Handle("POST /v1/tenants/{tenant}/views/{id}/submit",
+			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, viewsCapability, submitViewHandler(tracker, db)))))
+		mux.Handle("DELETE /v1/tenants/{tenant}/views/{id}/rows/{recordId}",
+			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, viewsCapability, deleteViewRowHandler(tracker, db)))))
 
 		// GO-028: o BFF faz polling desta rota (uma vez por socket
 		// conectado) para saber o que relayar por Socket.IO — ver

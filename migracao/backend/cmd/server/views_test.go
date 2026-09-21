@@ -253,11 +253,13 @@ func TestEditorE2E_CreateTableViewSaveReopenPublish(t *testing.T) {
 	// pelo runtime novo (ver internal/views/render.go) — os passos 3/5/7
 	// usam de propósito o layout opaco de mock (`above`, GO-018/019, prova
 	// que o transporte/concorrência não interpretam `configuration`); este
-	// passo troca para o shape real e suportado (`layout.besides` com uma
-	// coluna de campo direto) exatamente no momento de publicar, o
-	// equivalente a "finalizar o layout antes de publicar" no editor real.
+	// passo troca para o shape real e suportado (`configuration.columns`,
+	// a lista flat que o builder legado grava — GO-039, NÃO
+	// `layout.besides`, que é só a árvore de arranjo visual) exatamente no
+	// momento de publicar, o equivalente a "finalizar o layout antes de
+	// publicar" no editor real.
 	publishBody := `{"_version":"` + saved.Version + `","min_role":` + strconv.Itoa(int(identity.RolePublic)) +
-		`,"configuration":{"layout":{"besides":[{"contents":{"type":"Field","field_name":"title"}}]}}}`
+		`,"configuration":{"columns":[{"type":"Field","field_name":"title"}]}}`
 	publishReq := httptest.NewRequest(http.MethodPatch, viewPath, bytes.NewBufferString(publishBody))
 	publishReq.SetPathValue("tenant", string(fx.tenant))
 	publishReq.SetPathValue("id", strconv.Itoa(created.ID))
@@ -292,7 +294,7 @@ func TestEditorE2E_CreateTableViewSaveReopenPublish(t *testing.T) {
 		t.Fatalf("decodificar view final: %v", err)
 	}
 	if _, stillOldShape := finalCheck.Configuration["above"]; stillOldShape {
-		t.Fatalf("configuration final ainda no shape antigo (above) — publicar (passo 8) deveria ter trocado para layout.besides: %+v", finalCheck.Configuration)
+		t.Fatalf("configuration final ainda no shape antigo (above) — publicar (passo 8) deveria ter trocado para configuration.columns: %+v", finalCheck.Configuration)
 	}
 	rawFinal, _ := json.Marshal(finalCheck.Configuration)
 	if strings.Contains(string(rawFinal), "conflito, nunca deveria persistir") {

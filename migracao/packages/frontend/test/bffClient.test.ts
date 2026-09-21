@@ -126,6 +126,10 @@ describe("BffClient — ciclo do editor (GO-019)", () => {
     );
     const client = new BffClient({ baseUrl: "http://bff.local", csrfToken: "tok" });
     const plan = await client.renderView(5, { limit: 2 });
+    // renderView devolve um dos três shapes (List/Show/Edit, GO-039) —
+    // este teste é especificamente do shape List, então estreitamos o
+    // tipo aqui em vez de espalhar `any` pelo cliente inteiro.
+    if (!("rows" in plan)) throw new Error("esperado plano List (com rows)");
     expect(plan.rows).toEqual([{ title: "Dune" }]);
     const [url] = fetchMock.mock.calls[0]!;
     expect(url).toEqual("http://bff.local/api/bff/views/5/render?limit=2");

@@ -21,6 +21,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/records"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 )
 
@@ -347,23 +348,33 @@ func updateViewHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerF
 // internal/views (e de internal/metadata, usado por createViewHandler ao
 // resolver a tabela) — mesma disciplina de writeRecordsError/
 // writeMetadataError: nunca a mensagem crua de um erro Go.
+// writeViewsOrMetadataError classifica os erros sentinela de
+// internal/views/internal/metadata E, desde GO-039 (Edit/List operam
+// escrita real via internal/records), os de internal/records também —
+// SubmitEditView/DeleteListRow podem propagar qualquer um dos três
+// pacotes, e o cliente HTTP não deveria precisar saber de qual pacote Go
+// um erro veio para receber o status certo.
 func writeViewsOrMetadataError(w http.ResponseWriter, err error) {
 	var unsupported *views.UnsupportedLayoutError
 	switch {
-	case errors.Is(err, views.ErrNotAuthorized), errors.Is(err, metadata.ErrNotAuthorized):
+	case errors.Is(err, views.ErrNotAuthorized), errors.Is(err, metadata.ErrNotAuthorized), errors.Is(err, records.ErrNotAuthorized):
 		writeAPIError(w, http.StatusForbidden, "not_authorized", "ator não tem papel suficiente para esta operação")
-	case errors.Is(err, views.ErrViewNotFound), errors.Is(err, metadata.ErrTableNotFound):
+	case errors.Is(err, views.ErrViewNotFound), errors.Is(err, metadata.ErrTableNotFound),
+		errors.Is(err, records.ErrUnknownTable), errors.Is(err, records.ErrUnknownField), errors.Is(err, records.ErrRecordNotFound):
 		writeAPIError(w, http.StatusNotFound, "not_found", "recurso não encontrado")
-	case errors.Is(err, views.ErrVersionConflict):
-		writeAPIError(w, http.StatusConflict, "version_conflict", "a view foi modificada por outra transação — releia e tente novamente")
-	case errors.Is(err, views.ErrDuplicateName):
-		writeAPIError(w, http.StatusConflict, "duplicate_name", "já existe uma view com este nome")
+	case errors.Is(err, views.ErrVersionConflict), errors.Is(err, records.ErrVersionConflict):
+		writeAPIError(w, http.StatusConflict, "version_conflict", "o recurso foi modificado por outra transação — releia e tente novamente")
+	case errors.Is(err, views.ErrDuplicateName), errors.Is(err, records.ErrDuplicateValue):
+		writeAPIError(w, http.StatusConflict, "duplicate_value", "valor duplicado viola unicidade")
+	case errors.Is(err, records.ErrTypeMismatch), errors.Is(err, records.ErrRequiredField),
+		errors.Is(err, records.ErrNoFields), errors.Is(err, records.ErrInvalidReference):
+		writeAPIError(w, http.StatusBadRequest, "invalid_input", err.Error())
 	case errors.As(err, &unsupported):
 		// 422: a requisição está bem formada e o ator tem permissão, mas o
 		// ESTADO do recurso (o layout desta view) não pode ser processado
-		// da forma pedida (publicá-la) — GO-020, "layouts incompatíveis
-		// bloqueiam publicação". Reason vai no corpo para a UI mostrar o
-		// motivo específico, nunca uma mensagem genérica de erro.
+		// da forma pedida (publicá-la, ou um campo submetido fora do que a
+		// view expõe) — Reason vai no corpo para a UI mostrar o motivo
+		// específico, nunca uma mensagem genérica de erro.
 		writeAPIError(w, http.StatusUnprocessableEntity, "view_unsupported", unsupported.Reason)
 	default:
 		writeAPIError(w, http.StatusBadGateway, "database_error", "erro ao processar a operação")

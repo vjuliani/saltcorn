@@ -12,7 +12,14 @@ function makeClient() {
   return {
     listViews: vi.fn(),
     renderView: vi.fn(),
-  } as unknown as BffClient & { listViews: ReturnType<typeof vi.fn>; renderView: ReturnType<typeof vi.fn> };
+    deleteViewRow: vi.fn(),
+    submitView: vi.fn(),
+  } as unknown as BffClient & {
+    listViews: ReturnType<typeof vi.fn>;
+    renderView: ReturnType<typeof vi.fn>;
+    deleteViewRow: ReturnType<typeof vi.fn>;
+    submitView: ReturnType<typeof vi.fn>;
+  };
 }
 
 describe("ViewsListPage", () => {
@@ -69,5 +76,84 @@ describe("ViewsListPage", () => {
     render(<ViewsListPage bffClient={client} />);
     await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
     expect(screen.getByRole("alert").textContent).toMatch(/indisponível/);
+  });
+
+  // GO-039: Show/Edit — o mesmo botão "Visualizar" agora pode desenhar
+  // três shapes diferentes; estes testes provam que a página despacha
+  // corretamente para cada um.
+  it("pré-visualiza uma view Show, desenhando o ShowView com os valores reais", async () => {
+    client.listViews.mockResolvedValue([{ id: 2, name: "showbook", template: "Show", min_role: 100 }]);
+    client.renderView.mockResolvedValue({
+      view_id: 2,
+      table: "books",
+      record_id: 1,
+      columns: [{ field_name: "title", header_label: "Título" }],
+      values: { title: "Dune" },
+    });
+    render(<ViewsListPage bffClient={client} />);
+
+    fireEvent.click(await screen.findByText("Visualizar"));
+    expect(await screen.findByTestId("show-view")).toBeTruthy();
+    expect(screen.getByText("Dune")).toBeTruthy();
+  });
+
+  it("pré-visualiza uma view Edit em branco (criação), desenhando o EditView", async () => {
+    client.listViews.mockResolvedValue([{ id: 3, name: "createbook", template: "Edit", min_role: 100 }]);
+    client.renderView.mockResolvedValue({
+      view_id: 3,
+      table: "books",
+      record_id: 0,
+      fields: [{ field_name: "title", label: "title", field_type: "text", fieldview: "edit", required: true, value: null }],
+      action_name: "Save",
+    });
+    render(<ViewsListPage bffClient={client} />);
+
+    fireEvent.click(await screen.findByText("Visualizar"));
+    expect(await screen.findByTestId("edit-view")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Salvar" })).toBeTruthy();
+  });
+
+  it("clicar em 'Excluir' numa coluna de ação chama deleteViewRow com id/versão da linha e recarrega", async () => {
+    client.listViews.mockResolvedValue([{ id: 1, name: "booklist", template: "List", min_role: 100 }]);
+    client.renderView.mockResolvedValue({
+      view_id: 1,
+      columns: [
+        { kind: "field", field_name: "title", header_label: "Título" },
+        { kind: "action", action_name: "Delete" },
+      ],
+      rows: [{ id: 7, _version: "3", title: "Dune" }],
+      order_by: "id",
+      descending: false,
+      next_cursor: null,
+    });
+    client.deleteViewRow.mockResolvedValue(undefined);
+    render(<ViewsListPage bffClient={client} />);
+
+    fireEvent.click(await screen.findByText("Visualizar"));
+    fireEvent.click(await screen.findByText("Excluir"));
+    await waitFor(() => expect(client.deleteViewRow).toHaveBeenCalledWith(1, 7, "3"));
+    // Recarrega a mesma view depois de excluir.
+    await waitFor(() => expect(client.renderView).toHaveBeenCalledTimes(2));
+  });
+
+  it("submeter o EditView chama submitView e mostra a decisão de navegação", async () => {
+    client.listViews.mockResolvedValue([{ id: 3, name: "createbook", template: "Edit", min_role: 100 }]);
+    client.renderView.mockResolvedValue({
+      view_id: 3,
+      table: "books",
+      record_id: 0,
+      fields: [{ field_name: "title", label: "title", field_type: "text", fieldview: "edit", required: true, value: null }],
+      action_name: "Save",
+    });
+    client.submitView.mockResolvedValue({ record: { id: 9, title: "Neuromancer" }, navigate: { type: "reload" } });
+    render(<ViewsListPage bffClient={client} />);
+
+    fireEvent.click(await screen.findByText("Visualizar"));
+    const input = (await screen.findByLabelText("title *")) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Neuromancer" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(client.submitView).toHaveBeenCalledWith(3, { record_id: undefined, _version: undefined, values: { title: "Neuromancer" } }));
+    expect(await screen.findByTestId("views-navigate-message")).toBeTruthy();
   });
 });

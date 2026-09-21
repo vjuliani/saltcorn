@@ -42,6 +42,8 @@ type StartImpersonationResponse =
   InternalPaths["/v1/tenants/{tenant}/users/{id}/impersonate"]["post"]["responses"]["201"]["content"]["application/json"];
 type UpdateTablePermissionsResponse =
   InternalPaths["/v1/tenants/{tenant}/tables/{table}/permissions"]["patch"]["responses"]["200"]["content"]["application/json"];
+type SubmitViewResponse =
+  InternalPaths["/v1/tenants/{tenant}/views/{id}/submit"]["post"]["responses"]["200"]["content"]["application/json"];
 
 export interface GoClientOptions {
   readonly baseUrl: string;
@@ -169,19 +171,53 @@ export class GoClient {
     });
   }
 
-  // renderView (GO-020) — só GET, sem Idempotency-Key (não é uma mutação).
-  // Devolve o DTO de renderização (colunas + linhas + paginação) tal como
-  // o Go monta — o BFF não reinterpreta nada, só repassa.
+  // renderView (GO-020, estendido em GO-039) — só GET, sem
+  // Idempotency-Key (não é uma mutação). Devolve o DTO de renderização
+  // tal como o Go monta (List, Show ou Edit conforme o template da view)
+  // — o BFF não reinterpreta nada, só repassa. `record` é obrigatório
+  // para Show, opcional para Edit (ausente = registro novo), ignorado
+  // por List.
   async renderView(
     serviceIdentityToken: string,
     tenant: string,
     id: number,
-    query: { limit?: number; cursor?: string } = {}
+    query: { limit?: number; cursor?: string; record?: number } = {}
   ): Promise<RenderViewResponse> {
     const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/views/${id}/render`);
     if (query.limit !== undefined) url.searchParams.set("limit", String(query.limit));
     if (query.cursor !== undefined) url.searchParams.set("cursor", query.cursor);
+    if (query.record !== undefined) url.searchParams.set("record", String(query.record));
     return this.request<RenderViewResponse>(url, { method: "GET", serviceIdentityToken });
+  }
+
+  // submitView (GO-039) — form_action: cria (recordId ausente/0) ou
+  // atualiza (recordId presente, exige expectedVersion) um registro de
+  // uma view Edit. Idempotência via Idempotency-Key, mesma convenção de
+  // createRecord/createView.
+  async submitView(
+    serviceIdentityToken: string,
+    idempotencyKey: string,
+    tenant: string,
+    id: number,
+    input: { record_id?: number; _version?: string; values: Record<string, unknown> }
+  ): Promise<SubmitViewResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/views/${id}/submit`);
+    return this.request<SubmitViewResponse>(url, {
+      method: "POST",
+      serviceIdentityToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: input,
+    });
+  }
+
+  // deleteViewRow (GO-039) — a ação de coluna "Delete" de uma view List.
+  // Sem Idempotency-Key: DELETE já é idempotente por natureza aqui (uma
+  // segunda chamada encontra o registro já removido e recebe 404, um
+  // estado final consistente, não um efeito duplicado).
+  async deleteViewRow(serviceIdentityToken: string, tenant: string, id: number, recordId: number, expectedVersion: string): Promise<void> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/views/${id}/rows/${recordId}`);
+    url.searchParams.set("version", expectedVersion);
+    await this.request<void>(url, { method: "DELETE", serviceIdentityToken });
   }
 
   // listRealtimeEvents (GO-028) — chamado em polling curto por
