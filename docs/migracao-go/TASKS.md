@@ -861,7 +861,7 @@ Antes de prosseguir com GO-039, o usuário pediu garantia de que TODA funcionali
 
 ### GO-044 — Portar administração de usuário e segurança do servidor
 
-- [ ] **Status:** IN_REVIEW — PR [#44](https://github.com/vjuliani/saltcorn/pull/44) aberto, aguardando checks/revisão; histórico em [execucoes/GO-044.md](execucoes/GO-044.md)
+- [x] **Status:** DONE — integrada via PR [#44](https://github.com/vjuliani/saltcorn/pull/44) (merge `af76741c3bf2a29c95960cad404f58dcd3307eb2`); histórico em [execucoes/GO-044.md](execucoes/GO-044.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Plataforma
 - **Depende de:** GO-008, GO-009
