@@ -201,98 +201,15 @@ O teste cria uma tabela de demonstração `local_howto_*` na instância local; o
 
 ## Alternativa: aplicação inteira com Docker Compose
 
-Este modo compila e executa frontend React, BFF Node.js e backend Go em containers. No computador, basta ter **Docker Engine/Desktop com Compose v2 e Bash** (no Windows, use WSL2). Node, Go e npm são instalados nas imagens. Execute os comandos na raiz do repositório.
+Siga o **[passo a passo detalhado de Docker Compose](DOCKER-COMPOSE.md)**. Ele explica os pré-requisitos, a escolha do contexto/porta, a primeira inicialização, o login, a verificação pela interface, logs, recompilação, uso direto do Compose, persistência e diagnóstico, com o resultado esperado em cada etapa.
 
-### 1. Construir e iniciar
+Na raiz do checkout, com Docker Compose e Bash disponíveis:
 
 ```bash
 migracao/local/docker.sh up
-```
-
-O primeiro build baixa as imagens e dependências e pode levar alguns minutos. O script aguarda a prontidão do PostgreSQL, da aplicação e do frontend. Os serviços ficam em segundo plano; fechar o terminal não os encerra.
-
-Por padrão, usa o contexto Docker `default` e publica somente **http://localhost:5180** em loopback. Para outro contexto, informe `SALTCORN_DOCKER_CONTEXT` em todos os comandos. Para outra porta, configure-a antes da primeira inicialização:
-
-```bash
-SALTCORN_DOCKER_CONTEXT=desktop-linux SALTCORN_DOCKER_PORT=5181 migracao/local/docker.sh up
-SALTCORN_DOCKER_CONTEXT=desktop-linux migracao/local/docker.sh login
-```
-
-A porta fica gravada em `migracao/local/.docker-state/compose.env`. Para alterá-la depois, execute `docker.sh down`, edite somente `HTTP_PORT` nesse arquivo e execute `docker.sh up`. Preserve `POSTGRES_PASSWORD`. O `config.json` do modo com ferramentas no host não configura este Compose.
-
-### 2. Entrar e usar
-
-```bash
 migracao/local/docker.sh login
 ```
 
-Abra o link completo emitido no terminal em até **60 segundos**. Ele autentica o administrador local e redireciona ao frontend na mesma porta. Gere outro link se expirar. O ticket concede acesso administrativo; não o publique nem o salve em logs compartilhados.
+Abra o link gerado (porta padrão 5180). O Compose usado é `migracao/local/compose.app.yaml`; o script prepara `.docker-state/compose.env`. `config.json` e `compose.yaml` pertencem ao modo `local.sh`, descrito nas seções anteriores.
 
-Use o editor conectado ao BFF para criar tabela, criar/publicar view e visualizar registros. Este modo serve o frontend **compilado**, sem recarga automática do Vite. Para trabalhar com recarga automática, utilize o modo `local.sh` das seções anteriores.
-
-### 3. Acompanhar e recompilar
-
-```bash
-migracao/local/docker.sh status
-migracao/local/docker.sh logs
-# Ou somente um serviço: frontend, app ou postgres
-migracao/local/docker.sh logs app
-```
-
-`Ctrl+C` encerra o acompanhamento dos logs. Para aplicar alterações de código:
-
-```bash
-migracao/local/docker.sh up
-```
-
-`up` recompila as imagens com cache e recria os containers alterados. `docker.sh build` apenas compila, sem reiniciar a aplicação. Alterações futuras de versão de schema continuam sujeitas ao procedimento de migração da distribuição; o script não executa upgrades de schema automaticamente.
-
-### 4. Parar e retomar sem perder dados
-
-```bash
-migracao/local/docker.sh stop
-migracao/local/docker.sh up
-# Para remover os containers e a rede, preservando os volumes:
-migracao/local/docker.sh down
-migracao/local/docker.sh up
-```
-
-O projeto Compose chama-se `saltcorn-migracao-docker`, isolado do PostgreSQL de `local.sh`. Os dois modos usam bancos e instâncias diferentes; dados criados em um não aparecem no outro.
-
-| Persistência | Conteúdo |
-| --- | --- |
-| Volume `saltcorn-migracao-docker_postgres-data` | Banco PostgreSQL |
-| Volume `saltcorn-migracao-docker_instance-data` | Configuração da instância, segredo de sessão, senha inicial, arquivos e locks |
-| `.docker-state/compose.env` (ignorado pelo Git) | Senha aleatória do banco e porta HTTP |
-
-Conserve os dois volumes e o arquivo privado ao retomar o ambiente. `down` não remove volumes. O script recusa gerar novas credenciais se detectar volumes existentes sem `compose.env`; nesse caso, restaure o arquivo original. Não execute `docker compose down -v` para uma simples reinicialização.
-
-### Como os containers se conectam
-
-`postgres` armazena os dados sem publicar sua porta no host. `app` executa backend Go, BFF e worker sob a CLI/supervisor da distribuição, mantendo os locks e binds internos em loopback. `frontend` serve React com Nginx e encaminha login, API e WebSocket ao BFF. Ele compartilha o espaço de rede de `app`, sem compartilhar seu volume privado. A porta 5180 no host chega ao Nginx na porta interna 8080. Somente esse ponto de entrada é publicado; Go e BFF não recebem portas externas.
-
-Os arquivos são `migracao/local/compose.app.yaml`, `migracao/local/docker.sh` e `migracao/local/docker/`. O Dockerfile utiliza o build e o manifesto da distribuição. Seu `.dockerignore` específico limita o contexto aos fontes necessários e exclui dependências locais, builds e estado privado.
-
-### Solução de problemas
-
-- **Docker indisponível:** inicie o Engine/Desktop e confira `docker --context default info`; ajuste `SALTCORN_DOCKER_CONTEXT` se necessário.
-- **Porta 5180 ocupada:** libere a porta ou altere `HTTP_PORT` como descrito acima. O script não encerra processos de outros projetos.
-- **Serviço unhealthy:** consulte `docker.sh status` e `docker.sh logs app` ou `logs postgres`. Depois de corrigir a causa, repita `up`; o setup reaproveita a instância existente.
-- **Login expirado ou sessão perdida após reiniciar:** execute `docker.sh login` novamente e use o host `localhost` do link.
-- **Frontend não reflete alterações:** repita `docker.sh up` para recompilar e recriar a imagem.
-- **Worker com `skipped_not_owner`:** aplica-se a mesma limitação de ownership documentada para o modo local; não force ownership manualmente.
-
-### Reproduzir a validação no navegador (opcional)
-
-Este teste exige Node 22 e Chromium/Playwright no host, além da stack Docker iniciada. Isso é necessário somente para o teste, não para usar a aplicação.
-
-```bash
-npm ci --prefix migracao/e2e
-(cd migracao/e2e && npx playwright install --with-deps chromium)
-node migracao/local/smoke.mjs create --docker
-migracao/local/docker.sh down
-migracao/local/docker.sh up
-node migracao/local/smoke.mjs recheck --docker
-```
-
-O teste autentica, publica uma view, grava um registro e confirma sua leitura após recriar os containers. O nome da tabela fica em `.docker-state/smoke-table.txt`. A CI executa esse mesmo fluxo. Esta execução local não libera o canário da GO-036.
+O modo Docker serve React compilado, com BFF/Go/worker sob o supervisor e PostgreSQL em volumes persistentes. Ele usa uma instância independente do modo `local.sh`. Para parar preservando os dados, execute `migracao/local/docker.sh stop` ou `down`; para retomar, execute `up` e gere novo `login`.
