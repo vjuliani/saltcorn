@@ -58,3 +58,12 @@ Ambiente: Linux, Docker Engine no contexto `default`, imagens Go 1.22/Node 22/Po
 Falhas corrigidas durante a implementação: a imagem slim de build não continha certificados TLS; o Dockerfile passou a copiar o conjunto de certificados da imagem Go. Uma edição do wrapper enquanto o Bash ainda o executava causou erro de leitura ao terminar a primeira inicialização; a validação foi repetida com o arquivo estável e passou. Nenhum desses ensaios apagou volumes ou reinicializou o banco existente.
 
 Logs locais em `/tmp/migracao-docker-{up,repeat,recreate}.log`, sem tickets de login. URL do PR e resultados da CI registrados na descrição da entrega. Ao finalizar a validação, os containers deste complemento são parados e os dados permanecem nos volumes para `docker.sh up`.
+
+## Complemento documental — passo a passo Docker Compose
+
+Pedido: detalhar a execução com Docker Compose. Base: `a8b4656a2a8`, integração do PR #42; branch `docs/migracao-docker-passo-a-passo`.
+
+- Criado `docs/migracao-go/DOCKER-COMPOSE.md` com 13 etapas, comandos copiáveis, resultados esperados, distinção dos arquivos/configurações, contexto Docker, portas, autenticação, operação direta do Compose, persistência, diagnóstico e teste opcional.
+- `EXECUCAO-LOCAL.md` preserva a âncora de Docker Compose e encaminha ao guia detalhado; índice da migração atualizado.
+- Conferidos links/âncoras dos três documentos e sintaxe dos 22 blocos Bash do guia. `docker compose ... config --quiet` e `config --services` passaram no contexto `default`, sem exibir credenciais nem iniciar serviços; serviços retornados: postgres, app e frontend. `git diff --check` aprovado.
+- Alteração apenas documental. Os testes funcionais do PR #42 não foram reexecutados, pois scripts, imagens e configuração Compose permanecem iguais. URL e checks da entrega ficam na descrição do PR. GO-036 permanece BLOCKED.
