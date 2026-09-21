@@ -61,6 +61,14 @@ const tablesSchemaRoute = "tenant_tables_schema"
 const viewsCapability = "tables.views"
 const viewsRoute = "tenant_views"
 
+// usersAdminCapability (GO-044) identifica a capacidade de administrar
+// usuários (listar/mudar papel/redefinir senha/deletar/listar tokens/
+// impersonar) — distinta de recordsCapability/tablesSchemaCapability: é
+// administração de identidade, não de dados de domínio, e pode ser cortada
+// para Go independentemente dos dois.
+const usersAdminCapability = "identity.admin"
+const usersAdminRoute = "tenant_users_admin"
+
 // realtimeCapability (GO-028) identifica a capacidade de servir o poll de
 // eventos em tempo real ao BFF — sujeita ao mesmo corte gradual Node/Go
 // que qualquer outra capacidade de domínio: enquanto não for OwnerGo para
@@ -177,6 +185,9 @@ func main() {
 		mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/fields",
 			tenancy.Middleware(verifier, telemetry.Middleware(tablesSchemaRoute, httpMetrics,
 				cutover.RequireOwnership(guard, tablesSchemaCapability, addFieldHandler(tracker, db)))))
+		mux.Handle("PATCH /v1/tenants/{tenant}/tables/{table}/permissions",
+			tenancy.Middleware(verifier, telemetry.Middleware(tablesSchemaRoute, httpMetrics,
+				cutover.RequireOwnership(guard, tablesSchemaCapability, updateTablePermissionsHandler(tracker, db)))))
 		mux.Handle("POST /v1/tenants/{tenant}/views",
 			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, viewsCapability, createViewHandler(tracker, db)))))
@@ -199,6 +210,35 @@ func main() {
 		mux.Handle("GET /v1/tenants/{tenant}/realtime/events",
 			tenancy.Middleware(verifier, telemetry.Middleware(realtimeRoute, httpMetrics,
 				cutover.RequireOwnership(guard, realtimeCapability, realtimeEventsHandler(tracker, db)))))
+
+		// GO-044: administração de usuários — a superfície de
+		// auth/admin.ts do legado (ver docs/migracao-go/execucoes/GO-044.md
+		// para as decisões de escopo). endImpersonationHandler não passa
+		// por RequireOwnership: encerrar uma impersonação já iniciada não é
+		// uma nova mutação de domínio sujeita a corte, é a limpeza de um
+		// efeito que já aconteceu (mesmo raciocínio de getActorHandler não
+		// passar por cutover).
+		mux.Handle("GET /v1/tenants/{tenant}/users",
+			tenancy.Middleware(verifier, telemetry.Middleware(usersAdminRoute, httpMetrics,
+				cutover.RequireOwnership(guard, usersAdminCapability, listUsersHandler(tracker, db)))))
+		mux.Handle("PATCH /v1/tenants/{tenant}/users/{id}",
+			tenancy.Middleware(verifier, telemetry.Middleware(usersAdminRoute, httpMetrics,
+				cutover.RequireOwnership(guard, usersAdminCapability, updateUserHandler(tracker, db)))))
+		mux.Handle("DELETE /v1/tenants/{tenant}/users/{id}",
+			tenancy.Middleware(verifier, telemetry.Middleware(usersAdminRoute, httpMetrics,
+				cutover.RequireOwnership(guard, usersAdminCapability, deleteUserHandler(tracker, db)))))
+		mux.Handle("POST /v1/tenants/{tenant}/users/{id}/reset-password",
+			tenancy.Middleware(verifier, telemetry.Middleware(usersAdminRoute, httpMetrics,
+				cutover.RequireOwnership(guard, usersAdminCapability, resetPasswordHandler(tracker, db)))))
+		mux.Handle("GET /v1/tenants/{tenant}/users/{id}/tokens",
+			tenancy.Middleware(verifier, telemetry.Middleware(usersAdminRoute, httpMetrics,
+				cutover.RequireOwnership(guard, usersAdminCapability, listUserTokensHandler(tracker, db)))))
+		mux.Handle("POST /v1/tenants/{tenant}/users/{id}/impersonate",
+			tenancy.Middleware(verifier, telemetry.Middleware(usersAdminRoute, httpMetrics,
+				cutover.RequireOwnership(guard, usersAdminCapability, startImpersonationHandler(tracker, db)))))
+		mux.Handle("POST /v1/tenants/{tenant}/impersonations/{id}/end",
+			tenancy.Middleware(verifier, telemetry.Middleware(usersAdminRoute, httpMetrics,
+				endImpersonationHandler(tracker, db))))
 	}
 
 	srv := &http.Server{Addr: cfg.HTTPAddr, Handler: telemetry.LimitRequests(mux, 128, 10*time.Second, registry), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, BaseContext: func(net.Listener) context.Context {

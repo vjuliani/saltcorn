@@ -15,6 +15,20 @@ export interface MockGoServerOptions {
   readonly secret: string;
   /** Atraso artificial antes de responder — para testar timeout do lado do BFF. */
   readonly delayMs?: number;
+  /** GO-044: subs (claims.sub) tratados como identity.RoleAdmin (1) — os demais recebem role_id 80, mesma convenção do /actor abaixo. */
+  readonly adminUserIds?: readonly string[];
+}
+
+interface MockUser {
+  id: number;
+  email: string;
+  role_id: number;
+}
+
+interface MockImpersonation {
+  adminUserId: number;
+  targetUserId: number;
+  endedAt: string | null;
 }
 
 interface IdempotentEntry {
@@ -34,6 +48,14 @@ export class MockGoServer {
   private readonly viewCreateKeys = new Map<string, IdempotentEntry>();
   private readonly viewUpdateKeys = new Map<string, IdempotentEntry>();
 
+  // GO-044: estado em memória da administração de usuário — só o
+  // suficiente para o BFF exercitar list/update/delete/reset-password/
+  // tokens/impersonate/permissions contra respostas HTTP realistas.
+  private readonly users = new Map<number, MockUser>();
+  private readonly userTokens = new Map<number, Array<{ id: number; created_at: string; revoked: boolean }>>();
+  private readonly impersonations = new Map<number, MockImpersonation>();
+  private nextLogId = 1;
+
   constructor(private readonly opts: MockGoServerOptions) {
     this.server = createServer((req, res) => {
       void this.handle(req, res);
@@ -49,6 +71,21 @@ export class MockGoServer {
 
   async close(): Promise<void> {
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
+  }
+
+  // seedUser/seedUserTokens/getImpersonation (GO-044) — os testes de
+  // app.ts populam o estado que os handlers administrativos leem, e
+  // inspecionam o registro de impersonação sem precisar de outra rota.
+  seedUser(user: MockUser): void {
+    this.users.set(user.id, { ...user });
+  }
+
+  seedUserTokens(userId: number, tokens: Array<{ id: number; created_at: string; revoked: boolean }>): void {
+    this.userTokens.set(userId, tokens);
+  }
+
+  getImpersonation(logId: number): MockImpersonation | undefined {
+    return this.impersonations.get(logId);
   }
 
   private async handle(req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse): Promise<void> {
@@ -75,8 +112,85 @@ export class MockGoServer {
       return;
     }
 
+    const isAdmin = this.opts.adminUserIds?.includes(String(claims.sub)) ?? false;
+
     if (url.pathname.endsWith("/actor")) {
-      sendJSON(res, 200, { id: Number(claims.sub), role_id: 80 });
+      sendJSON(res, 200, { id: Number(claims.sub), role_id: isAdmin ? 1 : 80 });
+      return;
+    }
+
+    // GO-044: administração de usuário — réplica mínima de
+    // internal/identity.requireAdmin (403 para quem não está em
+    // adminUserIds) e das rotas de cmd/server/users.go.
+    if (req.method === "GET" && url.pathname.endsWith("/users")) {
+      if (!isAdmin) { sendJSON(res, 403, { error: { code: "not_authorized", message: "ator não tem papel suficiente" } }); return; }
+      sendJSON(res, 200, Array.from(this.users.values()));
+      return;
+    }
+
+    const userIdMatch = url.pathname.match(/\/users\/(\d+)$/);
+    if (userIdMatch) {
+      const id = Number(userIdMatch[1]);
+      if (req.method === "PATCH") {
+        if (!isAdmin) { sendJSON(res, 403, { error: { code: "not_authorized", message: "ator não tem papel suficiente" } }); return; }
+        const user = this.users.get(id);
+        if (!user) { sendJSON(res, 404, { error: { code: "not_found", message: "usuário não encontrado" } }); return; }
+        const body = (await readBody(req)) as { role_id: number };
+        user.role_id = body.role_id;
+        res.writeHead(204); res.end();
+        return;
+      }
+      if (req.method === "DELETE") {
+        if (!isAdmin) { sendJSON(res, 403, { error: { code: "not_authorized", message: "ator não tem papel suficiente" } }); return; }
+        this.users.delete(id);
+        res.writeHead(204); res.end();
+        return;
+      }
+    }
+
+    const resetPasswordMatch = url.pathname.match(/\/users\/(\d+)\/reset-password$/);
+    if (resetPasswordMatch && req.method === "POST") {
+      if (!isAdmin) { sendJSON(res, 403, { error: { code: "not_authorized", message: "ator não tem papel suficiente" } }); return; }
+      const id = Number(resetPasswordMatch[1]);
+      if (!this.users.has(id)) { sendJSON(res, 404, { error: { code: "not_found", message: "usuário não encontrado" } }); return; }
+      const body = (await readBody(req)) as { password?: string };
+      sendJSON(res, 200, { password: body.password ?? "senha-aleatoria-gerada-pelo-mock" });
+      return;
+    }
+
+    const tokensMatch = url.pathname.match(/\/users\/(\d+)\/tokens$/);
+    if (tokensMatch && req.method === "GET") {
+      if (!isAdmin) { sendJSON(res, 403, { error: { code: "not_authorized", message: "ator não tem papel suficiente" } }); return; }
+      sendJSON(res, 200, this.userTokens.get(Number(tokensMatch[1])) ?? []);
+      return;
+    }
+
+    const impersonateMatch = url.pathname.match(/\/users\/(\d+)\/impersonate$/);
+    if (impersonateMatch && req.method === "POST") {
+      if (!isAdmin) { sendJSON(res, 403, { error: { code: "not_authorized", message: "ator não tem papel suficiente" } }); return; }
+      const targetUserId = Number(impersonateMatch[1]);
+      const adminUserId = Number(claims.sub);
+      if (adminUserId === targetUserId) { sendJSON(res, 400, { error: { code: "cannot_impersonate_self", message: "não é possível impersonar o próprio usuário" } }); return; }
+      if (!this.users.has(targetUserId)) { sendJSON(res, 404, { error: { code: "not_found", message: "usuário-alvo não encontrado" } }); return; }
+      const logId = this.nextLogId++;
+      this.impersonations.set(logId, { adminUserId, targetUserId, endedAt: null });
+      sendJSON(res, 201, { log_id: logId, target_user_id: targetUserId });
+      return;
+    }
+
+    const endImpersonationMatch = url.pathname.match(/\/impersonations\/(\d+)\/end$/);
+    if (endImpersonationMatch && req.method === "POST") {
+      const record = this.impersonations.get(Number(endImpersonationMatch[1]));
+      if (record && record.endedAt === null) record.endedAt = new Date().toISOString();
+      res.writeHead(204); res.end();
+      return;
+    }
+
+    const permissionsMatch = url.pathname.match(/\/tables\/([^/]+)\/permissions$/);
+    if (permissionsMatch && req.method === "PATCH") {
+      if (!isAdmin) { sendJSON(res, 403, { error: { code: "not_authorized", message: "ator não tem papel suficiente" } }); return; }
+      const body = (await readBody(req)) as { min_role_read: number; min_role_write: number };
+      sendJSON(res, 200, { id: 1, name: permissionsMatch[1], min_role_read: body.min_role_read, min_role_write: body.min_role_write });
       return;
     }
 

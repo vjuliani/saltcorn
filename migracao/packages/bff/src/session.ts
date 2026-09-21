@@ -16,6 +16,16 @@ export const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h, ADR-0007
 export interface SessionData {
   readonly userId: string;
   readonly tenant: string;
+  /**
+   * impersonatedBy (GO-044) marca uma sessão criada por "become-user" — só
+   * presente quando o usuário desta sessão está sendo impersonado por um
+   * admin. logId referencia a linha de auditoria em
+   * internal/identity._sc_impersonation_log (Go), usada por
+   * POST /api/bff/admin/impersonation/end para encerrar a auditoria ao
+   * mesmo tempo que a sessão. Nunca definido numa sessão criada por login
+   * normal.
+   */
+  readonly impersonatedBy?: { readonly adminUserId: string; readonly logId: number };
 }
 
 interface StoredSession {
@@ -38,6 +48,14 @@ export interface SessionStore {
   /** Renovação deslizante: estende expiresAt sem trocar o ID nem os dados. */
   touch(sessionId: string): Promise<void>;
   destroy(sessionId: string): Promise<void>;
+  /**
+   * destroyAllForUser (GO-044) é "force-logout": derruba TODAS as sessões
+   * ativas de um usuário (qualquer aba/dispositivo), não só uma — o
+   * equivalente ao "force-logout" de `auth/admin.ts` do legado. A próxima
+   * requisição de cada sessão destruída cai em `session_required` (401),
+   * forçando login de novo.
+   */
+  destroyAllForUser(userId: string): Promise<void>;
 }
 
 /**
@@ -75,6 +93,12 @@ export class InMemorySessionStore implements SessionStore {
 
   async destroy(sessionId: string): Promise<void> {
     this.sessions.delete(sessionId);
+  }
+
+  async destroyAllForUser(userId: string): Promise<void> {
+    for (const [id, entry] of this.sessions) {
+      if (entry.data.userId === userId) this.sessions.delete(id);
+    }
   }
 }
 

@@ -36,6 +36,12 @@ export class Router {
     this.add("PATCH", pattern, handler);
   }
 
+  // delete (GO-044) — a administração de usuário precisa de DELETE
+  // /api/bff/admin/users/:id; nenhuma rota anterior precisava do verbo.
+  delete(pattern: string, handler: Handler): void {
+    this.add("DELETE", pattern, handler);
+  }
+
   /** match encontra a primeira rota cujo método e forma de path batem — retorna null se nenhuma bater (o chamador decide 404 vs. 405). */
   match(method: string, pathname: string): { handler: Handler; params: RouteParams } | null {
     const pathSegments = splitPath(pathname);

@@ -861,7 +861,7 @@ Antes de prosseguir com GO-039, o usuário pediu garantia de que TODA funcionali
 
 ### GO-044 — Portar administração de usuário e segurança do servidor
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW — PR a abrir nesta mesma tentativa; histórico em [execucoes/GO-044.md](execucoes/GO-044.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Plataforma
 - **Depende de:** GO-008, GO-009

@@ -245,6 +245,315 @@ test("identidade forjada (assinatura errada) é rejeitada pelo Go real, não ace
   }
 });
 
+// GO-044: administração de usuário — testes de integração da mesma
+// forma dos acima (app real + mock HTTP do Go), cobrindo o caminho que
+// nenhum teste unitário de goClient.ts sozinho provaria: sessão+CSRF
+// exigidos pelo BFF, e o 403 do Go (requireAdmin) propagado sem alteração.
+test("GET /api/bff/admin/users exige sessão", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  const goUrl = await mockGo.listen();
+  const { server, baseUrl } = await startBff(goUrl);
+  try {
+    const res = await fetch(`${baseUrl}/api/bff/admin/users`);
+    assert.equal(res.status, 401);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("GET /api/bff/admin/users com ator não-admin recebe o 403 do Go, sem alteração", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  mockGo.seedUser({ id: 2, email: "user@acme.test", role_id: 80 });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "2", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/admin/users`, { headers: { Cookie: cookie } });
+    assert.equal(res.status, 403);
+    const body = (await res.json()) as any;
+    assert.equal(body.error.code, "not_authorized");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("GET /api/bff/admin/users com admin lista os usuários do Go", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  mockGo.seedUser({ id: 1, email: "admin@acme.test", role_id: 1 });
+  mockGo.seedUser({ id: 2, email: "user@acme.test", role_id: 80 });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/admin/users`, { headers: { Cookie: cookie } });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as any;
+    assert.equal(body.length, 2);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("PATCH /api/bff/admin/users/:id sem CSRF é rejeitado antes de chegar ao Go", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  mockGo.seedUser({ id: 2, email: "user@acme.test", role_id: 80 });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/admin/users/2`, {
+      method: "PATCH",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ role_id: 1 }),
+    });
+    assert.equal(res.status, 403);
+    const body = (await res.json()) as any;
+    assert.equal(body.error.code, "csrf_invalid");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("DELETE /api/bff/admin/users/:id com admin remove o usuário no Go", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  mockGo.seedUser({ id: 2, email: "user@acme.test", role_id: 80 });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/admin/users/2`, {
+      method: "DELETE",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: csrfToken },
+    });
+    assert.equal(res.status, 204);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/admin/users/:id/reset-password sem senha devolve a gerada pelo Go, uma única vez", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  mockGo.seedUser({ id: 2, email: "user@acme.test", role_id: 80 });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/admin/users/2/reset-password`, {
+      method: "POST",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: csrfToken },
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as any;
+    assert.ok(typeof body.password === "string" && body.password.length > 0);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("GET /api/bff/admin/users/:id/tokens nunca reexibe hash/texto puro, só id/created_at/revoked", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  mockGo.seedUser({ id: 2, email: "user@acme.test", role_id: 80 });
+  mockGo.seedUserTokens(2, [{ id: 1, created_at: "2026-01-01T00:00:00Z", revoked: false }]);
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/admin/users/2/tokens`, { headers: { Cookie: cookie } });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as any;
+    assert.deepEqual(body, [{ id: 1, created_at: "2026-01-01T00:00:00Z", revoked: false }]);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("PATCH /api/bff/admin/tables/:table/permissions com admin muda min_role_read/write no Go", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/admin/tables/widgets/permissions`, {
+      method: "PATCH",
+      headers: { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken },
+      body: JSON.stringify({ min_role_read: 10, min_role_write: 1 }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as any;
+    assert.equal(body.min_role_read, 10);
+    assert.equal(body.min_role_write, 1);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+// force-logout (GO-044) — o único handler administrativo que nunca
+// chama o Go para decidir 403 (destrói sessões no store do próprio
+// BFF, ADR-0007); prova que um ator não-admin é rejeitado mesmo sem
+// nenhuma rota Go envolvida, e que um admin de fato derruba TODAS as
+// sessões do usuário-alvo (não só uma).
+test("POST /api/bff/admin/users/:id/force-logout com ator não-admin é rejeitado (403, sem chamar o Go para decidir)", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  mockGo.seedUser({ id: 2, email: "user@acme.test", role_id: 80 });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "2", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/admin/users/2/force-logout`, {
+      method: "POST",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: csrfToken },
+    });
+    assert.equal(res.status, 403);
+    const body = (await res.json()) as any;
+    assert.equal(body.error.code, "not_authorized");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/admin/users/:id/force-logout com admin derruba todas as sessões do alvo", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  mockGo.seedUser({ id: 1, email: "admin@acme.test", role_id: 1 });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const admin = await withSession(sessionStore, "1", "acme");
+    const targetSessionA = await withSession(sessionStore, "9", "acme");
+    const targetSessionB = await withSession(sessionStore, "9", "acme");
+
+    const res = await fetch(`${baseUrl}/api/bff/admin/users/9/force-logout`, {
+      method: "POST",
+      headers: { Cookie: admin.cookie, [CSRF_HEADER_NAME]: admin.csrfToken },
+    });
+    assert.equal(res.status, 204);
+
+    const targetSessionIdA = targetSessionA.cookie.match(/sc_session=([^;]+)/)![1]!;
+    const targetSessionIdB = targetSessionB.cookie.match(/sc_session=([^;]+)/)![1]!;
+    assert.equal(await sessionStore.get(decodeURIComponent(targetSessionIdA)), null);
+    assert.equal(await sessionStore.get(decodeURIComponent(targetSessionIdB)), null);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+// impersonate + end (GO-044) — o fluxo completo: iniciar troca a sessão
+// do admin por uma sessão NOVA do usuário-alvo (nunca reaproveita a
+// sessão do admin) com impersonatedBy marcado; encerrar exige que a
+// sessão ATUAL seja de fato uma impersonação (nunca aceita log_id de
+// fora) e sempre expira o cookie, forçando novo login.
+test("POST /api/bff/admin/users/:id/impersonate troca o cookie por uma sessão nova do alvo, com auditoria no Go", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  mockGo.seedUser({ id: 1, email: "admin@acme.test", role_id: 1 });
+  mockGo.seedUser({ id: 2, email: "user@acme.test", role_id: 80 });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/admin/users/2/impersonate`, {
+      method: "POST",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: csrfToken },
+      redirect: "manual",
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as any;
+    assert.equal(body.target_user_id, 2);
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    assert.match(setCookie, /sc_session=/);
+
+    const record = mockGo.getImpersonation(1);
+    assert.equal(record?.adminUserId, 1);
+    assert.equal(record?.targetUserId, 2);
+    assert.equal(record?.endedAt, null);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/admin/users/:id/impersonate ao impersonar a si mesmo propaga o 400 do Go", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  mockGo.seedUser({ id: 1, email: "admin@acme.test", role_id: 1 });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/admin/users/1/impersonate`, {
+      method: "POST",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: csrfToken },
+    });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as any;
+    assert.equal(body.error.code, "cannot_impersonate_self");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/admin/impersonation/end numa sessão que não é impersonação é rejeitado (409)", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "1", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/admin/impersonation/end`, {
+      method: "POST",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: csrfToken },
+    });
+    assert.equal(res.status, 409);
+    const body = (await res.json()) as any;
+    assert.equal(body.error.code, "impersonation_not_active");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("impersonate seguido de end: encerra a auditoria no Go, destrói a sessão, e expira o cookie", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET, adminUserIds: ["1"] });
+  mockGo.seedUser({ id: 1, email: "admin@acme.test", role_id: 1 });
+  mockGo.seedUser({ id: 2, email: "user@acme.test", role_id: 80 });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const admin = await withSession(sessionStore, "1", "acme");
+    const startRes = await fetch(`${baseUrl}/api/bff/admin/users/2/impersonate`, {
+      method: "POST",
+      headers: { Cookie: admin.cookie, [CSRF_HEADER_NAME]: admin.csrfToken },
+    });
+    const setCookieHeader = startRes.headers.get("set-cookie") ?? "";
+    const impersonatedSessionId = setCookieHeader.match(/sc_session=([^;]+)/)?.[1];
+    const impersonatedCsrf = setCookieHeader.match(/sc_csrf=([^;]+)/)?.[1];
+    assert.ok(impersonatedSessionId && impersonatedCsrf, "impersonate deveria ter definido sessão+csrf novos");
+
+    const endRes = await fetch(`${baseUrl}/api/bff/admin/impersonation/end`, {
+      method: "POST",
+      headers: {
+        Cookie: `sc_session=${impersonatedSessionId}; sc_csrf=${impersonatedCsrf}`,
+        [CSRF_HEADER_NAME]: decodeURIComponent(impersonatedCsrf!),
+      },
+    });
+    assert.equal(endRes.status, 204);
+    assert.match(endRes.headers.get("set-cookie") ?? "", /Max-Age=0/);
+
+    assert.equal(mockGo.getImpersonation(1)?.endedAt !== null, true);
+    assert.equal(await sessionStore.get(decodeURIComponent(impersonatedSessionId!)), null);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
 test("identidade com tenant divergente é rejeitada pelo Go real (403 tenant_mismatch)", async () => {
   const mockGo = new MockGoServer({ secret: SECRET });
   const goUrl = await mockGo.listen();

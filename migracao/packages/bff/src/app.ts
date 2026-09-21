@@ -5,11 +5,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Config } from "./config.js";
 import { GoClient } from "./goClient.js";
 import type { SessionStore } from "./session.js";
-import { readSessionCookie, sessionCookieHeader, SESSION_COOKIE_NAME } from "./session.js";
+import { expiredSessionCookieHeader, readSessionCookie, sessionCookieHeader, SESSION_COOKIE_NAME } from "./session.js";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrfCookieHeader, generateCsrfToken, readCsrfCookie, verifyCsrf } from "./csrf.js";
 import { mintServiceIdentity } from "./serviceIdentity.js";
 import { computeIdempotencyKey } from "./idempotency.js";
-import { BffError, csrfInvalidError, sessionRequiredError } from "./errors.js";
+import { BffError, csrfInvalidError, forbiddenError, impersonationNotActiveError, sessionRequiredError } from "./errors.js";
 import { getHeader, readJSONBody, sendError, sendJSON } from "./httpHelpers.js";
 import { Router } from "./router.js";
 
@@ -179,6 +179,120 @@ export function buildRouter(deps: AppDeps): Router {
       Number(params.id),
       body as { _version: string; configuration?: Record<string, unknown>; template?: string; min_role?: number }
     );
+    sendJSON(res, 200, updated);
+  });
+
+  // Administração de usuário (GO-044) — a UI de `auth/admin.ts` do
+  // legado. Autorização "é admin?" fica quase toda do lado Go
+  // (identity.requireAdmin, 403 se não for) — o BFF só propaga; a única
+  // exceção é force-logout, que nunca chama o Go (destrói sessões no
+  // store do próprio BFF, ADR-0007) e por isso precisa checar o papel
+  // aqui mesmo.
+  router.get("/api/bff/admin/users", async (req, res) => {
+    const { data } = await requireSession(req, sessionStore);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const users = await goClient.listUsers(token, data.tenant);
+    sendJSON(res, 200, users);
+  });
+
+  router.patch("/api/bff/admin/users/:id", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    await goClient.updateUserRole(token, data.tenant, Number(params.id), Number((body as { role_id: number }).role_id));
+    res.writeHead(204);
+    res.end();
+  });
+
+  router.delete("/api/bff/admin/users/:id", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    await goClient.deleteUser(token, data.tenant, Number(params.id));
+    res.writeHead(204);
+    res.end();
+  });
+
+  router.post("/api/bff/admin/users/:id/reset-password", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const password = typeof body.password === "string" ? body.password : undefined;
+    const result = await goClient.resetUserPassword(token, data.tenant, Number(params.id), password);
+    sendJSON(res, 200, result);
+  });
+
+  router.get("/api/bff/admin/users/:id/tokens", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const tokens = await goClient.listUserTokens(token, data.tenant, Number(params.id));
+    sendJSON(res, 200, tokens);
+  });
+
+  // force-logout (GO-044) — equivalente ao "force-logout" de
+  // `auth/admin.ts`, mas puramente no BFF (a sessão nunca é do Go,
+  // ADR-0007): derruba TODAS as sessões ativas do usuário-alvo. Único
+  // handler administrativo que precisa checar o papel do ator aqui
+  // mesmo, já que não há uma chamada ao Go para devolver 403.
+  router.post("/api/bff/admin/users/:id/force-logout", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const actor = await goClient.getActor(token, data.tenant);
+    if (actor.role_id !== 1) throw forbiddenError(); // 1 = identity.RoleAdmin (Go)
+    await sessionStore.destroyAllForUser(params.id!);
+    res.writeHead(204);
+    res.end();
+  });
+
+  // impersonate (GO-044) — inicia a auditoria no Go (startImpersonation)
+  // e, só depois de confirmada, cria uma sessão NOVA para o usuário-alvo
+  // (nunca reaproveita a sessão do admin) com `impersonatedBy` marcado —
+  // a sessão anterior do admin nesta aba fica sobrescrita pelo
+  // Set-Cookie desta resposta, mas continua válida no store até expirar
+  // ou até o admin fazer logout de outra aba.
+  router.post("/api/bff/admin/users/:id/impersonate", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const targetUserId = Number(params.id);
+    const started = await goClient.startImpersonation(token, data.tenant, targetUserId);
+    const newSessionId = await sessionStore.create({
+      userId: String(started.target_user_id),
+      tenant: data.tenant,
+      impersonatedBy: { adminUserId: data.userId, logId: started.log_id },
+    });
+    const csrfToken = generateCsrfToken();
+    res.setHeader("Set-Cookie", [sessionCookieHeader(newSessionId), csrfCookieHeader(csrfToken)]);
+    sendJSON(res, 200, { status: "ok", target_user_id: started.target_user_id });
+  });
+
+  // impersonation/end (GO-044) — encerra a impersonação da sessão
+  // ATUAL (nunca aceita um log_id vindo do corpo/query — sempre o que a
+  // própria sessão guardou), encerra a auditoria no Go, e destrói a
+  // sessão de impersonação. Decisão deliberada: NÃO restaura a sessão
+  // original do admin automaticamente — força um novo login, mais
+  // simples e mais seguro que guardar duas sessões empilhadas.
+  router.post("/api/bff/admin/impersonation/end", async (req, res) => {
+    const { sessionId, data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    if (!data.impersonatedBy) throw impersonationNotActiveError();
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    await goClient.endImpersonation(token, data.tenant, data.impersonatedBy.logId);
+    await sessionStore.destroy(sessionId);
+    res.setHeader("Set-Cookie", [expiredSessionCookieHeader()]);
+    res.writeHead(204);
+    res.end();
+  });
+
+  router.patch("/api/bff/admin/tables/:table/permissions", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const updated = await goClient.updateTablePermissions(token, data.tenant, params.table!, body as { min_role_read: number; min_role_write: number });
     sendJSON(res, 200, updated);
   });
 
