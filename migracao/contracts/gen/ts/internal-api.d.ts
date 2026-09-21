@@ -204,6 +204,170 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant}/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Query: lista usuários do tenant (admin)
+         * @description Adicionado por GO-044 — a administração de usuários do legado (`auth/admin.ts`) que faltava expor. Só um ator admin pode listar (`identity.ListUsers`); um ator sem papel suficiente recebe 403.
+         */
+        get: operations["listUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Command: remove um usuário (admin)
+         * @description Idempotente — remover um usuário que não existe é sucesso silencioso (204), mesma convenção de deleteRecord.
+         */
+        delete: operations["deleteUser"];
+        options?: never;
+        head?: never;
+        /**
+         * Command: muda o papel de um usuário (admin)
+         * @description Só muda `role_id` — redefinir senha é uma rota própria (`reset-password`), de propósito, por ser mais sensível que um campo opcional de PATCH.
+         */
+        patch: operations["updateUser"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/users/{id}/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: redefine a senha de um usuário (admin)
+         * @description `password` no corpo é opcional — omitido, o Go gera uma senha aleatória. A senha em texto plano só existe NESTA resposta, uma única vez (mesmo contrato do token de API) — o BFF/admin é responsável por entregá-la ao usuário por um canal seguro, nunca logá-la.
+         */
+        post: operations["resetUserPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/users/{id}/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Query: lista tokens de API de um usuário (admin)
+         * @description Nunca inclui o hash nem o texto plano do token — só id/created_at/revoked, para uma UI administrativa decidir o que revogar.
+         */
+        get: operations["listUserTokens"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/users/{id}/impersonate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: inicia uma impersonação auditada (admin)
+         * @description O admin é sempre o `sub` da identidade delegada, nunca um campo do corpo. Registra uma linha de auditoria (`_sc_impersonation_log`) — divergência deliberada e mais forte que o legado, que troca `req.user` sem deixar nenhum rastro. O BFF usa `log_id` para encerrar a impersonação depois; a sessão de navegador do usuário impersonado é sempre criada pelo BFF, nunca pelo Go (ADR-0007).
+         */
+        post: operations["startImpersonation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/impersonations/{id}/end": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: encerra uma impersonação (sem checagem de papel)
+         * @description Exige `ServiceIdentity` válido para o tenant (como qualquer outra rota), mas deliberadamente SEM checagem de papel/ownership: quem chama isto é o BFF encerrando sua PRÓPRIA sessão de impersonação (o `log_id` só existe porque o BFF o guardou depois de um `startImpersonation` bem-sucedido), nunca um usuário final escolhendo um id de outra pessoa. Idempotente — encerrar um id já encerrado ou inexistente também devolve 204.
+         */
+        post: operations["endImpersonation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/tables/{table}/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                table: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Command: muda min_role_read/min_role_write de uma tabela (admin)
+         * @description Adicionado por GO-044 — a UI "table-access"/"permissions" de `auth/admin.ts` do legado. `createTable` só define os mínimos na criação; esta rota é o único jeito de mudá-los depois.
+         */
+        patch: operations["updateTablePermissions"];
+        trace?: never;
+    };
     "/v1/tenants/{tenant}/realtime/events": {
         parameters: {
             query?: never;
@@ -288,6 +452,16 @@ export interface components {
             id: components["schemas"]["Id"];
             /** @description Papel atual do ator (identity.RoleID) — nunca cacheado pelo chamador, sempre resolvido nesta consulta. */
             role_id: number;
+        };
+        User: {
+            id: components["schemas"]["Id"];
+            role_id: number;
+            email: string;
+        };
+        APIToken: {
+            id: components["schemas"]["Id"];
+            created_at: string;
+            revoked: boolean;
         };
         TableInput: {
             name: string;
@@ -1015,6 +1189,268 @@ export interface operations {
             };
             /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description usuários do tenant, em ordem de criação */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["User"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    deleteUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description removido (ou já não existia) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    role_id: number;
+                };
+            };
+        };
+        responses: {
+            /** @description papel atualizado */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description usuário não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    resetUserPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    password?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description senha redefinida */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        password: string;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description usuário não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listUserTokens: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description tokens do usuário */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIToken"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    startImpersonation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description impersonação iniciada */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        log_id: components["schemas"]["Id"];
+                        target_user_id: components["schemas"]["Id"];
+                    };
+                };
+            };
+            /** @description admin tentou impersonar a própria conta */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description usuário-alvo não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    endImpersonation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description encerrado (ou já estava encerrado/não existia) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    updateTablePermissions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                table: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    min_role_read: number;
+                    min_role_write: number;
+                };
+            };
+        };
+        responses: {
+            /** @description tabela com permissões atualizadas */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Table"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description tabela não encontrada */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

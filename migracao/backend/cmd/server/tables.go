@@ -190,6 +190,76 @@ func addFieldHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFun
 	}
 }
 
+type updateTablePermissionsRequest struct {
+	MinRoleRead  *int `json:"min_role_read"`
+	MinRoleWrite *int `json:"min_role_write"`
+}
+
+// updateTablePermissionsHandler implementa
+// PATCH /v1/tenants/{tenant}/tables/{table}/permissions (GO-044) — o
+// equivalente Go da UI "table-access"/"permissions" de `auth/admin.ts` do
+// legado: CreateTable só define os mínimos na criação, esta rota é o único
+// jeito de mudá-los depois.
+func updateTablePermissionsHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		end, err := tracker.Begin()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer end()
+
+		tenant, _ := tenancy.TenantFromContext(r.Context())
+		tableName := r.PathValue("table")
+		if db == nil {
+			writeAPIError(w, http.StatusBadGateway, "database_unavailable", "banco não configurado nesta instância")
+			return
+		}
+
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_body", "não foi possível ler o corpo da requisição")
+			return
+		}
+		var req updateTablePermissionsRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_json", "corpo da requisição não é um JSON válido")
+			return
+		}
+		if req.MinRoleRead == nil || req.MinRoleWrite == nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_input", "min_role_read e min_role_write são obrigatórios")
+			return
+		}
+
+		var resp tableResponse
+		err = db.WithTenant(r.Context(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+			role, ok := resolveActorRole(ctx, tx, r, w)
+			if !ok {
+				return errHandled
+			}
+			table, err := metadata.GetTable(ctx, database.AsTx(tx), tableName)
+			if err != nil {
+				return err
+			}
+			updated, err := metadata.UpdateTablePermissions(ctx, database.AsTx(tx), role, table.ID,
+				identity.RoleID(*req.MinRoleRead), identity.RoleID(*req.MinRoleWrite))
+			if err != nil {
+				return err
+			}
+			resp = tableToResponse(*updated)
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, errHandled) {
+				return
+			}
+			writeMetadataError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
 // writeMetadataError classifica os erros sentinela de internal/metadata
 // para o formato de resposta do contrato — mesma disciplina de
 // writeRecordsError (records.go): nunca a mensagem crua de um erro Go.

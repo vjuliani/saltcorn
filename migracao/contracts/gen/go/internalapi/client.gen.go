@@ -167,6 +167,15 @@ func (e ResultStatus) Valid() bool {
 	}
 }
 
+// APIToken defines model for APIToken.
+type APIToken struct {
+	CreatedAt string `json:"created_at"`
+
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id      Id   `json:"id"`
+	Revoked bool `json:"revoked"`
+}
+
 // Actor defines model for Actor.
 type Actor struct {
 	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
@@ -364,6 +373,15 @@ type TableInput struct {
 // Tenant Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL.
 type Tenant = string
 
+// User defines model for User.
+type User struct {
+	Email string `json:"email"`
+
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id     Id  `json:"id"`
+	RoleId int `json:"role_id"`
+}
+
 // View defines model for View.
 type View struct {
 	UnderscoreVersion string                 `json:"_version"`
@@ -448,6 +466,12 @@ type ListRealtimeEventsParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// UpdateTablePermissionsJSONBody defines parameters for UpdateTablePermissions.
+type UpdateTablePermissionsJSONBody struct {
+	MinRoleRead  int `json:"min_role_read"`
+	MinRoleWrite int `json:"min_role_write"`
+}
+
 // ListRecordsParams defines parameters for ListRecords.
 type ListRecordsParams struct {
 	// Cursor Cursor opaco da página anterior. Omitir para a primeira página.
@@ -474,6 +498,16 @@ type UpdateRecordApplicationMergePatchPlusJSONBody map[string]interface{}
 type UpdateRecordParams struct {
 	// IdempotencyKey Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
+// UpdateUserJSONBody defines parameters for UpdateUser.
+type UpdateUserJSONBody struct {
+	RoleId int `json:"role_id"`
+}
+
+// ResetUserPasswordJSONBody defines parameters for ResetUserPassword.
+type ResetUserPasswordJSONBody struct {
+	Password *string `json:"password,omitempty"`
 }
 
 // ListViewsParams defines parameters for ListViews.
@@ -509,11 +543,20 @@ type CreateTableJSONRequestBody = TableInput
 // AddFieldJSONRequestBody defines body for AddField for application/json ContentType.
 type AddFieldJSONRequestBody = FieldInput
 
+// UpdateTablePermissionsJSONRequestBody defines body for UpdateTablePermissions for application/json ContentType.
+type UpdateTablePermissionsJSONRequestBody UpdateTablePermissionsJSONBody
+
 // CreateRecordJSONRequestBody defines body for CreateRecord for application/json ContentType.
 type CreateRecordJSONRequestBody = RecordInput
 
 // UpdateRecordApplicationMergePatchPlusJSONRequestBody defines body for UpdateRecord for application/merge-patch+json ContentType.
 type UpdateRecordApplicationMergePatchPlusJSONRequestBody UpdateRecordApplicationMergePatchPlusJSONBody
+
+// UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
+type UpdateUserJSONRequestBody UpdateUserJSONBody
+
+// ResetUserPasswordJSONRequestBody defines body for ResetUserPassword for application/json ContentType.
+type ResetUserPasswordJSONRequestBody ResetUserPasswordJSONBody
 
 // CreateViewJSONRequestBody defines body for CreateView for application/json ContentType.
 type CreateViewJSONRequestBody = ViewInput
@@ -798,6 +841,13 @@ type ClientInterface interface {
 	// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 	GetActor(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// EndImpersonation Command: encerra uma impersonação (sem checagem de papel)
+	//
+	// Exige `ServiceIdentity` válido para o tenant (como qualquer outra rota), mas deliberadamente SEM checagem de papel/ownership: quem chama isto é o BFF encerrando sua PRÓPRIA sessão de impersonação (o `log_id` só existe porque o BFF o guardou depois de um `startImpersonation` bem-sucedido), nunca um usuário final escolhendo um id de outra pessoa. Idempotente — encerrar um id já encerrado ou inexistente também devolve 204.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/impersonations/{id}/end (the `EndImpersonation` operationId).
+	EndImpersonation(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListRealtimeEvents Query: eventos de tempo real pendentes de entrega ao ator autenticado
 	//
 	// Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
@@ -859,6 +909,24 @@ type ClientInterface interface {
 	// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/fields (the `AddField` operationId).
 	AddField(ctx context.Context, tenant Tenant, table string, body AddFieldJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// UpdateTablePermissionsWithBody Command: muda min_role_read/min_role_write de uma tabela (admin)
+	//
+	// Adicionado por GO-044 — a UI "table-access"/"permissions" de `auth/admin.ts` do legado. `createTable` só define os mínimos na criação; esta rota é o único jeito de mudá-los depois.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/permissions (the `UpdateTablePermissions` operationId).
+	UpdateTablePermissionsWithBody(ctx context.Context, tenant Tenant, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateTablePermissions Command: muda min_role_read/min_role_write de uma tabela (admin)
+	//
+	// Adicionado por GO-044 — a UI "table-access"/"permissions" de `auth/admin.ts` do legado. `createTable` só define os mínimos na criação; esta rota é o único jeito de mudá-los depois.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/permissions (the `UpdateTablePermissions` operationId).
+	UpdateTablePermissions(ctx context.Context, tenant Tenant, table string, body UpdateTablePermissionsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListRecords Query: lista registros de uma tabela dinâmica
 	//
 	// Aplica as mesmas políticas de visibilidade (papel, ownership, RLS) que os comandos de escrita — ADR-0001. Não executa ações de negócio.
@@ -911,6 +979,70 @@ type ClientInterface interface {
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 	UpdateRecordWithApplicationMergePatchPlusJSONBody(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListUsers Query: lista usuários do tenant (admin)
+	//
+	// Adicionado por GO-044 — a administração de usuários do legado (`auth/admin.ts`) que faltava expor. Só um ator admin pode listar (`identity.ListUsers`); um ator sem papel suficiente recebe 403.
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/users (the `ListUsers` operationId).
+	ListUsers(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteUser Command: remove um usuário (admin)
+	//
+	// Idempotente — remover um usuário que não existe é sucesso silencioso (204), mesma convenção de deleteRecord.
+	//
+	// Corresponds with DELETE /v1/tenants/{tenant}/users/{id} (the `DeleteUser` operationId).
+	DeleteUser(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateUserWithBody Command: muda o papel de um usuário (admin)
+	//
+	// Só muda `role_id` — redefinir senha é uma rota própria (`reset-password`), de propósito, por ser mais sensível que um campo opcional de PATCH.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/users/{id} (the `UpdateUser` operationId).
+	UpdateUserWithBody(ctx context.Context, tenant Tenant, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateUser Command: muda o papel de um usuário (admin)
+	//
+	// Só muda `role_id` — redefinir senha é uma rota própria (`reset-password`), de propósito, por ser mais sensível que um campo opcional de PATCH.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/users/{id} (the `UpdateUser` operationId).
+	UpdateUser(ctx context.Context, tenant Tenant, id Id, body UpdateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartImpersonation Command: inicia uma impersonação auditada (admin)
+	//
+	// O admin é sempre o `sub` da identidade delegada, nunca um campo do corpo. Registra uma linha de auditoria (`_sc_impersonation_log`) — divergência deliberada e mais forte que o legado, que troca `req.user` sem deixar nenhum rastro. O BFF usa `log_id` para encerrar a impersonação depois; a sessão de navegador do usuário impersonado é sempre criada pelo BFF, nunca pelo Go (ADR-0007).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/users/{id}/impersonate (the `StartImpersonation` operationId).
+	StartImpersonation(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResetUserPasswordWithBody Command: redefine a senha de um usuário (admin)
+	//
+	// `password` no corpo é opcional — omitido, o Go gera uma senha aleatória. A senha em texto plano só existe NESTA resposta, uma única vez (mesmo contrato do token de API) — o BFF/admin é responsável por entregá-la ao usuário por um canal seguro, nunca logá-la.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/users/{id}/reset-password (the `ResetUserPassword` operationId).
+	ResetUserPasswordWithBody(ctx context.Context, tenant Tenant, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResetUserPassword Command: redefine a senha de um usuário (admin)
+	//
+	// `password` no corpo é opcional — omitido, o Go gera uma senha aleatória. A senha em texto plano só existe NESTA resposta, uma única vez (mesmo contrato do token de API) — o BFF/admin é responsável por entregá-la ao usuário por um canal seguro, nunca logá-la.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/users/{id}/reset-password (the `ResetUserPassword` operationId).
+	ResetUserPassword(ctx context.Context, tenant Tenant, id Id, body ResetUserPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListUserTokens Query: lista tokens de API de um usuário (admin)
+	//
+	// Nunca inclui o hash nem o texto plano do token — só id/created_at/revoked, para uma UI administrativa decidir o que revogar.
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/users/{id}/tokens (the `ListUserTokens` operationId).
+	ListUserTokens(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListViews Query: lista views
 	//
@@ -1007,6 +1139,23 @@ func (c *Client) GetReadiness(ctx context.Context, reqEditors ...RequestEditorFn
 // Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 func (c *Client) GetActor(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetActorRequest(c.Server, tenant)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EndImpersonation Command: encerra uma impersonação (sem checagem de papel)
+//
+// Exige `ServiceIdentity` válido para o tenant (como qualquer outra rota), mas deliberadamente SEM checagem de papel/ownership: quem chama isto é o BFF encerrando sua PRÓPRIA sessão de impersonação (o `log_id` só existe porque o BFF o guardou depois de um `startImpersonation` bem-sucedido), nunca um usuário final escolhendo um id de outra pessoa. Idempotente — encerrar um id já encerrado ou inexistente também devolve 204.
+//
+// Corresponds with POST /v1/tenants/{tenant}/impersonations/{id}/end (the `EndImpersonation` operationId).
+func (c *Client) EndImpersonation(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEndImpersonationRequest(c.Server, tenant, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1148,6 +1297,44 @@ func (c *Client) AddField(ctx context.Context, tenant Tenant, table string, body
 	return c.Client.Do(req)
 }
 
+// UpdateTablePermissionsWithBody Command: muda min_role_read/min_role_write de uma tabela (admin)
+//
+// Adicionado por GO-044 — a UI "table-access"/"permissions" de `auth/admin.ts` do legado. `createTable` só define os mínimos na criação; esta rota é o único jeito de mudá-los depois.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/permissions (the `UpdateTablePermissions` operationId).
+func (c *Client) UpdateTablePermissionsWithBody(ctx context.Context, tenant Tenant, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateTablePermissionsRequestWithBody(c.Server, tenant, table, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateTablePermissions Command: muda min_role_read/min_role_write de uma tabela (admin)
+//
+// Adicionado por GO-044 — a UI "table-access"/"permissions" de `auth/admin.ts` do legado. `createTable` só define os mínimos na criação; esta rota é o único jeito de mudá-los depois.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/permissions (the `UpdateTablePermissions` operationId).
+func (c *Client) UpdateTablePermissions(ctx context.Context, tenant Tenant, table string, body UpdateTablePermissionsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateTablePermissionsRequest(c.Server, tenant, table, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListRecords Query: lista registros de uma tabela dinâmica
 //
 // Aplica as mesmas políticas de visibilidade (papel, ownership, RLS) que os comandos de escrita — ADR-0001. Não executa ações de negócio.
@@ -1261,6 +1448,150 @@ func (c *Client) UpdateRecordWithBody(ctx context.Context, tenant Tenant, table 
 // Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 func (c *Client) UpdateRecordWithApplicationMergePatchPlusJSONBody(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateRecordRequestWithApplicationMergePatchPlusJSONBody(c.Server, tenant, table, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListUsers Query: lista usuários do tenant (admin)
+//
+// Adicionado por GO-044 — a administração de usuários do legado (`auth/admin.ts`) que faltava expor. Só um ator admin pode listar (`identity.ListUsers`); um ator sem papel suficiente recebe 403.
+//
+// Corresponds with GET /v1/tenants/{tenant}/users (the `ListUsers` operationId).
+func (c *Client) ListUsers(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListUsersRequest(c.Server, tenant)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteUser Command: remove um usuário (admin)
+//
+// Idempotente — remover um usuário que não existe é sucesso silencioso (204), mesma convenção de deleteRecord.
+//
+// Corresponds with DELETE /v1/tenants/{tenant}/users/{id} (the `DeleteUser` operationId).
+func (c *Client) DeleteUser(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteUserRequest(c.Server, tenant, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateUserWithBody Command: muda o papel de um usuário (admin)
+//
+// Só muda `role_id` — redefinir senha é uma rota própria (`reset-password`), de propósito, por ser mais sensível que um campo opcional de PATCH.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/users/{id} (the `UpdateUser` operationId).
+func (c *Client) UpdateUserWithBody(ctx context.Context, tenant Tenant, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateUserRequestWithBody(c.Server, tenant, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateUser Command: muda o papel de um usuário (admin)
+//
+// Só muda `role_id` — redefinir senha é uma rota própria (`reset-password`), de propósito, por ser mais sensível que um campo opcional de PATCH.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/users/{id} (the `UpdateUser` operationId).
+func (c *Client) UpdateUser(ctx context.Context, tenant Tenant, id Id, body UpdateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateUserRequest(c.Server, tenant, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StartImpersonation Command: inicia uma impersonação auditada (admin)
+//
+// O admin é sempre o `sub` da identidade delegada, nunca um campo do corpo. Registra uma linha de auditoria (`_sc_impersonation_log`) — divergência deliberada e mais forte que o legado, que troca `req.user` sem deixar nenhum rastro. O BFF usa `log_id` para encerrar a impersonação depois; a sessão de navegador do usuário impersonado é sempre criada pelo BFF, nunca pelo Go (ADR-0007).
+//
+// Corresponds with POST /v1/tenants/{tenant}/users/{id}/impersonate (the `StartImpersonation` operationId).
+func (c *Client) StartImpersonation(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartImpersonationRequest(c.Server, tenant, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ResetUserPasswordWithBody Command: redefine a senha de um usuário (admin)
+//
+// `password` no corpo é opcional — omitido, o Go gera uma senha aleatória. A senha em texto plano só existe NESTA resposta, uma única vez (mesmo contrato do token de API) — o BFF/admin é responsável por entregá-la ao usuário por um canal seguro, nunca logá-la.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/users/{id}/reset-password (the `ResetUserPassword` operationId).
+func (c *Client) ResetUserPasswordWithBody(ctx context.Context, tenant Tenant, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResetUserPasswordRequestWithBody(c.Server, tenant, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ResetUserPassword Command: redefine a senha de um usuário (admin)
+//
+// `password` no corpo é opcional — omitido, o Go gera uma senha aleatória. A senha em texto plano só existe NESTA resposta, uma única vez (mesmo contrato do token de API) — o BFF/admin é responsável por entregá-la ao usuário por um canal seguro, nunca logá-la.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/users/{id}/reset-password (the `ResetUserPassword` operationId).
+func (c *Client) ResetUserPassword(ctx context.Context, tenant Tenant, id Id, body ResetUserPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResetUserPasswordRequest(c.Server, tenant, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListUserTokens Query: lista tokens de API de um usuário (admin)
+//
+// Nunca inclui o hash nem o texto plano do token — só id/created_at/revoked, para uma UI administrativa decidir o que revogar.
+//
+// Corresponds with GET /v1/tenants/{tenant}/users/{id}/tokens (the `ListUserTokens` operationId).
+func (c *Client) ListUserTokens(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListUserTokensRequest(c.Server, tenant, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1479,6 +1810,47 @@ func NewGetActorRequest(server string, tenant Tenant) (*http.Request, error) {
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewEndImpersonationRequest constructs an http.Request for the EndImpersonation method
+func NewEndImpersonationRequest(server string, tenant Tenant, id Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/impersonations/%s/end", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1705,6 +2077,60 @@ func NewAddFieldRequestWithBody(server string, tenant Tenant, table string, cont
 	}
 
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewUpdateTablePermissionsRequest calls the generic UpdateTablePermissions builder with application/json body
+func NewUpdateTablePermissionsRequest(server string, tenant Tenant, table string, body UpdateTablePermissionsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateTablePermissionsRequestWithBody(server, tenant, table, "application/json", bodyReader)
+}
+
+// NewUpdateTablePermissionsRequestWithBody constructs an http.Request for the UpdateTablePermissions method, with any body, and a specified content type
+func NewUpdateTablePermissionsRequestWithBody(server string, tenant Tenant, table string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "table", table, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/tables/%s/permissions", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -2039,6 +2465,271 @@ func NewUpdateRecordRequestWithBody(server string, tenant Tenant, table string, 
 
 		req.Header.Set("Idempotency-Key", headerParam0)
 
+	}
+
+	return req, nil
+}
+
+// NewListUsersRequest constructs an http.Request for the ListUsers method
+func NewListUsersRequest(server string, tenant Tenant) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/users", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteUserRequest constructs an http.Request for the DeleteUser method
+func NewDeleteUserRequest(server string, tenant Tenant, id Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/users/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateUserRequest calls the generic UpdateUser builder with application/json body
+func NewUpdateUserRequest(server string, tenant Tenant, id Id, body UpdateUserJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateUserRequestWithBody(server, tenant, id, "application/json", bodyReader)
+}
+
+// NewUpdateUserRequestWithBody constructs an http.Request for the UpdateUser method, with any body, and a specified content type
+func NewUpdateUserRequestWithBody(server string, tenant Tenant, id Id, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/users/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewStartImpersonationRequest constructs an http.Request for the StartImpersonation method
+func NewStartImpersonationRequest(server string, tenant Tenant, id Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/users/%s/impersonate", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewResetUserPasswordRequest calls the generic ResetUserPassword builder with application/json body
+func NewResetUserPasswordRequest(server string, tenant Tenant, id Id, body ResetUserPasswordJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewResetUserPasswordRequestWithBody(server, tenant, id, "application/json", bodyReader)
+}
+
+// NewResetUserPasswordRequestWithBody constructs an http.Request for the ResetUserPassword method, with any body, and a specified content type
+func NewResetUserPasswordRequestWithBody(server string, tenant Tenant, id Id, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/users/%s/reset-password", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListUserTokensRequest constructs an http.Request for the ListUserTokens method
+func NewListUserTokensRequest(server string, tenant Tenant, id Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/users/%s/tokens", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
 	}
 
 	return req, nil
@@ -2420,6 +3111,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 	GetActorWithResponse(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*GetActorResponse, error)
 
+	// EndImpersonationWithResponse Command: encerra uma impersonação (sem checagem de papel)
+	//
+	// Exige `ServiceIdentity` válido para o tenant (como qualquer outra rota), mas deliberadamente SEM checagem de papel/ownership: quem chama isto é o BFF encerrando sua PRÓPRIA sessão de impersonação (o `log_id` só existe porque o BFF o guardou depois de um `startImpersonation` bem-sucedido), nunca um usuário final escolhendo um id de outra pessoa. Idempotente — encerrar um id já encerrado ou inexistente também devolve 204.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/impersonations/{id}/end (the `EndImpersonation` operationId).
+	EndImpersonationWithResponse(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*EndImpersonationResponse, error)
+
 	// ListRealtimeEventsWithResponse Query: eventos de tempo real pendentes de entrega ao ator autenticado
 	//
 	// Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
@@ -2483,6 +3183,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/fields (the `AddField` operationId).
 	AddFieldWithResponse(ctx context.Context, tenant Tenant, table string, body AddFieldJSONRequestBody, reqEditors ...RequestEditorFn) (*AddFieldResponse, error)
 
+	// UpdateTablePermissionsWithBodyWithResponse Command: muda min_role_read/min_role_write de uma tabela (admin)
+	//
+	// Adicionado por GO-044 — a UI "table-access"/"permissions" de `auth/admin.ts` do legado. `createTable` só define os mínimos na criação; esta rota é o único jeito de mudá-los depois.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/permissions (the `UpdateTablePermissions` operationId).
+	UpdateTablePermissionsWithBodyWithResponse(ctx context.Context, tenant Tenant, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateTablePermissionsResponse, error)
+
+	// UpdateTablePermissionsWithResponse Command: muda min_role_read/min_role_write de uma tabela (admin)
+	//
+	// Adicionado por GO-044 — a UI "table-access"/"permissions" de `auth/admin.ts` do legado. `createTable` só define os mínimos na criação; esta rota é o único jeito de mudá-los depois.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/permissions (the `UpdateTablePermissions` operationId).
+	UpdateTablePermissionsWithResponse(ctx context.Context, tenant Tenant, table string, body UpdateTablePermissionsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateTablePermissionsResponse, error)
+
 	// ListRecordsWithResponse Query: lista registros de uma tabela dinâmica
 	//
 	// Aplica as mesmas políticas de visibilidade (papel, ownership, RLS) que os comandos de escrita — ADR-0001. Não executa ações de negócio.
@@ -2541,6 +3259,78 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 	UpdateRecordWithApplicationMergePatchPlusJSONBodyWithResponse(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateRecordResponse, error)
+
+	// ListUsersWithResponse Query: lista usuários do tenant (admin)
+	//
+	// Adicionado por GO-044 — a administração de usuários do legado (`auth/admin.ts`) que faltava expor. Só um ator admin pode listar (`identity.ListUsers`); um ator sem papel suficiente recebe 403.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/users (the `ListUsers` operationId).
+	ListUsersWithResponse(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*ListUsersResponse, error)
+
+	// DeleteUserWithResponse Command: remove um usuário (admin)
+	//
+	// Idempotente — remover um usuário que não existe é sucesso silencioso (204), mesma convenção de deleteRecord.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /v1/tenants/{tenant}/users/{id} (the `DeleteUser` operationId).
+	DeleteUserWithResponse(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*DeleteUserResponse, error)
+
+	// UpdateUserWithBodyWithResponse Command: muda o papel de um usuário (admin)
+	//
+	// Só muda `role_id` — redefinir senha é uma rota própria (`reset-password`), de propósito, por ser mais sensível que um campo opcional de PATCH.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/users/{id} (the `UpdateUser` operationId).
+	UpdateUserWithBodyWithResponse(ctx context.Context, tenant Tenant, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserResponse, error)
+
+	// UpdateUserWithResponse Command: muda o papel de um usuário (admin)
+	//
+	// Só muda `role_id` — redefinir senha é uma rota própria (`reset-password`), de propósito, por ser mais sensível que um campo opcional de PATCH.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/users/{id} (the `UpdateUser` operationId).
+	UpdateUserWithResponse(ctx context.Context, tenant Tenant, id Id, body UpdateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserResponse, error)
+
+	// StartImpersonationWithResponse Command: inicia uma impersonação auditada (admin)
+	//
+	// O admin é sempre o `sub` da identidade delegada, nunca um campo do corpo. Registra uma linha de auditoria (`_sc_impersonation_log`) — divergência deliberada e mais forte que o legado, que troca `req.user` sem deixar nenhum rastro. O BFF usa `log_id` para encerrar a impersonação depois; a sessão de navegador do usuário impersonado é sempre criada pelo BFF, nunca pelo Go (ADR-0007).
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/users/{id}/impersonate (the `StartImpersonation` operationId).
+	StartImpersonationWithResponse(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*StartImpersonationResponse, error)
+
+	// ResetUserPasswordWithBodyWithResponse Command: redefine a senha de um usuário (admin)
+	//
+	// `password` no corpo é opcional — omitido, o Go gera uma senha aleatória. A senha em texto plano só existe NESTA resposta, uma única vez (mesmo contrato do token de API) — o BFF/admin é responsável por entregá-la ao usuário por um canal seguro, nunca logá-la.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/users/{id}/reset-password (the `ResetUserPassword` operationId).
+	ResetUserPasswordWithBodyWithResponse(ctx context.Context, tenant Tenant, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResetUserPasswordResponse, error)
+
+	// ResetUserPasswordWithResponse Command: redefine a senha de um usuário (admin)
+	//
+	// `password` no corpo é opcional — omitido, o Go gera uma senha aleatória. A senha em texto plano só existe NESTA resposta, uma única vez (mesmo contrato do token de API) — o BFF/admin é responsável por entregá-la ao usuário por um canal seguro, nunca logá-la.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/users/{id}/reset-password (the `ResetUserPassword` operationId).
+	ResetUserPasswordWithResponse(ctx context.Context, tenant Tenant, id Id, body ResetUserPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ResetUserPasswordResponse, error)
+
+	// ListUserTokensWithResponse Query: lista tokens de API de um usuário (admin)
+	//
+	// Nunca inclui o hash nem o texto plano do token — só id/created_at/revoked, para uma UI administrativa decidir o que revogar.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/users/{id}/tokens (the `ListUserTokens` operationId).
+	ListUserTokensWithResponse(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*ListUserTokensResponse, error)
 
 	// ListViewsWithResponse Query: lista views
 	//
@@ -2730,6 +3520,54 @@ func (r GetActorResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetActorResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type EndImpersonationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r EndImpersonationResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r EndImpersonationResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r EndImpersonationResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r EndImpersonationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EndImpersonationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r EndImpersonationResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -3023,6 +3861,68 @@ func (r AddFieldResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r AddFieldResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateTablePermissionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Table
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateTablePermissionsResponse) GetJSON200() *Table {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UpdateTablePermissionsResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UpdateTablePermissionsResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r UpdateTablePermissionsResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateTablePermissionsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateTablePermissionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateTablePermissionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateTablePermissionsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -3357,6 +4257,366 @@ func (r UpdateRecordResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateRecordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListUsersResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]User
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListUsersResponse) GetJSON200() *[]User {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListUsersResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListUsersResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r ListUsersResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListUsersResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListUsersResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListUsersResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteUserResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DeleteUserResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DeleteUserResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteUserResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteUserResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteUserResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteUserResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateUserResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UpdateUserResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UpdateUserResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r UpdateUserResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateUserResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateUserResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateUserResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateUserResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StartImpersonationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *struct {
+		// LogId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+		LogId Id `json:"log_id"`
+
+		// TargetUserId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+		TargetUserId Id `json:"target_user_id"`
+	}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r StartImpersonationResponse) GetJSON201() *struct {
+	// LogId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	LogId Id `json:"log_id"`
+
+	// TargetUserId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	TargetUserId Id `json:"target_user_id"`
+} {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r StartImpersonationResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r StartImpersonationResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r StartImpersonationResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r StartImpersonationResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r StartImpersonationResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StartImpersonationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartImpersonationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StartImpersonationResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ResetUserPasswordResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *struct {
+		Password string `json:"password"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ResetUserPasswordResponse) GetJSON200() *struct {
+	Password string `json:"password"`
+} {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ResetUserPasswordResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ResetUserPasswordResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ResetUserPasswordResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetBody returns the raw response body bytes
+func (r ResetUserPasswordResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ResetUserPasswordResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResetUserPasswordResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ResetUserPasswordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListUserTokensResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]APIToken
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListUserTokensResponse) GetJSON200() *[]APIToken {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListUserTokensResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListUserTokensResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetBody returns the raw response body bytes
+func (r ListUserTokensResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListUserTokensResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListUserTokensResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListUserTokensResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -3756,6 +5016,21 @@ func (c *ClientWithResponses) GetActorWithResponse(ctx context.Context, tenant T
 	return ParseGetActorResponse(rsp)
 }
 
+// EndImpersonationWithResponse Command: encerra uma impersonação (sem checagem de papel)
+//
+// Exige `ServiceIdentity` válido para o tenant (como qualquer outra rota), mas deliberadamente SEM checagem de papel/ownership: quem chama isto é o BFF encerrando sua PRÓPRIA sessão de impersonação (o `log_id` só existe porque o BFF o guardou depois de um `startImpersonation` bem-sucedido), nunca um usuário final escolhendo um id de outra pessoa. Idempotente — encerrar um id já encerrado ou inexistente também devolve 204.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/impersonations/{id}/end (the `EndImpersonation` operationId).
+func (c *ClientWithResponses) EndImpersonationWithResponse(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*EndImpersonationResponse, error) {
+	rsp, err := c.EndImpersonation(ctx, tenant, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEndImpersonationResponse(rsp)
+}
+
 // ListRealtimeEventsWithResponse Query: eventos de tempo real pendentes de entrega ao ator autenticado
 //
 // Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
@@ -3861,6 +5136,36 @@ func (c *ClientWithResponses) AddFieldWithResponse(ctx context.Context, tenant T
 	return ParseAddFieldResponse(rsp)
 }
 
+// UpdateTablePermissionsWithBodyWithResponse Command: muda min_role_read/min_role_write de uma tabela (admin)
+//
+// Adicionado por GO-044 — a UI "table-access"/"permissions" de `auth/admin.ts` do legado. `createTable` só define os mínimos na criação; esta rota é o único jeito de mudá-los depois.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/permissions (the `UpdateTablePermissions` operationId).
+func (c *ClientWithResponses) UpdateTablePermissionsWithBodyWithResponse(ctx context.Context, tenant Tenant, table string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateTablePermissionsResponse, error) {
+	rsp, err := c.UpdateTablePermissionsWithBody(ctx, tenant, table, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateTablePermissionsResponse(rsp)
+}
+
+// UpdateTablePermissionsWithResponse Command: muda min_role_read/min_role_write de uma tabela (admin)
+//
+// Adicionado por GO-044 — a UI "table-access"/"permissions" de `auth/admin.ts` do legado. `createTable` só define os mínimos na criação; esta rota é o único jeito de mudá-los depois.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/permissions (the `UpdateTablePermissions` operationId).
+func (c *ClientWithResponses) UpdateTablePermissionsWithResponse(ctx context.Context, tenant Tenant, table string, body UpdateTablePermissionsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateTablePermissionsResponse, error) {
+	rsp, err := c.UpdateTablePermissions(ctx, tenant, table, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateTablePermissionsResponse(rsp)
+}
+
 // ListRecordsWithResponse Query: lista registros de uma tabela dinâmica
 //
 // Aplica as mesmas políticas de visibilidade (papel, ownership, RLS) que os comandos de escrita — ADR-0001. Não executa ações de negócio.
@@ -3960,6 +5265,126 @@ func (c *ClientWithResponses) UpdateRecordWithApplicationMergePatchPlusJSONBodyW
 		return nil, err
 	}
 	return ParseUpdateRecordResponse(rsp)
+}
+
+// ListUsersWithResponse Query: lista usuários do tenant (admin)
+//
+// Adicionado por GO-044 — a administração de usuários do legado (`auth/admin.ts`) que faltava expor. Só um ator admin pode listar (`identity.ListUsers`); um ator sem papel suficiente recebe 403.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/tenants/{tenant}/users (the `ListUsers` operationId).
+func (c *ClientWithResponses) ListUsersWithResponse(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*ListUsersResponse, error) {
+	rsp, err := c.ListUsers(ctx, tenant, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListUsersResponse(rsp)
+}
+
+// DeleteUserWithResponse Command: remove um usuário (admin)
+//
+// Idempotente — remover um usuário que não existe é sucesso silencioso (204), mesma convenção de deleteRecord.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /v1/tenants/{tenant}/users/{id} (the `DeleteUser` operationId).
+func (c *ClientWithResponses) DeleteUserWithResponse(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*DeleteUserResponse, error) {
+	rsp, err := c.DeleteUser(ctx, tenant, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteUserResponse(rsp)
+}
+
+// UpdateUserWithBodyWithResponse Command: muda o papel de um usuário (admin)
+//
+// Só muda `role_id` — redefinir senha é uma rota própria (`reset-password`), de propósito, por ser mais sensível que um campo opcional de PATCH.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/users/{id} (the `UpdateUser` operationId).
+func (c *ClientWithResponses) UpdateUserWithBodyWithResponse(ctx context.Context, tenant Tenant, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateUserResponse, error) {
+	rsp, err := c.UpdateUserWithBody(ctx, tenant, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateUserResponse(rsp)
+}
+
+// UpdateUserWithResponse Command: muda o papel de um usuário (admin)
+//
+// Só muda `role_id` — redefinir senha é uma rota própria (`reset-password`), de propósito, por ser mais sensível que um campo opcional de PATCH.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/users/{id} (the `UpdateUser` operationId).
+func (c *ClientWithResponses) UpdateUserWithResponse(ctx context.Context, tenant Tenant, id Id, body UpdateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateUserResponse, error) {
+	rsp, err := c.UpdateUser(ctx, tenant, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateUserResponse(rsp)
+}
+
+// StartImpersonationWithResponse Command: inicia uma impersonação auditada (admin)
+//
+// O admin é sempre o `sub` da identidade delegada, nunca um campo do corpo. Registra uma linha de auditoria (`_sc_impersonation_log`) — divergência deliberada e mais forte que o legado, que troca `req.user` sem deixar nenhum rastro. O BFF usa `log_id` para encerrar a impersonação depois; a sessão de navegador do usuário impersonado é sempre criada pelo BFF, nunca pelo Go (ADR-0007).
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/users/{id}/impersonate (the `StartImpersonation` operationId).
+func (c *ClientWithResponses) StartImpersonationWithResponse(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*StartImpersonationResponse, error) {
+	rsp, err := c.StartImpersonation(ctx, tenant, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartImpersonationResponse(rsp)
+}
+
+// ResetUserPasswordWithBodyWithResponse Command: redefine a senha de um usuário (admin)
+//
+// `password` no corpo é opcional — omitido, o Go gera uma senha aleatória. A senha em texto plano só existe NESTA resposta, uma única vez (mesmo contrato do token de API) — o BFF/admin é responsável por entregá-la ao usuário por um canal seguro, nunca logá-la.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/users/{id}/reset-password (the `ResetUserPassword` operationId).
+func (c *ClientWithResponses) ResetUserPasswordWithBodyWithResponse(ctx context.Context, tenant Tenant, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ResetUserPasswordResponse, error) {
+	rsp, err := c.ResetUserPasswordWithBody(ctx, tenant, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResetUserPasswordResponse(rsp)
+}
+
+// ResetUserPasswordWithResponse Command: redefine a senha de um usuário (admin)
+//
+// `password` no corpo é opcional — omitido, o Go gera uma senha aleatória. A senha em texto plano só existe NESTA resposta, uma única vez (mesmo contrato do token de API) — o BFF/admin é responsável por entregá-la ao usuário por um canal seguro, nunca logá-la.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/users/{id}/reset-password (the `ResetUserPassword` operationId).
+func (c *ClientWithResponses) ResetUserPasswordWithResponse(ctx context.Context, tenant Tenant, id Id, body ResetUserPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ResetUserPasswordResponse, error) {
+	rsp, err := c.ResetUserPassword(ctx, tenant, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResetUserPasswordResponse(rsp)
+}
+
+// ListUserTokensWithResponse Query: lista tokens de API de um usuário (admin)
+//
+// Nunca inclui o hash nem o texto plano do token — só id/created_at/revoked, para uma UI administrativa decidir o que revogar.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/tenants/{tenant}/users/{id}/tokens (the `ListUserTokens` operationId).
+func (c *ClientWithResponses) ListUserTokensWithResponse(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*ListUserTokensResponse, error) {
+	rsp, err := c.ListUserTokens(ctx, tenant, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListUserTokensResponse(rsp)
 }
 
 // ListViewsWithResponse Query: lista views
@@ -4140,6 +5565,42 @@ func ParseGetActorResponse(rsp *http.Response) (*GetActorResponse, error) {
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEndImpersonationResponse parses an HTTP response from a EndImpersonationWithResponse call
+func ParseEndImpersonationResponse(rsp *http.Response) (*EndImpersonationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EndImpersonationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	}
 
@@ -4368,6 +5829,53 @@ func ParseAddFieldResponse(rsp *http.Response) (*AddFieldResponse, error) {
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateTablePermissionsResponse parses an HTTP response from a UpdateTablePermissionsWithResponse call
+func ParseUpdateTablePermissionsResponse(rsp *http.Response) (*UpdateTablePermissionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateTablePermissionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Table
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	}
 
@@ -4628,6 +6136,274 @@ func ParseUpdateRecordResponse(rsp *http.Response) (*UpdateRecordResponse, error
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListUsersResponse parses an HTTP response from a ListUsersWithResponse call
+func ParseListUsersResponse(rsp *http.Response) (*ListUsersResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListUsersResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []User
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteUserResponse parses an HTTP response from a DeleteUserWithResponse call
+func ParseDeleteUserResponse(rsp *http.Response) (*DeleteUserResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteUserResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateUserResponse parses an HTTP response from a UpdateUserWithResponse call
+func ParseUpdateUserResponse(rsp *http.Response) (*UpdateUserResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateUserResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStartImpersonationResponse parses an HTTP response from a StartImpersonationWithResponse call
+func ParseStartImpersonationResponse(rsp *http.Response) (*StartImpersonationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartImpersonationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest struct {
+			// LogId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+			LogId Id `json:"log_id"`
+
+			// TargetUserId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+			TargetUserId Id `json:"target_user_id"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseResetUserPasswordResponse parses an HTTP response from a ResetUserPasswordWithResponse call
+func ParseResetUserPasswordResponse(rsp *http.Response) (*ResetUserPasswordResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResetUserPasswordResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			Password string `json:"password"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListUserTokensResponse parses an HTTP response from a ListUserTokensWithResponse call
+func ParseListUserTokensResponse(rsp *http.Response) (*ListUserTokensResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListUserTokensResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []APIToken
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	}
 

@@ -470,6 +470,299 @@ paths:
                   code: view_unsupported
                   message: "layout.besides ausente ou não é uma lista — só layouts de lista de colunas são suportados"
 
+  /v1/tenants/{tenant}/users:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+    get:
+      operationId: listUsers
+      summary: "Query: lista usuários do tenant (admin)"
+      description: >
+        Adicionado por GO-044 — a administração de usuários do legado
+        (`auth/admin.ts`) que faltava expor. Só um ator admin pode listar
+        (`identity.ListUsers`); um ator sem papel suficiente recebe 403.
+      responses:
+        "200":
+          description: usuários do tenant, em ordem de criação
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+
+  /v1/tenants/{tenant}/users/{id}:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    patch:
+      operationId: updateUser
+      summary: "Command: muda o papel de um usuário (admin)"
+      description: Só muda `role_id` — redefinir senha é uma rota própria (`reset-password`), de propósito, por ser mais sensível que um campo opcional de PATCH.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role_id]
+              properties:
+                role_id:
+                  type: integer
+      responses:
+        "204":
+          description: papel atualizado
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+        "404":
+          description: usuário não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+    delete:
+      operationId: deleteUser
+      summary: "Command: remove um usuário (admin)"
+      description: Idempotente — remover um usuário que não existe é sucesso silencioso (204), mesma convenção de deleteRecord.
+      responses:
+        "204":
+          description: removido (ou já não existia)
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+
+  /v1/tenants/{tenant}/users/{id}/reset-password:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    post:
+      operationId: resetUserPassword
+      summary: "Command: redefine a senha de um usuário (admin)"
+      description: >
+        `password` no corpo é opcional — omitido, o Go gera uma senha
+        aleatória. A senha em texto plano só existe NESTA resposta, uma
+        única vez (mesmo contrato do token de API) — o BFF/admin é
+        responsável por entregá-la ao usuário por um canal seguro, nunca
+        logá-la.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+      responses:
+        "200":
+          description: senha redefinida
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [password]
+                properties:
+                  password:
+                    type: string
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+        "404":
+          description: usuário não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+
+  /v1/tenants/{tenant}/users/{id}/tokens:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    get:
+      operationId: listUserTokens
+      summary: "Query: lista tokens de API de um usuário (admin)"
+      description: Nunca inclui o hash nem o texto plano do token — só id/created_at/revoked, para uma UI administrativa decidir o que revogar.
+      responses:
+        "200":
+          description: tokens do usuário
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/APIToken"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+
+  /v1/tenants/{tenant}/users/{id}/impersonate:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    post:
+      operationId: startImpersonation
+      summary: "Command: inicia uma impersonação auditada (admin)"
+      description: >
+        O admin é sempre o `sub` da identidade delegada, nunca um campo do
+        corpo. Registra uma linha de auditoria (`_sc_impersonation_log`) —
+        divergência deliberada e mais forte que o legado, que troca
+        `req.user` sem deixar nenhum rastro. O BFF usa `log_id` para
+        encerrar a impersonação depois; a sessão de navegador do usuário
+        impersonado é sempre criada pelo BFF, nunca pelo Go (ADR-0007).
+      responses:
+        "201":
+          description: impersonação iniciada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [log_id, target_user_id]
+                properties:
+                  log_id:
+                    $ref: "./common.yaml#/components/schemas/Id"
+                  target_user_id:
+                    $ref: "./common.yaml#/components/schemas/Id"
+        "400":
+          description: admin tentou impersonar a própria conta
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+        "404":
+          description: usuário-alvo não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+
+  /v1/tenants/{tenant}/impersonations/{id}/end:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    post:
+      operationId: endImpersonation
+      summary: "Command: encerra uma impersonação (sem checagem de papel)"
+      description: >
+        Exige `ServiceIdentity` válido para o tenant (como qualquer outra
+        rota), mas deliberadamente SEM checagem de papel/ownership: quem
+        chama isto é o BFF encerrando sua PRÓPRIA sessão de impersonação (o
+        `log_id` só existe porque o BFF o guardou depois de um
+        `startImpersonation` bem-sucedido), nunca um usuário final
+        escolhendo um id de outra pessoa. Idempotente — encerrar um id
+        já encerrado ou inexistente também devolve 204.
+      responses:
+        "204":
+          description: encerrado (ou já estava encerrado/não existia)
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+
+  /v1/tenants/{tenant}/tables/{table}/permissions:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: table
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: updateTablePermissions
+      summary: "Command: muda min_role_read/min_role_write de uma tabela (admin)"
+      description: >
+        Adicionado por GO-044 — a UI "table-access"/"permissions" de
+        `auth/admin.ts` do legado. `createTable` só define os mínimos na
+        criação; esta rota é o único jeito de mudá-los depois.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [min_role_read, min_role_write]
+              properties:
+                min_role_read:
+                  type: integer
+                min_role_write:
+                  type: integer
+      responses:
+        "200":
+          description: tabela com permissões atualizadas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Table"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+        "404":
+          description: tabela não encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+
   /v1/tenants/{tenant}/realtime/events:
     parameters:
       - name: tenant
@@ -751,6 +1044,28 @@ components:
         role_id:
           type: integer
           description: Papel atual do ator (identity.RoleID) — nunca cacheado pelo chamador, sempre resolvido nesta consulta.
+
+    User:
+      type: object
+      required: [id, role_id, email]
+      properties:
+        id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        role_id:
+          type: integer
+        email:
+          type: string
+
+    APIToken:
+      type: object
+      required: [id, created_at, revoked]
+      properties:
+        id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        created_at:
+          type: string
+        revoked:
+          type: boolean
 
     TableInput:
       type: object

@@ -32,6 +32,16 @@ type ListViewsResponse =
   InternalPaths["/v1/tenants/{tenant}/views"]["get"]["responses"]["200"]["content"]["application/json"];
 type ListRealtimeEventsResponse =
   InternalPaths["/v1/tenants/{tenant}/realtime/events"]["get"]["responses"]["200"]["content"]["application/json"];
+type ListUsersResponse =
+  InternalPaths["/v1/tenants/{tenant}/users"]["get"]["responses"]["200"]["content"]["application/json"];
+type ResetUserPasswordResponse =
+  InternalPaths["/v1/tenants/{tenant}/users/{id}/reset-password"]["post"]["responses"]["200"]["content"]["application/json"];
+type ListUserTokensResponse =
+  InternalPaths["/v1/tenants/{tenant}/users/{id}/tokens"]["get"]["responses"]["200"]["content"]["application/json"];
+type StartImpersonationResponse =
+  InternalPaths["/v1/tenants/{tenant}/users/{id}/impersonate"]["post"]["responses"]["201"]["content"]["application/json"];
+type UpdateTablePermissionsResponse =
+  InternalPaths["/v1/tenants/{tenant}/tables/{table}/permissions"]["patch"]["responses"]["200"]["content"]["application/json"];
 
 export interface GoClientOptions {
   readonly baseUrl: string;
@@ -186,6 +196,71 @@ export class GoClient {
     return this.request<ListRealtimeEventsResponse>(url, { method: "GET", serviceIdentityToken });
   }
 
+  // Administração de usuário (GO-044) — a metade "listar/editar/remover"
+  // de `auth/admin.ts` do legado. Todas exigem um ator admin do lado Go
+  // (o BFF só transporta a identidade delegada, não decide autorização).
+  async listUsers(serviceIdentityToken: string, tenant: string): Promise<ListUsersResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/users`);
+    return this.request<ListUsersResponse>(url, { method: "GET", serviceIdentityToken });
+  }
+
+  async updateUserRole(serviceIdentityToken: string, tenant: string, id: number, roleId: number): Promise<void> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/users/${id}`);
+    await this.request<void>(url, { method: "PATCH", serviceIdentityToken, body: { role_id: roleId } });
+  }
+
+  async deleteUser(serviceIdentityToken: string, tenant: string, id: number): Promise<void> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/users/${id}`);
+    await this.request<void>(url, { method: "DELETE", serviceIdentityToken });
+  }
+
+  // resetUserPassword (GO-044) — `password` omitido deixa o Go gerar uma
+  // senha aleatória; o texto plano só existe nesta resposta, uma vez.
+  async resetUserPassword(
+    serviceIdentityToken: string,
+    tenant: string,
+    id: number,
+    password?: string
+  ): Promise<ResetUserPasswordResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/users/${id}/reset-password`);
+    return this.request<ResetUserPasswordResponse>(url, {
+      method: "POST",
+      serviceIdentityToken,
+      body: password !== undefined ? { password } : undefined,
+    });
+  }
+
+  async listUserTokens(serviceIdentityToken: string, tenant: string, id: number): Promise<ListUserTokensResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/users/${id}/tokens`);
+    return this.request<ListUserTokensResponse>(url, { method: "GET", serviceIdentityToken });
+  }
+
+  // startImpersonation (GO-044) — serviceIdentityToken é sempre do
+  // admin (o `sub` que o Go usa como ator/admin_user_id); o BFF guarda
+  // `log_id` na sessão do usuário impersonado para poder encerrar depois.
+  async startImpersonation(serviceIdentityToken: string, tenant: string, targetUserId: number): Promise<StartImpersonationResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/users/${targetUserId}/impersonate`);
+    return this.request<StartImpersonationResponse>(url, { method: "POST", serviceIdentityToken });
+  }
+
+  // endImpersonation (GO-044) — sem checagem de papel do lado Go (ver
+  // contrato); o serviceIdentityToken pode ser do admin ou do usuário
+  // impersonado, o que importa é o tenant + log_id que o BFF já validou.
+  async endImpersonation(serviceIdentityToken: string, tenant: string, logId: number): Promise<void> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/impersonations/${logId}/end`);
+    await this.request<void>(url, { method: "POST", serviceIdentityToken });
+  }
+
+  async updateTablePermissions(
+    serviceIdentityToken: string,
+    tenant: string,
+    table: string,
+    input: { min_role_read: number; min_role_write: number }
+  ): Promise<UpdateTablePermissionsResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/tables/${encodeURIComponent(table)}/permissions`);
+    return this.request<UpdateTablePermissionsResponse>(url, { method: "PATCH", serviceIdentityToken, body: input });
+  }
+
   private async request<T>(
     url: URL,
     opts: { method: string; serviceIdentityToken: string; headers?: Record<string, string>; body?: unknown }
@@ -211,6 +286,9 @@ export class GoClient {
       });
 
       if (res.ok) {
+        // 204 (updateUser/deleteUser/endImpersonation, GO-044) não tem
+        // corpo — res.json() lançaria SyntaxError num body vazio.
+        if (res.status === 204) return undefined as T;
         return (await res.json()) as T;
       }
 

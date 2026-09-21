@@ -23,6 +23,21 @@ export function csrfInvalidError(): BffError {
 }
 
 /**
+ * forbiddenError (GO-044) — usado só pela rota force-logout, que NUNCA
+ * chama o Go (destrói sessões no store do próprio BFF, ADR-0007), então
+ * não existe um 403 do Go para propagar; toda outra rota administrativa
+ * deixa o Go (`identity.requireAdmin`) decidir e só repassa o erro dele.
+ */
+export function forbiddenError(): BffError {
+  return new BffError(403, "not_authorized", "ator não tem papel suficiente para esta operação");
+}
+
+/** impersonationNotActiveError (GO-044) — /admin/impersonation/end chamado numa sessão que não é de impersonação. */
+export function impersonationNotActiveError(): BffError {
+  return new BffError(409, "impersonation_not_active", "esta sessão não é uma impersonação ativa");
+}
+
+/**
  * domainUnavailableError cobre o critério de aceite "falhas/timeouts Go
  * geram erros controlados" (ADR-0003: "indisponibilidade do backend Go
  * deve produzir erro controlado na UI, o BFF precisa de timeout, não pode

@@ -32,6 +32,20 @@ CREATE TABLE IF NOT EXISTS _sc_api_tokens (
 	revoked_at timestamptz
 )`
 
+// _sc_impersonation_log é a trilha de auditoria de "become-user" (GO-044,
+// ver impersonation.go) — uma garantia NOVA, o legado não registra nada
+// disso. admin_user_id/target_user_id não usam ON DELETE CASCADE de
+// propósito: um registro de auditoria nunca deveria desaparecer junto com o
+// usuário que ele documenta.
+const createImpersonationLogTableSQL = `
+CREATE TABLE IF NOT EXISTS _sc_impersonation_log (
+	id serial PRIMARY KEY,
+	admin_user_id int NOT NULL REFERENCES _sc_users(id),
+	target_user_id int NOT NULL REFERENCES _sc_users(id),
+	started_at timestamptz NOT NULL DEFAULT now(),
+	ended_at timestamptz
+)`
+
 // EnsureSchema cria as tabelas de identidade no tenant/schema atual da
 // transação (idempotente — seguro para chamar em todo teste/boot). Não é o
 // executor de migrations real do backend (GO-011); é o mínimo necessário
@@ -41,6 +55,9 @@ func EnsureSchema(ctx context.Context, tx pgx.Tx) error {
 		return err
 	}
 	if _, err := tx.Exec(ctx, createAPITokensTableSQL); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, createImpersonationLogTableSQL); err != nil {
 		return err
 	}
 	return nil

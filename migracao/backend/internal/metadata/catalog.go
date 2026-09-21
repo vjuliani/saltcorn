@@ -200,6 +200,38 @@ func CreateTable(ctx context.Context, tx database.Tx, actorRole identity.RoleID,
 	return t, nil
 }
 
+// UpdateTablePermissions muda min_role_read/min_role_write de uma tabela
+// existente (GO-044) — o equivalente Go da UI "table-access"/"permissions"
+// de `auth/admin.ts` do legado, que faltava: `CreateTable` só define os
+// mínimos na CRIAÇÃO, sem nenhuma função para mudá-los depois. Incrementa a
+// versão do catálogo como qualquer outra mutação.
+func UpdateTablePermissions(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableID int, minRead, minWrite identity.RoleID) (*Table, error) {
+	if err := requireAdmin(actorRole); err != nil {
+		return nil, err
+	}
+
+	if err := lockCatalog(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	if _, err := GetTableByID(ctx, tx, tableID); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Exec(ctx,
+		"UPDATE _sc_tables SET min_role_read = $1, min_role_write = $2 WHERE id = $3",
+		int(minRead), int(minWrite), tableID,
+	); err != nil {
+		return nil, fmt.Errorf("metadata: atualizar permissões da tabela: %w", err)
+	}
+
+	if _, err := bumpVersion(ctx, tx); err != nil {
+		return nil, fmt.Errorf("metadata: incrementar versão do catálogo: %w", err)
+	}
+
+	return GetTableByID(ctx, tx, tableID)
+}
+
 // AddField adiciona um campo a uma tabela existente: registra no catálogo
 // (_sc_fields) e executa `ALTER TABLE ... ADD COLUMN` na mesma transação, e
 // incrementa a versão do catálogo. Idempotente quando a definição é

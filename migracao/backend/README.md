@@ -597,3 +597,56 @@ no subconjunto portado em GO-030/031, recusando explicitamente `serve` web nesse
 perfil. `login` gera acesso administrativo temporário para o operador local;
 as regras de autorização continuam no Go. Consulte o runbook para instalação,
 upgrade, recuperação, locks, dependências externas e limites de plugins/mobile.
+
+## Administração de usuário e segurança do servidor (GO-044)
+
+`internal/identity/admin.go` (novo) e `internal/identity/impersonation.go`
+(novo) portam a superfície de `packages/server/auth/admin.ts` do legado que
+faltava neste pacote — achado de uma auditoria independente de paridade (ver
+`docs/migracao-go/inventario/GO-001-matriz-capacidades.md` §6.1): esses dois
+arquivos vivem em `auth/`, não em `routes/`, e nunca tinham entrado em
+nenhuma contagem/inventário anterior.
+
+**Em escopo, portado e testado:**
+
+- **Administração de usuário** (`admin.go`): listar/editar papel/deletar
+  usuário (`ListUsers`/`UpdateUserRole`/`DeleteUser`), reset de senha
+  (`SetPassword`/`GenerateRandomPassword` — texto plano só existe uma vez, na
+  resposta da chamada), e listagem administrativa dos tokens de API de um
+  usuário (`ListAPITokensForUser`, nunca reexibe hash/texto plano). Toda
+  função é admin-only (`requireAdmin`).
+- **Impersonação de usuário** (`impersonation.go`) — divergência deliberada e
+  MAIS FORTE que o legado: `become-user` do legado só troca `req.user` na
+  sessão, sem NENHUM registro de quem virou quem nem quando. Aqui, toda
+  impersonação (`StartImpersonation`/`EndImpersonation`) grava uma linha em
+  `_sc_impersonation_log` (schema novo) na MESMA transação da checagem de
+  autorização — nunca é possível impersonar sem deixar rastro. Este pacote
+  nunca cria a sessão de navegador do usuário impersonado — isso é sempre
+  responsabilidade do BFF (ADR-0007); o Go só audita e autoriza.
+- **Matriz de permissões por tabela** (`internal/metadata.UpdateTablePermissions`,
+  novo) — `createTable` só define `min_role_read`/`min_role_write` na
+  criação; esta é a única forma de mudá-los depois.
+- **Force-logout** — inteiramente no BFF (`SessionStore.destroyAllForUser`),
+  já que a sessão de navegador nunca é responsabilidade do Go.
+
+Rotas HTTP novas em `cmd/server/users.go`/`cmd/server/tables.go`, registradas
+em `cmd/server/main.go` sob `cutover.RequireOwnership` (exceto encerrar
+impersonação, que exige só `tenancy.Middleware` — quem chama é o BFF
+encerrando sua PRÓPRIA sessão de impersonação, nunca um usuário final
+escolhendo um `log_id` alheio). Contrato em
+`migracao/contracts/openapi/internal-api.yaml`.
+
+**Deliberadamente fora de escopo, com justificativa registrada** (decisões
+completas em `docs/migracao-go/execucoes/GO-044.md`):
+
+- **Emissão/gestão de certificado SSL/Let's Encrypt** — o servidor Go não
+  tem NENHUM código de TLS hoje (nem `http.ListenAndServeTLS`, nem gestão de
+  certificado); fica para infraestrutura/borda, mesmo raciocínio já usado
+  por ADR-0008 para o proxy reverso de corte.
+- **CRUD de role customizada e restrições por role de auth/layout/push**
+  (`auth/roleadmin.ts` do legado) — `identity.RoleID` é um conjunto fechado
+  com ordem total sobre o qual toda a matriz `CanRead`/`CanWrite` (GO-008)
+  foi desenhada; permitir role arbitrária sem redesenhar essa matriz
+  arriscaria checagem de permissão inconsistente/contornável. Candidata a
+  uma task própria de redesenho de autorização, não uma extensão incremental
+  desta entrega.
