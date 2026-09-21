@@ -151,19 +151,57 @@ export function buildRouter(deps: AppDeps): Router {
     sendJSON(res, 200, view);
   });
 
-  // renderView (GO-020) — só sessão, sem CSRF: é uma leitura, não uma
-  // mutação, mesmo padrão de listRecords/getView acima.
+  // renderView (GO-020, estendido em GO-039) — só sessão, sem CSRF: é
+  // uma leitura, não uma mutação, mesmo padrão de listRecords/getView
+  // acima. `?record=` repassado tal como recebido — obrigatório para
+  // Show, opcional para Edit, ignorado por List (o Go decide, o BFF só
+  // transporta o parâmetro).
   router.get("/api/bff/views/:id/render", async (req, res, params) => {
     const { data } = await requireSession(req, sessionStore);
     const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
     const url = new URL(req.url ?? "/", "http://placeholder");
     const limitRaw = url.searchParams.get("limit");
     const cursor = url.searchParams.get("cursor") ?? undefined;
+    const recordRaw = url.searchParams.get("record");
     const plan = await goClient.renderView(token, data.tenant, Number(params.id), {
       limit: limitRaw ? Number(limitRaw) : undefined,
       cursor,
+      record: recordRaw ? Number(recordRaw) : undefined,
     });
     sendJSON(res, 200, plan);
+  });
+
+  // submitView (GO-039) — form_action de uma view Edit: cria ou atualiza
+  // um registro. Idempotency-Key calculada com o escopo "views/<id>/
+  // submit" — nunca reaproveita a chave de updateView (mesmo view id,
+  // operação diferente, precisa de namespaces distintos).
+  router.post("/api/bff/views/:id/submit", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const idempotencyKey = computeIdempotencyKey(data.userId, data.tenant, "views/" + params.id + "/submit", body);
+    const result = await goClient.submitView(
+      token,
+      idempotencyKey,
+      data.tenant,
+      Number(params.id),
+      body as { record_id?: number; _version?: string; values: Record<string, unknown> }
+    );
+    sendJSON(res, (body as { record_id?: number }).record_id ? 200 : 201, result);
+  });
+
+  // deleteViewRow (GO-039) — a ação de coluna "Delete" de uma view List.
+  // Sessão + CSRF (é uma mutação), sem Idempotency-Key — ver goClient.ts.
+  router.delete("/api/bff/views/:id/rows/:recordId", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const url = new URL(req.url ?? "/", "http://placeholder");
+    const version = url.searchParams.get("version") ?? "";
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    await goClient.deleteViewRow(token, data.tenant, Number(params.id), Number(params.recordId), version);
+    res.writeHead(204);
+    res.end();
   });
 
   router.patch("/api/bff/views/:id", async (req, res, params) => {

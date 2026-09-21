@@ -176,13 +176,55 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Renderiza uma view List (GO-020)
-         * @description Devolve o DTO (colunas + linhas + paginação) de internal-api.yaml, sem reinterpretar nada — o React desenha a tabela a partir dele.
+         * Renderiza uma view List, Show ou Edit (GO-020, estendido em GO-039)
+         * @description Devolve o DTO de internal-api.yaml, sem reinterpretar nada — o shape exato depende do template da view. `record` é obrigatório para Show (400 sem ele), opcional para Edit (ausente = registro novo), ignorado por List.
          */
         get: operations["renderView"];
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bff/views/{id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * form_action — cria/atualiza um registro de uma view Edit (GO-039)
+         * @description O mecanismo real por trás do botão "Salvar"/"SubmitWithAjax" do legado. `record_id` ausente/0 cria; presente exige `_version` e atualiza, com o mesmo controle de concorrência otimista de qualquer outra escrita. Devolve o registro resultante e `navigate` — para onde ir depois ("reload", "referer" ou "view" com `view_name`).
+         */
+        post: operations["submitView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bff/views/{id}/rows/{recordId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+                recordId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Ação de coluna "Delete" de uma view List (GO-039) */
+        delete: operations["deleteViewRow"];
         options?: never;
         head?: never;
         patch?: never;
@@ -210,9 +252,13 @@ export interface components {
             };
             _version: string;
         };
+        /** @description Três variantes discriminadas por `kind`: "field" (campo direto), "join_field" (campo trazido por join — `field_name` é a chave composta "<campo_local>__<campo_remoto>", a MESMA chave usada em `rows`), "action" (ação de coluna — só `action_name`, sem `field_name`). */
         ViewRenderColumn: {
-            field_name: string;
-            header_label: string;
+            /** @enum {string} */
+            kind: "field" | "join_field" | "action";
+            field_name?: string;
+            header_label?: string;
+            action_name?: string;
         };
         ViewRenderPlan: {
             view_id: components["schemas"]["Id"];
@@ -224,6 +270,57 @@ export interface components {
             descending: boolean;
             /** @description Cursor para a próxima página, ou `null` se não houver mais páginas. */
             next_cursor?: string | null;
+        };
+        ViewShowPlan: {
+            view_id: components["schemas"]["Id"];
+            table: string;
+            record_id: components["schemas"]["Id"];
+            columns: components["schemas"]["ViewRenderColumn"][];
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        ViewEditFieldOption: {
+            id: components["schemas"]["Id"];
+            label: string;
+        };
+        ViewEditField: {
+            field_name: string;
+            label: string;
+            field_type: string;
+            fieldview: string;
+            required: boolean;
+            config?: {
+                [key: string]: unknown;
+            };
+            value: unknown;
+            options?: components["schemas"]["ViewEditFieldOption"][];
+        };
+        ViewEditPlan: {
+            view_id: components["schemas"]["Id"];
+            table: string;
+            record_id: components["schemas"]["Id"];
+            _version?: string;
+            fields: components["schemas"]["ViewEditField"][];
+            action_name: string;
+        };
+        ViewSubmitInput: {
+            record_id?: components["schemas"]["Id"];
+            _version?: string;
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        ViewNavigate: {
+            /** @enum {string} */
+            type: "reload" | "referer" | "view";
+            view_name?: string;
+        };
+        ViewSubmitResult: {
+            record: {
+                [key: string]: unknown;
+            };
+            navigate: components["schemas"]["ViewNavigate"];
         };
         Scope: {
             tenant: string;
@@ -796,6 +893,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 cursor?: string;
+                /** @description Id do registro — obrigatório para Show, opcional para Edit, ignorado por List. */
+                record?: components["schemas"]["Id"];
             };
             header?: never;
             path: {
@@ -805,17 +904,26 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description plano de renderização */
+            /** @description plano de renderização — o shape exato depende do template da view */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ViewRenderPlan"];
+                    "application/json": components["schemas"]["ViewRenderPlan"] | components["schemas"]["ViewShowPlan"] | components["schemas"]["ViewEditPlan"];
+                };
+            };
+            /** @description ?record= ausente (template Show) ou inválido */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             401: components["responses"]["SessionRequired"];
-            /** @description view não encontrada (ou fora da visibilidade do ator) */
+            /** @description view ou registro não encontrado (ou fora da visibilidade do ator) */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -825,6 +933,142 @@ export interface operations {
                 };
             };
             /** @description view existe, mas usa um recurso fora do subconjunto suportado por este runtime */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    submitView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewSubmitInput"];
+            };
+        };
+        responses: {
+            /** @description registro atualizado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewSubmitResult"];
+                };
+            };
+            /** @description registro criado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewSubmitResult"];
+                };
+            };
+            /** @description corpo inválido ou _version ausente ao atualizar */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            /** @description view ou registro não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Negativo: conflito de versão otimista ou valor duplicado */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description view existe, mas o layout ou os campos submetidos não são suportados */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    deleteViewRow: {
+        parameters: {
+            query: {
+                version: string;
+            };
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+                recordId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description linha excluída */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ?version= ausente */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            /** @description view ou registro não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description conflito de versão otimista */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description view existe, mas não declara uma ação de coluna "Delete" */
             422: {
                 headers: {
                     [name: string]: unknown;

@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -103,7 +105,16 @@ func resolveTableForWrite(ctx context.Context, tx database.Tx, actorRole identit
 // validateFieldValues resolve e valida cada entrada de values contra
 // fieldsByName — nunca aceita um nome não catalogado nem um valor de tipo
 // incompatível, a mesma disciplina de resolução de GO-012 aplicada aos
-// comandos de escrita.
+// comandos de escrita. Coage cada valor para o tipo Go que validateValue
+// exige ANTES de validar — sem isso, todo valor decodificado de um corpo
+// JSON HTTP (números sempre chegam como float64, nunca int; datas sempre
+// como string) falharia ErrTypeMismatch para qualquer campo que não fosse
+// texto/boolean. Achado real de preflight de GO-039: nenhum teste HTTP
+// anterior exercitava um campo FieldInteger/FieldKey/FieldDate via
+// records.CreateRecord/UpdateRecord — só campos de texto (ex.:
+// TestCreateRecordHandler_Success usa só "label"). Muta values in-place
+// (o mesmo mapa que CreateRecordTx/UpdateRecordTx usam para montar
+// INSERT/UPDATE logo em seguida), nunca retorna uma cópia.
 func validateFieldValues(fieldsByName map[string]metadata.Field, values map[string]any) error {
 	for name, val := range values {
 		if name == "id" || name == "_version" {
@@ -113,11 +124,37 @@ func validateFieldValues(fieldsByName map[string]metadata.Field, values map[stri
 		if !ok {
 			return fmt.Errorf("%w: %q", ErrUnknownField, name)
 		}
+		val = coerceJSONValue(f, val)
+		values[name] = val
 		if err := validateValue(f, val); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// coerceJSONValue converte um valor decodificado de JSON (encoding/json:
+// todo número vira float64, toda data vira string RFC3339) para o tipo Go
+// nativo que validateValue exige — nunca aceita um float64 com parte
+// fracionária para um campo inteiro/key (permanece float64, e
+// validateValue rejeita com ErrTypeMismatch como já fazia), nem uma
+// string que não é RFC3339 válido para um campo de data (mesma coisa).
+// Valores que já chegam no tipo nativo (chamador Go direto, não HTTP)
+// passam inalterados.
+func coerceJSONValue(field metadata.Field, value any) any {
+	switch field.Type {
+	case metadata.FieldInteger, metadata.FieldKey:
+		if f, ok := value.(float64); ok && f == math.Trunc(f) {
+			return int64(f)
+		}
+	case metadata.FieldDate:
+		if s, ok := value.(string); ok {
+			if t, err := time.Parse(time.RFC3339, s); err == nil {
+				return t
+			}
+		}
+	}
+	return value
 }
 
 // CreateRecordTx insere um novo registro em tableName, validando cada campo

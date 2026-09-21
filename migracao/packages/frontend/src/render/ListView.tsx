@@ -5,10 +5,17 @@
 // `table-hover`), para não inventar uma aparência nova para uma tabela que
 // já existe no produto legado. Fieldviews de célula (badges, links, HTML
 // customizado) ficam fora do subconjunto suportado (ver nota de escopo em
-// docs/migracao-go/execucoes/GO-020.md) — toda célula aqui é texto plano.
+// docs/migracao-go/execucoes/GO-020.md) — toda célula de dado aqui é
+// texto plano. Estendido em GO-039: colunas "join_field" (mesma célula de
+// texto, valor já trazido pelo Go sob a chave "<local>__<remoto>") e
+// "action" (um botão por linha, ex.: "Excluir" — o Go já confirmou que a
+// view declara essa ação antes de expor a coluna).
 export interface ListViewColumn {
-  field_name: string;
-  header_label: string;
+  /** Ausente = "field", mesmo default de antes de GO-039 (compatibilidade). */
+  kind?: "field" | "join_field" | "action";
+  field_name?: string;
+  header_label?: string;
+  action_name?: string;
 }
 
 export interface ListViewPlan {
@@ -23,6 +30,8 @@ export interface ListViewPlan {
 export interface ListViewProps {
   plan: ListViewPlan;
   onNextPage?: (cursor: string) => void;
+  /** Chamado ao clicar num botão de ação de coluna (ex.: "Excluir") — o id/versão vêm da própria linha (rows sempre inclui id/_version, GO-013/GO-039). */
+  onRowAction?: (actionName: string, row: Record<string, unknown>) => void;
 }
 
 function cellText(value: unknown): string {
@@ -31,15 +40,23 @@ function cellText(value: unknown): string {
   return String(value);
 }
 
-export function ListView({ plan, onNextPage }: ListViewProps) {
+function columnKind(c: ListViewColumn): "field" | "join_field" | "action" {
+  return c.kind ?? "field";
+}
+
+function columnKey(c: ListViewColumn, i: number): string {
+  return c.field_name ?? c.action_name ?? String(i);
+}
+
+export function ListView({ plan, onNextPage, onRowAction }: ListViewProps) {
   return (
     <div data-testid="list-view">
       <table className="table table-sm table-hover">
         <thead>
           <tr>
-            {plan.columns.map((c) => (
-              <th key={c.field_name}>
-                {c.header_label}
+            {plan.columns.map((c, i) => (
+              <th key={columnKey(c, i)}>
+                {columnKind(c) === "action" ? "" : c.header_label}
                 {plan.order_by === c.field_name && (plan.descending ? " ▼" : " ▲")}
               </th>
             ))}
@@ -53,9 +70,23 @@ export function ListView({ plan, onNextPage }: ListViewProps) {
           ) : (
             plan.rows.map((row, i) => (
               <tr key={i}>
-                {plan.columns.map((c) => (
-                  <td key={c.field_name}>{cellText(row[c.field_name])}</td>
-                ))}
+                {plan.columns.map((c, j) => {
+                  const kind = columnKind(c);
+                  if (kind === "action") {
+                    return (
+                      <td key={columnKey(c, j)}>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-danger"
+                          onClick={() => onRowAction?.(c.action_name ?? "", row)}
+                        >
+                          {c.action_name === "Delete" ? "Excluir" : c.action_name}
+                        </button>
+                      </td>
+                    );
+                  }
+                  return <td key={columnKey(c, j)}>{cellText(row[c.field_name ?? ""])}</td>;
+                })}
               </tr>
             ))
           )}

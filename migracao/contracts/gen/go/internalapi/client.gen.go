@@ -167,6 +167,48 @@ func (e ResultStatus) Valid() bool {
 	}
 }
 
+// Defines values for ViewNavigateType.
+const (
+	ViewNavigateTypeReferer ViewNavigateType = "referer"
+	ViewNavigateTypeReload  ViewNavigateType = "reload"
+	ViewNavigateTypeView    ViewNavigateType = "view"
+)
+
+// Valid indicates whether the value is a known member of the ViewNavigateType enum.
+func (e ViewNavigateType) Valid() bool {
+	switch e {
+	case ViewNavigateTypeReferer:
+		return true
+	case ViewNavigateTypeReload:
+		return true
+	case ViewNavigateTypeView:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ViewRenderColumnKind.
+const (
+	ViewRenderColumnKindAction    ViewRenderColumnKind = "action"
+	ViewRenderColumnKindField     ViewRenderColumnKind = "field"
+	ViewRenderColumnKindJoinField ViewRenderColumnKind = "join_field"
+)
+
+// Valid indicates whether the value is a known member of the ViewRenderColumnKind enum.
+func (e ViewRenderColumnKind) Valid() bool {
+	switch e {
+	case ViewRenderColumnKindAction:
+		return true
+	case ViewRenderColumnKindField:
+		return true
+	case ViewRenderColumnKindJoinField:
+		return true
+	default:
+		return false
+	}
+}
+
 // APIToken defines model for APIToken.
 type APIToken struct {
 	CreatedAt string `json:"created_at"`
@@ -397,6 +439,51 @@ type View struct {
 	Template string `json:"template"`
 }
 
+// ViewEditField defines model for ViewEditField.
+type ViewEditField struct {
+	// Config Configuração específica da fieldview (ex.: `{"dateFormat": "Y-m-d H:i"}` de flatpickr), repassada sem interpretação.
+	Config    *map[string]interface{} `json:"config,omitempty"`
+	FieldName string                  `json:"field_name"`
+
+	// FieldType Tipo do campo no catálogo (GO-011): text, integer, boolean, float, date, key.
+	FieldType string `json:"field_type"`
+
+	// Fieldview Hint de widget do legado (ex.; "edit", "select", "flatpickr") — o backend não interpreta, só repassa.
+	Fieldview string `json:"fieldview"`
+	Label     string `json:"label"`
+
+	// Options Presente só quando field_type=key e fieldview=select.
+	Options  *[]ViewEditFieldOption `json:"options,omitempty"`
+	Required bool                   `json:"required"`
+
+	// Value Valor atual (registro existente) ou `null` (criação nova).
+	Value interface{} `json:"value"`
+}
+
+// ViewEditFieldOption Uma opção de um campo FieldKey (fieldview "select") — um registro candidato da tabela referenciada. `label` é o primeiro campo de texto dessa tabela (heurístico documentado, GO-039 — o legado permite configurar um "summary field" por relação, não reproduzido aqui).
+type ViewEditFieldOption struct {
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id    Id     `json:"id"`
+	Label string `json:"label"`
+}
+
+// ViewEditPlan DTO de renderização/edição de uma view "Edit" (GO-039) — record_id=0 é o plano de CRIAÇÃO (todos os campos em branco).
+type ViewEditPlan struct {
+	// UnderscoreVersion Ausente quando record_id=0 (registro novo).
+	UnderscoreVersion *string `json:"_version,omitempty"`
+
+	// ActionName "Save" ou "SubmitWithAjax".
+	ActionName string          `json:"action_name"`
+	Fields     []ViewEditField `json:"fields"`
+
+	// RecordId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	RecordId Id     `json:"record_id"`
+	Table    string `json:"table"`
+
+	// ViewId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	ViewId Id `json:"view_id"`
+}
+
 // ViewInput defines model for ViewInput.
 type ViewInput struct {
 	// Configuration O documento de layout produzido pelo builder Craft.js (`craftToSaltcorn`, GO-018).
@@ -411,12 +498,30 @@ type ViewInput struct {
 	Template string `json:"template"`
 }
 
-// ViewRenderColumn defines model for ViewRenderColumn.
-type ViewRenderColumn struct {
-	// FieldName Nome do campo (já resolvido contra o catálogo, GO-011) que esta coluna exibe.
-	FieldName   string `json:"field_name"`
-	HeaderLabel string `json:"header_label"`
+// ViewNavigate defines model for ViewNavigate.
+type ViewNavigate struct {
+	Type ViewNavigateType `json:"type"`
+
+	// ViewName Presente só quando type=view.
+	ViewName *string `json:"view_name,omitempty"`
 }
+
+// ViewNavigateType defines model for ViewNavigate.Type.
+type ViewNavigateType string
+
+// ViewRenderColumn Uma coluna de uma view "List" (GO-020, estendida em GO-039) — três variantes discriminadas por `kind`: "field" (campo direto, `field_name` é o nome do campo), "join_field" (campo trazido por join de um nível, `field_name` é a chave composta "<campo_local>__<campo_remoto>" — a MESMA chave usada em `rows`), "action" (ação de coluna, ex.: "Delete" — não tem `field_name`, só `action_name`).
+type ViewRenderColumn struct {
+	// ActionName Presente para kind=action (ex.: "Delete").
+	ActionName *string `json:"action_name,omitempty"`
+
+	// FieldName Presente para kind=field/join_field — já resolvido contra o catálogo (GO-011), nunca inventado.
+	FieldName   *string              `json:"field_name,omitempty"`
+	HeaderLabel *string              `json:"header_label,omitempty"`
+	Kind        ViewRenderColumnKind `json:"kind"`
+}
+
+// ViewRenderColumnKind defines model for ViewRenderColumn.Kind.
+type ViewRenderColumnKind string
 
 // ViewRenderPlan DTO de renderização de uma view "List" (GO-020) — todas as decisões (colunas, ordenação, consulta) já foram tomadas pelo backend; o BFF/React só desenham o que está aqui.
 type ViewRenderPlan struct {
@@ -430,6 +535,35 @@ type ViewRenderPlan struct {
 
 	// ViewId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
 	ViewId Id `json:"view_id"`
+}
+
+// ViewShowPlan DTO de renderização de uma view "Show" (GO-039) — os valores já resolvidos de UM registro.
+type ViewShowPlan struct {
+	Columns []ViewRenderColumn `json:"columns"`
+
+	// RecordId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	RecordId Id                     `json:"record_id"`
+	Table    string                 `json:"table"`
+	Values   map[string]interface{} `json:"values"`
+
+	// ViewId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	ViewId Id `json:"view_id"`
+}
+
+// ViewSubmitInput defines model for ViewSubmitInput.
+type ViewSubmitInput struct {
+	// UnderscoreVersion Obrigatório quando record_id está presente (atualização).
+	UnderscoreVersion *string `json:"_version,omitempty"`
+
+	// RecordId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	RecordId *Id                    `json:"record_id,omitempty"`
+	Values   map[string]interface{} `json:"values"`
+}
+
+// ViewSubmitResult defines model for ViewSubmitResult.
+type ViewSubmitResult struct {
+	Navigate ViewNavigate           `json:"navigate"`
+	Record   map[string]interface{} `json:"record"`
 }
 
 // ViewUpdateInput defines model for ViewUpdateInput.
@@ -532,6 +666,25 @@ type RenderViewParams struct {
 	// Cursor Cursor opaco da página anterior. Omitir para a primeira página.
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Record Id do registro — obrigatório para Show, opcional para Edit (ausente = registro novo), ignorado por List.
+	Record *Id `form:"record,omitempty" json:"record,omitempty"`
+}
+
+// RenderView200JSONResponseBody defines parameters for RenderView.
+type RenderView200JSONResponseBody struct {
+	union json.RawMessage
+}
+
+// DeleteViewRowParams defines parameters for DeleteViewRow.
+type DeleteViewRowParams struct {
+	Version string `form:"version" json:"version"`
+}
+
+// SubmitViewParams defines parameters for SubmitView.
+type SubmitViewParams struct {
+	// IdempotencyKey Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
 // ExchangeOfflineSyncJSONRequestBody defines body for ExchangeOfflineSync for application/json ContentType.
@@ -563,6 +716,9 @@ type CreateViewJSONRequestBody = ViewInput
 
 // UpdateViewJSONRequestBody defines body for UpdateView for application/json ContentType.
 type UpdateViewJSONRequestBody = ViewUpdateInput
+
+// SubmitViewJSONRequestBody defines body for SubmitView for application/json ContentType.
+type SubmitViewJSONRequestBody = ViewSubmitInput
 
 // Getter for additional properties for Record. Returns the specified
 // element and whether it was found
@@ -748,6 +904,94 @@ func (a Response_Rows_Item) MarshalJSON() ([]byte, error) {
 		}
 	}
 	return json.Marshal(object)
+}
+
+// AsViewRenderPlan returns the union data inside the RenderView200JSONResponseBody as a ViewRenderPlan
+func (t RenderView200JSONResponseBody) AsViewRenderPlan() (ViewRenderPlan, error) {
+	var body ViewRenderPlan
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromViewRenderPlan overwrites any union data inside the RenderView200JSONResponseBody as the provided ViewRenderPlan
+func (t *RenderView200JSONResponseBody) FromViewRenderPlan(v ViewRenderPlan) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeViewRenderPlan performs a merge with any union data inside the RenderView200JSONResponseBody, using the provided ViewRenderPlan
+func (t *RenderView200JSONResponseBody) MergeViewRenderPlan(v ViewRenderPlan) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsViewShowPlan returns the union data inside the RenderView200JSONResponseBody as a ViewShowPlan
+func (t RenderView200JSONResponseBody) AsViewShowPlan() (ViewShowPlan, error) {
+	var body ViewShowPlan
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromViewShowPlan overwrites any union data inside the RenderView200JSONResponseBody as the provided ViewShowPlan
+func (t *RenderView200JSONResponseBody) FromViewShowPlan(v ViewShowPlan) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeViewShowPlan performs a merge with any union data inside the RenderView200JSONResponseBody, using the provided ViewShowPlan
+func (t *RenderView200JSONResponseBody) MergeViewShowPlan(v ViewShowPlan) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsViewEditPlan returns the union data inside the RenderView200JSONResponseBody as a ViewEditPlan
+func (t RenderView200JSONResponseBody) AsViewEditPlan() (ViewEditPlan, error) {
+	var body ViewEditPlan
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromViewEditPlan overwrites any union data inside the RenderView200JSONResponseBody as the provided ViewEditPlan
+func (t *RenderView200JSONResponseBody) FromViewEditPlan(v ViewEditPlan) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeViewEditPlan performs a merge with any union data inside the RenderView200JSONResponseBody, using the provided ViewEditPlan
+func (t *RenderView200JSONResponseBody) MergeViewEditPlan(v ViewEditPlan) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t RenderView200JSONResponseBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *RenderView200JSONResponseBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
 }
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
@@ -1094,12 +1338,37 @@ type ClientInterface interface {
 	// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
 	UpdateView(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RenderView Query: renderiza uma view List (GO-020)
+	// RenderView Query: renderiza uma view List, Show ou Edit
 	//
-	// Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas resolvidas contra o catálogo + linhas + paginação) que o BFF/React desenham. Subconjunto suportado desta tarefa: só o template "List", com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`); qualquer view fora desse subconjunto devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
+	// Adicionado por GO-020 (só "List"), estendido por GO-039 ("Show" e "Edit"). Não devolve HTML; devolve o DTO que o BFF/React desenham — o shape exato depende do `template` da view (ver `ViewRenderPlan`/`ViewShowPlan`/`ViewEditPlan`). `?record=` é OBRIGATÓRIO para "Show" (400 sem ele), OPCIONAL para "Edit" (ausente = registro novo, formulário de criação em branco), e ignorado por "List". Qualquer view fora do subconjunto suportado (ver `docs/migracao-go/execucoes/GO-020.md`/`GO-039.md` — ex.: template "Feed", coluna de layout não reconhecida, fieldview "upload") devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
 	//
 	// Corresponds with GET /v1/tenants/{tenant}/views/{id}/render (the `RenderView` operationId).
 	RenderView(ctx context.Context, tenant Tenant, id Id, params *RenderViewParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteViewRow Command: ação de coluna "Delete" de uma view List (GO-039)
+	//
+	// Só aceita um id de view cujo `configuration.columns` de fato declara uma coluna `Action`/`Delete` (422 caso contrário — nunca um atalho para deletar de qualquer view List). Confere o `minRole` do PRÓPRIO nó de coluna, além do `min_role_write` da tabela por baixo (internal/records) — duas checagens independentes. `?version=` é o mesmo `_version` de controle de concorrência otimista de qualquer outra escrita.
+	//
+	// Corresponds with DELETE /v1/tenants/{tenant}/views/{id}/rows/{recordId} (the `DeleteViewRow` operationId).
+	DeleteViewRow(ctx context.Context, tenant Tenant, id Id, recordId Id, params *DeleteViewRowParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SubmitViewWithBody Command: form_action — cria/atualiza um registro de uma view Edit (GO-039)
+	//
+	// O mecanismo real por trás do botão "Salvar"/"SubmitWithAjax" do legado (`base-plugin/actions.ts`) — as duas ações do legado mapeiam para esta MESMA rota (só o estilo de requisição do frontend difere). `record_id` ausente/0 cria (`tryInsertRow`); presente exige `_version` e atualiza (`tryUpdateRow`), com o mesmo controle de concorrência otimista de qualquer outra escrita. `values` só pode conter campos que a própria view expõe (422 caso contrário — nunca aceita um campo extra fora do formulário). Devolve o registro resultante e `navigate` — a decisão de para onde ir depois (`destination_type` do legado): "reload" (padrão), "referer" (`Back to referer`) ou "view" (`View`, com `view_name`). Idempotente por Idempotency-Key.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/views/{id}/submit (the `SubmitView` operationId).
+	SubmitViewWithBody(ctx context.Context, tenant Tenant, id Id, params *SubmitViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SubmitView Command: form_action — cria/atualiza um registro de uma view Edit (GO-039)
+	//
+	// O mecanismo real por trás do botão "Salvar"/"SubmitWithAjax" do legado (`base-plugin/actions.ts`) — as duas ações do legado mapeiam para esta MESMA rota (só o estilo de requisição do frontend difere). `record_id` ausente/0 cria (`tryInsertRow`); presente exige `_version` e atualiza (`tryUpdateRow`), com o mesmo controle de concorrência otimista de qualquer outra escrita. `values` só pode conter campos que a própria view expõe (422 caso contrário — nunca aceita um campo extra fora do formulário). Devolve o registro resultante e `navigate` — a decisão de para onde ir depois (`destination_type` do legado): "reload" (padrão), "referer" (`Back to referer`) ou "view" (`View`, com `view_name`). Idempotente por Idempotency-Key.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/views/{id}/submit (the `SubmitView` operationId).
+	SubmitView(ctx context.Context, tenant Tenant, id Id, params *SubmitViewParams, body SubmitViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // GetLiveness Liveness (GO-005)
@@ -1712,13 +1981,68 @@ func (c *Client) UpdateView(ctx context.Context, tenant Tenant, id Id, params *U
 	return c.Client.Do(req)
 }
 
-// RenderView Query: renderiza uma view List (GO-020)
+// RenderView Query: renderiza uma view List, Show ou Edit
 //
-// Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas resolvidas contra o catálogo + linhas + paginação) que o BFF/React desenham. Subconjunto suportado desta tarefa: só o template "List", com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`); qualquer view fora desse subconjunto devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
+// Adicionado por GO-020 (só "List"), estendido por GO-039 ("Show" e "Edit"). Não devolve HTML; devolve o DTO que o BFF/React desenham — o shape exato depende do `template` da view (ver `ViewRenderPlan`/`ViewShowPlan`/`ViewEditPlan`). `?record=` é OBRIGATÓRIO para "Show" (400 sem ele), OPCIONAL para "Edit" (ausente = registro novo, formulário de criação em branco), e ignorado por "List". Qualquer view fora do subconjunto suportado (ver `docs/migracao-go/execucoes/GO-020.md`/`GO-039.md` — ex.: template "Feed", coluna de layout não reconhecida, fieldview "upload") devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
 //
 // Corresponds with GET /v1/tenants/{tenant}/views/{id}/render (the `RenderView` operationId).
 func (c *Client) RenderView(ctx context.Context, tenant Tenant, id Id, params *RenderViewParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRenderViewRequest(c.Server, tenant, id, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteViewRow Command: ação de coluna "Delete" de uma view List (GO-039)
+//
+// Só aceita um id de view cujo `configuration.columns` de fato declara uma coluna `Action`/`Delete` (422 caso contrário — nunca um atalho para deletar de qualquer view List). Confere o `minRole` do PRÓPRIO nó de coluna, além do `min_role_write` da tabela por baixo (internal/records) — duas checagens independentes. `?version=` é o mesmo `_version` de controle de concorrência otimista de qualquer outra escrita.
+//
+// Corresponds with DELETE /v1/tenants/{tenant}/views/{id}/rows/{recordId} (the `DeleteViewRow` operationId).
+func (c *Client) DeleteViewRow(ctx context.Context, tenant Tenant, id Id, recordId Id, params *DeleteViewRowParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteViewRowRequest(c.Server, tenant, id, recordId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SubmitViewWithBody Command: form_action — cria/atualiza um registro de uma view Edit (GO-039)
+//
+// O mecanismo real por trás do botão "Salvar"/"SubmitWithAjax" do legado (`base-plugin/actions.ts`) — as duas ações do legado mapeiam para esta MESMA rota (só o estilo de requisição do frontend difere). `record_id` ausente/0 cria (`tryInsertRow`); presente exige `_version` e atualiza (`tryUpdateRow`), com o mesmo controle de concorrência otimista de qualquer outra escrita. `values` só pode conter campos que a própria view expõe (422 caso contrário — nunca aceita um campo extra fora do formulário). Devolve o registro resultante e `navigate` — a decisão de para onde ir depois (`destination_type` do legado): "reload" (padrão), "referer" (`Back to referer`) ou "view" (`View`, com `view_name`). Idempotente por Idempotency-Key.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/views/{id}/submit (the `SubmitView` operationId).
+func (c *Client) SubmitViewWithBody(ctx context.Context, tenant Tenant, id Id, params *SubmitViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSubmitViewRequestWithBody(c.Server, tenant, id, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SubmitView Command: form_action — cria/atualiza um registro de uma view Edit (GO-039)
+//
+// O mecanismo real por trás do botão "Salvar"/"SubmitWithAjax" do legado (`base-plugin/actions.ts`) — as duas ações do legado mapeiam para esta MESMA rota (só o estilo de requisição do frontend difere). `record_id` ausente/0 cria (`tryInsertRow`); presente exige `_version` e atualiza (`tryUpdateRow`), com o mesmo controle de concorrência otimista de qualquer outra escrita. `values` só pode conter campos que a própria view expõe (422 caso contrário — nunca aceita um campo extra fora do formulário). Devolve o registro resultante e `navigate` — a decisão de para onde ir depois (`destination_type` do legado): "reload" (padrão), "referer" (`Back to referer`) ou "view" (`View`, com `view_name`). Idempotente por Idempotency-Key.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/views/{id}/submit (the `SubmitView` operationId).
+func (c *Client) SubmitView(ctx context.Context, tenant Tenant, id Id, params *SubmitViewParams, body SubmitViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSubmitViewRequest(c.Server, tenant, id, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3030,6 +3354,18 @@ func NewRenderViewRequest(server string, tenant Tenant, id Id, params *RenderVie
 
 		}
 
+		if params.Record != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "record", *params.Record, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
 		if encoded := queryValues.Encode(); encoded != "" {
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}
@@ -3039,6 +3375,144 @@ func NewRenderViewRequest(server string, tenant Tenant, id Id, params *RenderVie
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteViewRowRequest constructs an http.Request for the DeleteViewRow method
+func NewDeleteViewRowRequest(server string, tenant Tenant, id Id, recordId Id, params *DeleteViewRowParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "recordId", recordId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/views/%s/rows/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "version", params.Version, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSubmitViewRequest calls the generic SubmitView builder with application/json body
+func NewSubmitViewRequest(server string, tenant Tenant, id Id, params *SubmitViewParams, body SubmitViewJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSubmitViewRequestWithBody(server, tenant, id, params, "application/json", bodyReader)
+}
+
+// NewSubmitViewRequestWithBody constructs an http.Request for the SubmitView method, with any body, and a specified content type
+func NewSubmitViewRequestWithBody(server string, tenant Tenant, id Id, params *SubmitViewParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/views/%s/submit", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
 	}
 
 	return req, nil
@@ -3386,14 +3860,41 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PATCH /v1/tenants/{tenant}/views/{id} (the `UpdateView` operationId).
 	UpdateViewWithResponse(ctx context.Context, tenant Tenant, id Id, params *UpdateViewParams, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error)
 
-	// RenderViewWithResponse Query: renderiza uma view List (GO-020)
+	// RenderViewWithResponse Query: renderiza uma view List, Show ou Edit
 	//
-	// Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas resolvidas contra o catálogo + linhas + paginação) que o BFF/React desenham. Subconjunto suportado desta tarefa: só o template "List", com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`); qualquer view fora desse subconjunto devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
+	// Adicionado por GO-020 (só "List"), estendido por GO-039 ("Show" e "Edit"). Não devolve HTML; devolve o DTO que o BFF/React desenham — o shape exato depende do `template` da view (ver `ViewRenderPlan`/`ViewShowPlan`/`ViewEditPlan`). `?record=` é OBRIGATÓRIO para "Show" (400 sem ele), OPCIONAL para "Edit" (ausente = registro novo, formulário de criação em branco), e ignorado por "List". Qualquer view fora do subconjunto suportado (ver `docs/migracao-go/execucoes/GO-020.md`/`GO-039.md` — ex.: template "Feed", coluna de layout não reconhecida, fieldview "upload") devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /v1/tenants/{tenant}/views/{id}/render (the `RenderView` operationId).
 	RenderViewWithResponse(ctx context.Context, tenant Tenant, id Id, params *RenderViewParams, reqEditors ...RequestEditorFn) (*RenderViewResponse, error)
+
+	// DeleteViewRowWithResponse Command: ação de coluna "Delete" de uma view List (GO-039)
+	//
+	// Só aceita um id de view cujo `configuration.columns` de fato declara uma coluna `Action`/`Delete` (422 caso contrário — nunca um atalho para deletar de qualquer view List). Confere o `minRole` do PRÓPRIO nó de coluna, além do `min_role_write` da tabela por baixo (internal/records) — duas checagens independentes. `?version=` é o mesmo `_version` de controle de concorrência otimista de qualquer outra escrita.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /v1/tenants/{tenant}/views/{id}/rows/{recordId} (the `DeleteViewRow` operationId).
+	DeleteViewRowWithResponse(ctx context.Context, tenant Tenant, id Id, recordId Id, params *DeleteViewRowParams, reqEditors ...RequestEditorFn) (*DeleteViewRowResponse, error)
+
+	// SubmitViewWithBodyWithResponse Command: form_action — cria/atualiza um registro de uma view Edit (GO-039)
+	//
+	// O mecanismo real por trás do botão "Salvar"/"SubmitWithAjax" do legado (`base-plugin/actions.ts`) — as duas ações do legado mapeiam para esta MESMA rota (só o estilo de requisição do frontend difere). `record_id` ausente/0 cria (`tryInsertRow`); presente exige `_version` e atualiza (`tryUpdateRow`), com o mesmo controle de concorrência otimista de qualquer outra escrita. `values` só pode conter campos que a própria view expõe (422 caso contrário — nunca aceita um campo extra fora do formulário). Devolve o registro resultante e `navigate` — a decisão de para onde ir depois (`destination_type` do legado): "reload" (padrão), "referer" (`Back to referer`) ou "view" (`View`, com `view_name`). Idempotente por Idempotency-Key.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/views/{id}/submit (the `SubmitView` operationId).
+	SubmitViewWithBodyWithResponse(ctx context.Context, tenant Tenant, id Id, params *SubmitViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitViewResponse, error)
+
+	// SubmitViewWithResponse Command: form_action — cria/atualiza um registro de uma view Edit (GO-039)
+	//
+	// O mecanismo real por trás do botão "Salvar"/"SubmitWithAjax" do legado (`base-plugin/actions.ts`) — as duas ações do legado mapeiam para esta MESMA rota (só o estilo de requisição do frontend difere). `record_id` ausente/0 cria (`tryInsertRow`); presente exige `_version` e atualiza (`tryUpdateRow`), com o mesmo controle de concorrência otimista de qualquer outra escrita. `values` só pode conter campos que a própria view expõe (422 caso contrário — nunca aceita um campo extra fora do formulário). Devolve o registro resultante e `navigate` — a decisão de para onde ir depois (`destination_type` do legado): "reload" (padrão), "referer" (`Back to referer`) ou "view" (`View`, com `view_name`). Idempotente por Idempotency-Key.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/views/{id}/submit (the `SubmitView` operationId).
+	SubmitViewWithResponse(ctx context.Context, tenant Tenant, id Id, params *SubmitViewParams, body SubmitViewJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitViewResponse, error)
 }
 
 type GetLivenessResponse struct {
@@ -4903,7 +5404,9 @@ type RenderViewResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *ViewRenderPlan
+	JSON200 *RenderView200JSONResponseBody
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *Unauthorized
 	// JSON403 the response for an HTTP 403 `application/json` response
@@ -4917,8 +5420,13 @@ type RenderViewResponse struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r RenderViewResponse) GetJSON200() *ViewRenderPlan {
+func (r RenderViewResponse) GetJSON200() *RenderView200JSONResponseBody {
 	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RenderViewResponse) GetJSON400() *Error {
+	return r.JSON400
 }
 
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
@@ -4969,6 +5477,186 @@ func (r RenderViewResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r RenderViewResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteViewRowResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r DeleteViewRowResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DeleteViewRowResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DeleteViewRowResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DeleteViewRowResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r DeleteViewRowResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r DeleteViewRowResponse) GetJSON422() *Error {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r DeleteViewRowResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteViewRowResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteViewRowResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteViewRowResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteViewRowResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SubmitViewResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ViewSubmitResult
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *ViewSubmitResult
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SubmitViewResponse) GetJSON200() *ViewSubmitResult {
+	return r.JSON200
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r SubmitViewResponse) GetJSON201() *ViewSubmitResult {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SubmitViewResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SubmitViewResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r SubmitViewResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r SubmitViewResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r SubmitViewResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r SubmitViewResponse) GetJSON422() *Error {
+	return r.JSON422
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r SubmitViewResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r SubmitViewResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SubmitViewResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SubmitViewResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SubmitViewResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5477,9 +6165,9 @@ func (c *ClientWithResponses) UpdateViewWithResponse(ctx context.Context, tenant
 	return ParseUpdateViewResponse(rsp)
 }
 
-// RenderViewWithResponse Query: renderiza uma view List (GO-020)
+// RenderViewWithResponse Query: renderiza uma view List, Show ou Edit
 //
-// Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas resolvidas contra o catálogo + linhas + paginação) que o BFF/React desenham. Subconjunto suportado desta tarefa: só o template "List", com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`); qualquer view fora desse subconjunto devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
+// Adicionado por GO-020 (só "List"), estendido por GO-039 ("Show" e "Edit"). Não devolve HTML; devolve o DTO que o BFF/React desenham — o shape exato depende do `template` da view (ver `ViewRenderPlan`/`ViewShowPlan`/`ViewEditPlan`). `?record=` é OBRIGATÓRIO para "Show" (400 sem ele), OPCIONAL para "Edit" (ausente = registro novo, formulário de criação em branco), e ignorado por "List". Qualquer view fora do subconjunto suportado (ver `docs/migracao-go/execucoes/GO-020.md`/`GO-039.md` — ex.: template "Feed", coluna de layout não reconhecida, fieldview "upload") devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -5490,6 +6178,51 @@ func (c *ClientWithResponses) RenderViewWithResponse(ctx context.Context, tenant
 		return nil, err
 	}
 	return ParseRenderViewResponse(rsp)
+}
+
+// DeleteViewRowWithResponse Command: ação de coluna "Delete" de uma view List (GO-039)
+//
+// Só aceita um id de view cujo `configuration.columns` de fato declara uma coluna `Action`/`Delete` (422 caso contrário — nunca um atalho para deletar de qualquer view List). Confere o `minRole` do PRÓPRIO nó de coluna, além do `min_role_write` da tabela por baixo (internal/records) — duas checagens independentes. `?version=` é o mesmo `_version` de controle de concorrência otimista de qualquer outra escrita.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /v1/tenants/{tenant}/views/{id}/rows/{recordId} (the `DeleteViewRow` operationId).
+func (c *ClientWithResponses) DeleteViewRowWithResponse(ctx context.Context, tenant Tenant, id Id, recordId Id, params *DeleteViewRowParams, reqEditors ...RequestEditorFn) (*DeleteViewRowResponse, error) {
+	rsp, err := c.DeleteViewRow(ctx, tenant, id, recordId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteViewRowResponse(rsp)
+}
+
+// SubmitViewWithBodyWithResponse Command: form_action — cria/atualiza um registro de uma view Edit (GO-039)
+//
+// O mecanismo real por trás do botão "Salvar"/"SubmitWithAjax" do legado (`base-plugin/actions.ts`) — as duas ações do legado mapeiam para esta MESMA rota (só o estilo de requisição do frontend difere). `record_id` ausente/0 cria (`tryInsertRow`); presente exige `_version` e atualiza (`tryUpdateRow`), com o mesmo controle de concorrência otimista de qualquer outra escrita. `values` só pode conter campos que a própria view expõe (422 caso contrário — nunca aceita um campo extra fora do formulário). Devolve o registro resultante e `navigate` — a decisão de para onde ir depois (`destination_type` do legado): "reload" (padrão), "referer" (`Back to referer`) ou "view" (`View`, com `view_name`). Idempotente por Idempotency-Key.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/views/{id}/submit (the `SubmitView` operationId).
+func (c *ClientWithResponses) SubmitViewWithBodyWithResponse(ctx context.Context, tenant Tenant, id Id, params *SubmitViewParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SubmitViewResponse, error) {
+	rsp, err := c.SubmitViewWithBody(ctx, tenant, id, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSubmitViewResponse(rsp)
+}
+
+// SubmitViewWithResponse Command: form_action — cria/atualiza um registro de uma view Edit (GO-039)
+//
+// O mecanismo real por trás do botão "Salvar"/"SubmitWithAjax" do legado (`base-plugin/actions.ts`) — as duas ações do legado mapeiam para esta MESMA rota (só o estilo de requisição do frontend difere). `record_id` ausente/0 cria (`tryInsertRow`); presente exige `_version` e atualiza (`tryUpdateRow`), com o mesmo controle de concorrência otimista de qualquer outra escrita. `values` só pode conter campos que a própria view expõe (422 caso contrário — nunca aceita um campo extra fora do formulário). Devolve o registro resultante e `navigate` — a decisão de para onde ir depois (`destination_type` do legado): "reload" (padrão), "referer" (`Back to referer`) ou "view" (`View`, com `view_name`). Idempotente por Idempotency-Key.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/views/{id}/submit (the `SubmitView` operationId).
+func (c *ClientWithResponses) SubmitViewWithResponse(ctx context.Context, tenant Tenant, id Id, params *SubmitViewParams, body SubmitViewJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitViewResponse, error) {
+	rsp, err := c.SubmitView(ctx, tenant, id, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSubmitViewResponse(rsp)
 }
 
 // ParseGetLivenessResponse parses an HTTP response from a GetLivenessWithResponse call
@@ -6641,11 +7374,18 @@ func ParseRenderViewResponse(rsp *http.Response) (*RenderViewResponse, error) {
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ViewRenderPlan
+		var dest RenderView200JSONResponseBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Unauthorized
@@ -6667,6 +7407,159 @@ func ParseRenderViewResponse(rsp *http.Response) (*RenderViewResponse, error) {
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteViewRowResponse parses an HTTP response from a DeleteViewRowWithResponse call
+func ParseDeleteViewRowResponse(rsp *http.Response) (*DeleteViewRowResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteViewRowResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSubmitViewResponse parses an HTTP response from a SubmitViewWithResponse call
+func ParseSubmitViewResponse(rsp *http.Response) (*SubmitViewResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SubmitViewResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ViewSubmitResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ViewSubmitResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
 		var dest Error

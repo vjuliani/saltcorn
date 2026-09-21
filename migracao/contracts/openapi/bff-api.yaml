@@ -446,7 +446,7 @@ paths:
                   value:
                     error:
                       code: view_unsupported
-                      message: "template \"Show\" não suportado neste runtime (só \"List\")"
+                      message: "template \"Feed\" não suportado neste runtime (só \"List\", \"Show\", \"Edit\")"
         "502":
           $ref: "#/components/responses/DomainUnavailable"
 
@@ -459,10 +459,12 @@ paths:
           $ref: "./common.yaml#/components/schemas/Id"
     get:
       operationId: renderView
-      summary: Renderiza uma view List (GO-020)
+      summary: Renderiza uma view List, Show ou Edit (GO-020, estendido em GO-039)
       description: >
-        Devolve o DTO (colunas + linhas + paginação) de internal-api.yaml,
-        sem reinterpretar nada — o React desenha a tabela a partir dele.
+        Devolve o DTO de internal-api.yaml, sem reinterpretar nada — o
+        shape exato depende do template da view. `record` é obrigatório
+        para Show (400 sem ele), opcional para Edit (ausente = registro
+        novo), ignorado por List.
       security:
         - SessionCookie: []
       parameters:
@@ -474,23 +476,172 @@ paths:
           in: query
           schema:
             type: string
+        - name: record
+          in: query
+          schema:
+            $ref: "./common.yaml#/components/schemas/Id"
+          description: Id do registro — obrigatório para Show, opcional para Edit, ignorado por List.
       responses:
         "200":
-          description: plano de renderização
+          description: plano de renderização — o shape exato depende do template da view
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ViewRenderPlan"
+                oneOf:
+                  - $ref: "#/components/schemas/ViewRenderPlan"
+                  - $ref: "#/components/schemas/ViewShowPlan"
+                  - $ref: "#/components/schemas/ViewEditPlan"
+        "400":
+          description: "?record= ausente (template Show) ou inválido"
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/SessionRequired"
         "404":
-          description: view não encontrada (ou fora da visibilidade do ator)
+          description: view ou registro não encontrado (ou fora da visibilidade do ator)
           content:
             application/json:
               schema:
                 $ref: "./common.yaml#/components/schemas/Error"
         "422":
           description: view existe, mas usa um recurso fora do subconjunto suportado por este runtime
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+  /api/bff/views/{id}/submit:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    post:
+      operationId: submitView
+      summary: "form_action — cria/atualiza um registro de uma view Edit (GO-039)"
+      description: >
+        O mecanismo real por trás do botão "Salvar"/"SubmitWithAjax" do
+        legado. `record_id` ausente/0 cria; presente exige `_version` e
+        atualiza, com o mesmo controle de concorrência otimista de
+        qualquer outra escrita. Devolve o registro resultante e
+        `navigate` — para onde ir depois ("reload", "referer" ou "view"
+        com `view_name`).
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ViewSubmitInput"
+      responses:
+        "200":
+          description: registro atualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViewSubmitResult"
+        "201":
+          description: registro criado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViewSubmitResult"
+        "400":
+          description: corpo inválido ou _version ausente ao atualizar
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "404":
+          description: view ou registro não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "409":
+          description: "Negativo: conflito de versão otimista ou valor duplicado"
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+              examples:
+                conflito_de_edicao:
+                  summary: "Negativo: outra sessão salvou primeiro"
+                  value:
+                    error:
+                      code: version_conflict
+                      message: "o recurso foi modificado por outra transação — releia e tente novamente"
+        "422":
+          description: view existe, mas o layout ou os campos submetidos não são suportados
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+  /api/bff/views/{id}/rows/{recordId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+      - name: recordId
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    delete:
+      operationId: deleteViewRow
+      summary: "Ação de coluna \"Delete\" de uma view List (GO-039)"
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      parameters:
+        - name: version
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: linha excluída
+        "400":
+          description: "?version= ausente"
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "404":
+          description: view ou registro não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "409":
+          description: conflito de versão otimista
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "422":
+          description: view existe, mas não declara uma ação de coluna "Delete"
           content:
             application/json:
               schema:
@@ -600,11 +751,22 @@ components:
 
     ViewRenderColumn:
       type: object
-      required: [field_name, header_label]
+      required: [kind]
+      description: >
+        Três variantes discriminadas por `kind`: "field" (campo direto),
+        "join_field" (campo trazido por join — `field_name` é a chave
+        composta "<campo_local>__<campo_remoto>", a MESMA chave usada em
+        `rows`), "action" (ação de coluna — só `action_name`, sem
+        `field_name`).
       properties:
+        kind:
+          type: string
+          enum: [field, join_field, action]
         field_name:
           type: string
         header_label:
+          type: string
+        action_name:
           type: string
 
     ViewRenderPlan:
@@ -629,3 +791,104 @@ components:
         next_cursor:
           type: ["string", "null"]
           description: Cursor para a próxima página, ou `null` se não houver mais páginas.
+
+    ViewShowPlan:
+      type: object
+      required: [view_id, table, record_id, columns, values]
+      properties:
+        view_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        table:
+          type: string
+        record_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        columns:
+          type: array
+          items:
+            $ref: "#/components/schemas/ViewRenderColumn"
+        values:
+          type: object
+          additionalProperties: true
+
+    ViewEditFieldOption:
+      type: object
+      required: [id, label]
+      properties:
+        id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        label:
+          type: string
+
+    ViewEditField:
+      type: object
+      required: [field_name, label, field_type, fieldview, required, value]
+      properties:
+        field_name:
+          type: string
+        label:
+          type: string
+        field_type:
+          type: string
+        fieldview:
+          type: string
+        required:
+          type: boolean
+        config:
+          type: object
+          additionalProperties: true
+        value: {}
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/ViewEditFieldOption"
+
+    ViewEditPlan:
+      type: object
+      required: [view_id, table, record_id, fields, action_name]
+      properties:
+        view_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        table:
+          type: string
+        record_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        _version:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/ViewEditField"
+        action_name:
+          type: string
+
+    ViewSubmitInput:
+      type: object
+      required: [values]
+      properties:
+        record_id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        _version:
+          type: string
+        values:
+          type: object
+          additionalProperties: true
+
+    ViewNavigate:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [reload, referer, view]
+        view_name:
+          type: string
+
+    ViewSubmitResult:
+      type: object
+      required: [record, navigate]
+      properties:
+        record:
+          type: object
+          additionalProperties: true
+        navigate:
+          $ref: "#/components/schemas/ViewNavigate"

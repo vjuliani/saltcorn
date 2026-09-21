@@ -20,6 +20,7 @@ type ListViewsResponse = paths["/api/bff/views"]["get"]["responses"]["200"]["con
 type GetViewResponse = paths["/api/bff/views/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
 type UpdateViewResponse = paths["/api/bff/views/{id}"]["patch"]["responses"]["200"]["content"]["application/json"];
 type RenderViewResponse = paths["/api/bff/views/{id}/render"]["get"]["responses"]["200"]["content"]["application/json"];
+type SubmitViewResponse = paths["/api/bff/views/{id}/submit"]["post"]["responses"]["200"]["content"]["application/json"];
 type ErrorResponse = { error: { code: string; message: string } };
 
 /**
@@ -148,15 +149,62 @@ export class BffClient {
    * 422 `view_unsupported`, para o chamador distinguir "esta view não é
    * suportada ainda" de qualquer outro erro (rede, 404, etc.).
    */
-  async renderView(id: number, query: { limit?: number; cursor?: string } = {}): Promise<RenderViewResponse> {
+  async renderView(id: number, query: { limit?: number; cursor?: string; record?: number } = {}): Promise<RenderViewResponse> {
     const url = this.buildUrl(`/api/bff/views/${id}/render`);
     if (query.limit !== undefined) url.searchParams.set("limit", String(query.limit));
     if (query.cursor !== undefined) url.searchParams.set("cursor", query.cursor);
+    if (query.record !== undefined) url.searchParams.set("record", String(query.record));
     try {
       return await this.request<RenderViewResponse>(url.pathname + url.search, { method: "GET" });
     } catch (err) {
       if (err instanceof BffClientError && err.status === 422 && err.code === "view_unsupported") {
         throw new ViewUnsupportedError(err.message);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * submitView (GO-039) — form_action de uma view Edit: cria
+   * (record_id ausente) ou atualiza (record_id presente, exige
+   * _version) um registro. Lança ViewConflictError/ViewUnsupportedError
+   * pelos mesmos motivos de updateView.
+   */
+  async submitView(
+    id: number,
+    input: { record_id?: number; _version?: string; values: Record<string, unknown> }
+  ): Promise<SubmitViewResponse> {
+    try {
+      return await this.request<SubmitViewResponse>(`/api/bff/views/${id}/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+        body: JSON.stringify(input),
+      });
+    } catch (err) {
+      if (err instanceof BffClientError && err.status === 409 && err.code === "version_conflict") {
+        throw new ViewConflictError();
+      }
+      if (err instanceof BffClientError && err.status === 422 && err.code === "view_unsupported") {
+        throw new ViewUnsupportedError(err.message);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * deleteViewRow (GO-039) — a ação de coluna "Delete" de uma view List.
+   */
+  async deleteViewRow(id: number, recordId: number, expectedVersion: string): Promise<void> {
+    const url = this.buildUrl(`/api/bff/views/${id}/rows/${recordId}`);
+    url.searchParams.set("version", expectedVersion);
+    try {
+      await this.request<void>(url.pathname + url.search, {
+        method: "DELETE",
+        headers: { "X-CSRF-Token": this.requireCsrf() },
+      });
+    } catch (err) {
+      if (err instanceof BffClientError && err.status === 409 && err.code === "version_conflict") {
+        throw new ViewConflictError();
       }
       throw err;
     }
@@ -214,7 +262,12 @@ export class BffClient {
 
   private async request<T>(path: string, init: RequestInit): Promise<T> {
     const res = await fetch(`${this.opts.baseUrl}${path}`, { ...init, credentials: "include" });
-    if (res.ok) return (await res.json()) as T;
+    if (res.ok) {
+      // 204 (deleteViewRow, GO-039) não tem corpo — res.json() lançaria
+      // SyntaxError num body vazio; nenhum método anterior retornava 204.
+      if (res.status === 204) return undefined as T;
+      return (await res.json()) as T;
+    }
     const body = (await res.json().catch(() => null)) as ErrorResponse | null;
     throw new BffClientError(res.status, body?.error.code ?? "unknown_error", body?.error.message ?? res.statusText);
   }

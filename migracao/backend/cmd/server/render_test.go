@@ -23,7 +23,11 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 )
 
-const compatibleListLayoutJSON = `{"layout":{"besides":[{"header_label":"Título","contents":{"type":"Field","field_name":"title"}},{"contents":{"type":"Field","field_name":"pages"}}]}}`
+// compatibleListLayoutJSON usa `configuration.columns` (GO-039) — a lista
+// flat que o builder legado grava e que este runtime de fato lê para
+// decidir dados/colunas de uma List, não `configuration.layout` (árvore
+// de arranjo visual, nunca interpretada por este runtime).
+const compatibleListLayoutJSON = `{"columns":[{"type":"Field","field_name":"title","header_label":"Título"},{"type":"Field","field_name":"pages"}]}`
 
 // setupBooksWithRecords cria a tabela "books" (leitura pública por padrão,
 // ver metadata.CreateTable), os campos title/pages, e insere três
@@ -97,7 +101,7 @@ func TestRenderListHandler_PublishedViewRendersRealRows(t *testing.T) {
 	tableID := setupBooksWithRecords(t, db, fx.tenant)
 	view := createCompatibleView(t, db, fx.tenant, tableID, identity.RolePublic)
 
-	renderH := buildEditorHandler(t, verifier, fx.guard, viewsCapability, renderListHandler(fx.tracker, db))
+	renderH := buildEditorHandler(t, verifier, fx.guard, viewsCapability, renderViewHandler(fx.tracker, db))
 	publicToken := mintServiceIdentity(t, testServiceIdentitySecret, strconv.Itoa(fx.publicID), fx.tenant, time.Minute)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/tenants/"+string(fx.tenant)+"/views/"+strconv.Itoa(view.ID)+"/render?limit=2", nil)
@@ -160,7 +164,7 @@ func TestRenderListHandler_DeniedBeforePublish(t *testing.T) {
 	tableID := setupBooksWithRecords(t, db, fx.tenant)
 	view := createCompatibleView(t, db, fx.tenant, tableID, identity.RoleAdmin)
 
-	renderH := buildEditorHandler(t, verifier, fx.guard, viewsCapability, renderListHandler(fx.tracker, db))
+	renderH := buildEditorHandler(t, verifier, fx.guard, viewsCapability, renderViewHandler(fx.tracker, db))
 	publicToken := mintServiceIdentity(t, testServiceIdentitySecret, strconv.Itoa(fx.publicID), fx.tenant, time.Minute)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/tenants/"+string(fx.tenant)+"/views/"+strconv.Itoa(view.ID)+"/render", nil)
@@ -175,8 +179,11 @@ func TestRenderListHandler_DeniedBeforePublish(t *testing.T) {
 }
 
 // TestRenderListHandler_UnsupportedViewReturns422 prova que uma view fora
-// do subconjunto suportado (aqui: template "Show") nunca chega a um HTML/
-// DTO parcial — 422 com o motivo específico, mesmo para o admin.
+// do subconjunto suportado (aqui: template "Feed", GO-051) nunca chega a
+// um HTML/DTO parcial — 422 com o motivo específico, mesmo para o admin.
+// Desde GO-039, "Show" passou a ser suportado (tem seu próprio teste de
+// render bem-sucedido) — este teste usa "Feed", que continua fora de
+// escopo (ver docs/migracao-go/execucoes/GO-039.md).
 func TestRenderListHandler_UnsupportedViewReturns422(t *testing.T) {
 	db := testDB(t)
 	fx := newEditorFixture(t, db)
@@ -189,13 +196,13 @@ func TestRenderListHandler_UnsupportedViewReturns422(t *testing.T) {
 	var view views.View
 	if err := db.WithTenant(context.Background(), fx.tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		view, err = views.CreateView(ctx, tx, identity.RoleAdmin, "showbook", tableID, "Show", map[string]any{}, views.ViewOptions{})
+		view, err = views.CreateView(ctx, tx, identity.RoleAdmin, "guitarfeed", tableID, "Feed", map[string]any{}, views.ViewOptions{})
 		return err
 	}); err != nil {
-		t.Fatalf("criar view Show: %v", err)
+		t.Fatalf("criar view Feed: %v", err)
 	}
 
-	renderH := buildEditorHandler(t, verifier, fx.guard, viewsCapability, renderListHandler(fx.tracker, db))
+	renderH := buildEditorHandler(t, verifier, fx.guard, viewsCapability, renderViewHandler(fx.tracker, db))
 	adminToken := mintServiceIdentity(t, testServiceIdentitySecret, strconv.Itoa(fx.adminID), fx.tenant, time.Minute)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/tenants/"+string(fx.tenant)+"/views/"+strconv.Itoa(view.ID)+"/render", nil)

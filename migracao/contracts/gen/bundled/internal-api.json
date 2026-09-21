@@ -560,7 +560,7 @@
                 "example": {
                   "error": {
                     "code": "view_unsupported",
-                    "message": "template \"Show\" não suportado neste runtime (só \"List\")"
+                    "message": "template \"Feed\" não suportado neste runtime (só \"List\", \"Show\", \"Edit\")"
                   }
                 }
               }
@@ -600,23 +600,52 @@
       ],
       "get": {
         "operationId": "renderView",
-        "summary": "Query: renderiza uma view List (GO-020)",
-        "description": "Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas resolvidas contra o catálogo + linhas + paginação) que o BFF/React desenham. Subconjunto suportado desta tarefa: só o template \"List\", com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`); qualquer view fora desse subconjunto devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.\n",
+        "summary": "Query: renderiza uma view List, Show ou Edit",
+        "description": "Adicionado por GO-020 (só \"List\"), estendido por GO-039 (\"Show\" e \"Edit\"). Não devolve HTML; devolve o DTO que o BFF/React desenham — o shape exato depende do `template` da view (ver `ViewRenderPlan`/`ViewShowPlan`/`ViewEditPlan`). `?record=` é OBRIGATÓRIO para \"Show\" (400 sem ele), OPCIONAL para \"Edit\" (ausente = registro novo, formulário de criação em branco), e ignorado por \"List\". Qualquer view fora do subconjunto suportado (ver `docs/migracao-go/execucoes/GO-020.md`/`GO-039.md` — ex.: template \"Feed\", coluna de layout não reconhecida, fieldview \"upload\") devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.\n",
         "parameters": [
           {
             "$ref": "#/components/parameters/Cursor"
           },
           {
             "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "name": "record",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Id"
+            },
+            "description": "Id do registro — obrigatório para Show, opcional para Edit (ausente = registro novo), ignorado por List."
           }
         ],
         "responses": {
           "200": {
-            "description": "plano de renderização (colunas + linhas + paginação)",
+            "description": "plano de renderização — o shape exato depende do template da view",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ViewRenderPlan"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ViewRenderPlan"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ViewShowPlan"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ViewEditPlan"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "?record= ausente (template Show) ou inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -628,7 +657,7 @@
             "$ref": "#/components/responses/Forbidden"
           },
           "404": {
-            "description": "view não encontrada",
+            "description": "view ou registro não encontrado",
             "content": {
               "application/json": {
                 "schema": {
@@ -647,8 +676,236 @@
                 "example": {
                   "error": {
                     "code": "view_unsupported",
-                    "message": "layout.besides ausente ou não é uma lista — só layouts de lista de colunas são suportados"
+                    "message": "configuration.columns ausente ou não é uma lista"
                   }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenant}/views/{id}/submit": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Id"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "submitView",
+        "summary": "Command: form_action — cria/atualiza um registro de uma view Edit (GO-039)",
+        "description": "O mecanismo real por trás do botão \"Salvar\"/\"SubmitWithAjax\" do legado (`base-plugin/actions.ts`) — as duas ações do legado mapeiam para esta MESMA rota (só o estilo de requisição do frontend difere). `record_id` ausente/0 cria (`tryInsertRow`); presente exige `_version` e atualiza (`tryUpdateRow`), com o mesmo controle de concorrência otimista de qualquer outra escrita. `values` só pode conter campos que a própria view expõe (422 caso contrário — nunca aceita um campo extra fora do formulário). Devolve o registro resultante e `navigate` — a decisão de para onde ir depois (`destination_type` do legado): \"reload\" (padrão), \"referer\" (`Back to referer`) ou \"view\" (`View`, com `view_name`). Idempotente por Idempotency-Key.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViewSubmitInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "registro atualizado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewSubmitResult"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "registro criado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewSubmitResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "corpo inválido, Idempotency-Key ausente, ou _version ausente ao atualizar",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "view ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "conflito de versão otimista, de idempotência, ou valor duplicado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "view existe, mas o layout ou os campos submetidos não são suportados",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "example": {
+                  "error": {
+                    "code": "view_unsupported",
+                    "message": "campo \"extra\" não faz parte desta view"
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenant}/views/{id}/rows/{recordId}": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Id"
+          }
+        },
+        {
+          "name": "recordId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Id"
+          }
+        }
+      ],
+      "delete": {
+        "operationId": "deleteViewRow",
+        "summary": "Command: ação de coluna \"Delete\" de uma view List (GO-039)",
+        "description": "Só aceita um id de view cujo `configuration.columns` de fato declara uma coluna `Action`/`Delete` (422 caso contrário — nunca um atalho para deletar de qualquer view List). Confere o `minRole` do PRÓPRIO nó de coluna, além do `min_role_write` da tabela por baixo (internal/records) — duas checagens independentes. `?version=` é o mesmo `_version` de controle de concorrência otimista de qualquer outra escrita.\n",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "linha excluída"
+          },
+          "400": {
+            "description": "?version= ausente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "view ou registro não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "conflito de versão otimista",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "view existe, mas não declara uma ação de coluna \"Delete\"",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -1739,16 +1996,28 @@
       "ViewRenderColumn": {
         "type": "object",
         "required": [
-          "field_name",
-          "header_label"
+          "kind"
         ],
+        "description": "Uma coluna de uma view \"List\" (GO-020, estendida em GO-039) — três variantes discriminadas por `kind`: \"field\" (campo direto, `field_name` é o nome do campo), \"join_field\" (campo trazido por join de um nível, `field_name` é a chave composta \"<campo_local>__<campo_remoto>\" — a MESMA chave usada em `rows`), \"action\" (ação de coluna, ex.: \"Delete\" — não tem `field_name`, só `action_name`).\n",
         "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "field",
+              "join_field",
+              "action"
+            ]
+          },
           "field_name": {
             "type": "string",
-            "description": "Nome do campo (já resolvido contra o catálogo, GO-011) que esta coluna exibe."
+            "description": "Presente para kind=field/join_field — já resolvido contra o catálogo (GO-011), nunca inventado."
           },
           "header_label": {
             "type": "string"
+          },
+          "action_name": {
+            "type": "string",
+            "description": "Presente para kind=action (ex.: \"Delete\")."
           }
         }
       },
@@ -1791,6 +2060,190 @@
               "null"
             ],
             "description": "Cursor para a próxima página, ou `null` se não houver mais páginas."
+          }
+        }
+      },
+      "ViewShowPlan": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "table",
+          "record_id",
+          "columns",
+          "values"
+        ],
+        "description": "DTO de renderização de uma view \"Show\" (GO-039) — os valores já resolvidos de UM registro.\n",
+        "properties": {
+          "view_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "table": {
+            "type": "string"
+          },
+          "record_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewRenderColumn"
+            }
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ViewEditFieldOption": {
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "description": "Uma opção de um campo FieldKey (fieldview \"select\") — um registro candidato da tabela referenciada. `label` é o primeiro campo de texto dessa tabela (heurístico documentado, GO-039 — o legado permite configurar um \"summary field\" por relação, não reproduzido aqui).\n",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "ViewEditField": {
+        "type": "object",
+        "required": [
+          "field_name",
+          "label",
+          "field_type",
+          "fieldview",
+          "required",
+          "value"
+        ],
+        "properties": {
+          "field_name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "field_type": {
+            "type": "string",
+            "description": "Tipo do campo no catálogo (GO-011): text, integer, boolean, float, date, key."
+          },
+          "fieldview": {
+            "type": "string",
+            "description": "Hint de widget do legado (ex.; \"edit\", \"select\", \"flatpickr\") — o backend não interpreta, só repassa."
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Configuração específica da fieldview (ex.: `{\"dateFormat\": \"Y-m-d H:i\"}` de flatpickr), repassada sem interpretação."
+          },
+          "value": {
+            "description": "Valor atual (registro existente) ou `null` (criação nova)."
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewEditFieldOption"
+            },
+            "description": "Presente só quando field_type=key e fieldview=select."
+          }
+        }
+      },
+      "ViewEditPlan": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "table",
+          "record_id",
+          "fields",
+          "action_name"
+        ],
+        "description": "DTO de renderização/edição de uma view \"Edit\" (GO-039) — record_id=0 é o plano de CRIAÇÃO (todos os campos em branco).\n",
+        "properties": {
+          "view_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "table": {
+            "type": "string"
+          },
+          "record_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "_version": {
+            "type": "string",
+            "description": "Ausente quando record_id=0 (registro novo)."
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewEditField"
+            }
+          },
+          "action_name": {
+            "type": "string",
+            "description": "\"Save\" ou \"SubmitWithAjax\"."
+          }
+        }
+      },
+      "ViewSubmitInput": {
+        "type": "object",
+        "required": [
+          "values"
+        ],
+        "properties": {
+          "record_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "_version": {
+            "type": "string",
+            "description": "Obrigatório quando record_id está presente (atualização)."
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "ViewNavigate": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "reload",
+              "referer",
+              "view"
+            ]
+          },
+          "view_name": {
+            "type": "string",
+            "description": "Presente só quando type=view."
+          }
+        }
+      },
+      "ViewSubmitResult": {
+        "type": "object",
+        "required": [
+          "record",
+          "navigate"
+        ],
+        "properties": {
+          "record": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "navigate": {
+            "$ref": "#/components/schemas/ViewNavigate"
           }
         }
       },

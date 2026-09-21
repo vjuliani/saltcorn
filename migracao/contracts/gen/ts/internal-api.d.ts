@@ -192,13 +192,60 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Query: renderiza uma view List (GO-020)
-         * @description Adicionado por GO-020 — não devolve HTML; devolve o DTO (colunas resolvidas contra o catálogo + linhas + paginação) que o BFF/React desenham. Subconjunto suportado desta tarefa: só o template "List", com colunas de campo direto (ver `docs/migracao-go/execucoes/GO-020.md`); qualquer view fora desse subconjunto devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
+         * Query: renderiza uma view List, Show ou Edit
+         * @description Adicionado por GO-020 (só "List"), estendido por GO-039 ("Show" e "Edit"). Não devolve HTML; devolve o DTO que o BFF/React desenham — o shape exato depende do `template` da view (ver `ViewRenderPlan`/`ViewShowPlan`/`ViewEditPlan`). `?record=` é OBRIGATÓRIO para "Show" (400 sem ele), OPCIONAL para "Edit" (ausente = registro novo, formulário de criação em branco), e ignorado por "List". Qualquer view fora do subconjunto suportado (ver `docs/migracao-go/execucoes/GO-020.md`/`GO-039.md` — ex.: template "Feed", coluna de layout não reconhecida, fieldview "upload") devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
          */
         get: operations["renderView"];
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/views/{id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: form_action — cria/atualiza um registro de uma view Edit (GO-039)
+         * @description O mecanismo real por trás do botão "Salvar"/"SubmitWithAjax" do legado (`base-plugin/actions.ts`) — as duas ações do legado mapeiam para esta MESMA rota (só o estilo de requisição do frontend difere). `record_id` ausente/0 cria (`tryInsertRow`); presente exige `_version` e atualiza (`tryUpdateRow`), com o mesmo controle de concorrência otimista de qualquer outra escrita. `values` só pode conter campos que a própria view expõe (422 caso contrário — nunca aceita um campo extra fora do formulário). Devolve o registro resultante e `navigate` — a decisão de para onde ir depois (`destination_type` do legado): "reload" (padrão), "referer" (`Back to referer`) ou "view" (`View`, com `view_name`). Idempotente por Idempotency-Key.
+         */
+        post: operations["submitView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/views/{id}/rows/{recordId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+                recordId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Command: ação de coluna "Delete" de uma view List (GO-039)
+         * @description Só aceita um id de view cujo `configuration.columns` de fato declara uma coluna `Action`/`Delete` (422 caso contrário — nunca um atalho para deletar de qualquer view List). Confere o `minRole` do PRÓPRIO nó de coluna, além do `min_role_write` da tabela por baixo (internal/records) — duas checagens independentes. `?version=` é o mesmo `_version` de controle de concorrência otimista de qualquer outra escrita.
+         */
+        delete: operations["deleteViewRow"];
         options?: never;
         head?: never;
         patch?: never;
@@ -524,10 +571,15 @@ export interface components {
             };
             _version: string;
         };
+        /** @description Uma coluna de uma view "List" (GO-020, estendida em GO-039) — três variantes discriminadas por `kind`: "field" (campo direto, `field_name` é o nome do campo), "join_field" (campo trazido por join de um nível, `field_name` é a chave composta "<campo_local>__<campo_remoto>" — a MESMA chave usada em `rows`), "action" (ação de coluna, ex.: "Delete" — não tem `field_name`, só `action_name`). */
         ViewRenderColumn: {
-            /** @description Nome do campo (já resolvido contra o catálogo, GO-011) que esta coluna exibe. */
-            field_name: string;
-            header_label: string;
+            /** @enum {string} */
+            kind: "field" | "join_field" | "action";
+            /** @description Presente para kind=field/join_field — já resolvido contra o catálogo (GO-011), nunca inventado. */
+            field_name?: string;
+            header_label?: string;
+            /** @description Presente para kind=action (ex.: "Delete"). */
+            action_name?: string;
         };
         /** @description DTO de renderização de uma view "List" (GO-020) — todas as decisões (colunas, ordenação, consulta) já foram tomadas pelo backend; o BFF/React só desenham o que está aqui. */
         ViewRenderPlan: {
@@ -540,6 +592,69 @@ export interface components {
             descending: boolean;
             /** @description Cursor para a próxima página, ou `null` se não houver mais páginas. */
             next_cursor?: string | null;
+        };
+        /** @description DTO de renderização de uma view "Show" (GO-039) — os valores já resolvidos de UM registro. */
+        ViewShowPlan: {
+            view_id: components["schemas"]["Id"];
+            table: string;
+            record_id: components["schemas"]["Id"];
+            columns: components["schemas"]["ViewRenderColumn"][];
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description Uma opção de um campo FieldKey (fieldview "select") — um registro candidato da tabela referenciada. `label` é o primeiro campo de texto dessa tabela (heurístico documentado, GO-039 — o legado permite configurar um "summary field" por relação, não reproduzido aqui). */
+        ViewEditFieldOption: {
+            id: components["schemas"]["Id"];
+            label: string;
+        };
+        ViewEditField: {
+            field_name: string;
+            label: string;
+            /** @description Tipo do campo no catálogo (GO-011): text, integer, boolean, float, date, key. */
+            field_type: string;
+            /** @description Hint de widget do legado (ex.; "edit", "select", "flatpickr") — o backend não interpreta, só repassa. */
+            fieldview: string;
+            required: boolean;
+            /** @description Configuração específica da fieldview (ex.: `{"dateFormat": "Y-m-d H:i"}` de flatpickr), repassada sem interpretação. */
+            config?: {
+                [key: string]: unknown;
+            };
+            /** @description Valor atual (registro existente) ou `null` (criação nova). */
+            value: unknown;
+            /** @description Presente só quando field_type=key e fieldview=select. */
+            options?: components["schemas"]["ViewEditFieldOption"][];
+        };
+        /** @description DTO de renderização/edição de uma view "Edit" (GO-039) — record_id=0 é o plano de CRIAÇÃO (todos os campos em branco). */
+        ViewEditPlan: {
+            view_id: components["schemas"]["Id"];
+            table: string;
+            record_id: components["schemas"]["Id"];
+            /** @description Ausente quando record_id=0 (registro novo). */
+            _version?: string;
+            fields: components["schemas"]["ViewEditField"][];
+            /** @description "Save" ou "SubmitWithAjax". */
+            action_name: string;
+        };
+        ViewSubmitInput: {
+            record_id?: components["schemas"]["Id"];
+            /** @description Obrigatório quando record_id está presente (atualização). */
+            _version?: string;
+            values: {
+                [key: string]: unknown;
+            };
+        };
+        ViewNavigate: {
+            /** @enum {string} */
+            type: "reload" | "referer" | "view";
+            /** @description Presente só quando type=view. */
+            view_name?: string;
+        };
+        ViewSubmitResult: {
+            record: {
+                [key: string]: unknown;
+            };
+            navigate: components["schemas"]["ViewNavigate"];
         };
         RealtimeEvent: {
             /**
@@ -1116,7 +1231,7 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "code": "view_unsupported",
-                     *         "message": "template \"Show\" não suportado neste runtime (só \"List\")"
+                     *         "message": "template \"Feed\" não suportado neste runtime (só \"List\", \"Show\", \"Edit\")"
                      *       }
                      *     }
                      */
@@ -1140,6 +1255,8 @@ export interface operations {
                 /** @description Cursor opaco da página anterior. Omitir para a primeira página. */
                 cursor?: components["parameters"]["Cursor"];
                 limit?: components["parameters"]["Limit"];
+                /** @description Id do registro — obrigatório para Show, opcional para Edit (ausente = registro novo), ignorado por List. */
+                record?: components["schemas"]["Id"];
             };
             header?: never;
             path: {
@@ -1150,18 +1267,27 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description plano de renderização (colunas + linhas + paginação) */
+            /** @description plano de renderização — o shape exato depende do template da view */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ViewRenderPlan"];
+                    "application/json": components["schemas"]["ViewRenderPlan"] | components["schemas"]["ViewShowPlan"] | components["schemas"]["ViewEditPlan"];
+                };
+            };
+            /** @description ?record= ausente (template Show) ou inválido */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            /** @description view não encontrada */
+            /** @description view ou registro não encontrado */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -1180,10 +1306,175 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "code": "view_unsupported",
-                     *         "message": "layout.besides ausente ou não é uma lista — só layouts de lista de colunas são suportados"
+                     *         "message": "configuration.columns ausente ou não é uma lista"
                      *       }
                      *     }
                      */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    submitView: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ViewSubmitInput"];
+            };
+        };
+        responses: {
+            /** @description registro atualizado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewSubmitResult"];
+                };
+            };
+            /** @description registro criado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ViewSubmitResult"];
+                };
+            };
+            /** @description corpo inválido, Idempotency-Key ausente, ou _version ausente ao atualizar */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description view ou registro não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description conflito de versão otimista, de idempotência, ou valor duplicado */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description view existe, mas o layout ou os campos submetidos não são suportados */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "view_unsupported",
+                     *         "message": "campo \"extra\" não faz parte desta view"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteViewRow: {
+        parameters: {
+            query: {
+                version: string;
+            };
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+                recordId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description linha excluída */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description ?version= ausente */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description view ou registro não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description conflito de versão otimista */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description view existe, mas não declara uma ação de coluna "Delete" */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": components["schemas"]["Error"];
                 };
             };

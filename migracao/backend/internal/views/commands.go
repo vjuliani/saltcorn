@@ -77,7 +77,7 @@ func CreateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name 
 		if err != nil {
 			return View{}, err
 		}
-		if _, err := ClassifyView(View{Template: template, Configuration: configuration}, fields); err != nil {
+		if err := ClassifyView(View{Template: template, Configuration: configuration}, fields); err != nil {
 			return View{}, err
 		}
 	}
@@ -198,7 +198,7 @@ func UpdateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, id in
 		if err != nil {
 			return View{}, err
 		}
-		if _, err := ClassifyView(View{Template: template, Configuration: configuration}, fields); err != nil {
+		if err := ClassifyView(View{Template: template, Configuration: configuration}, fields); err != nil {
 			return View{}, err
 		}
 	}

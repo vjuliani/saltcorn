@@ -56,6 +56,19 @@ export class MockGoServer {
   private readonly impersonations = new Map<number, MockImpersonation>();
   private nextLogId = 1;
 
+  // GO-039: registros de "books" — usados por render (List/Show/Edit),
+  // submit e delete-row. Seedados com os mesmos 3 livros que o render
+  // List sempre devolveu (Dune/Foundation/Neuromancer), agora como
+  // estado MUTÁVEL — submit/delete-row de verdade os alteram, provando
+  // que o BFF transporta o efeito real, não só o formato da resposta.
+  private readonly records = new Map<number, Record<string, unknown>>([
+    [1, { id: 1, title: "Dune", pages: 412, _version: "1" }],
+    [2, { id: 2, title: "Foundation", pages: 255, _version: "1" }],
+    [3, { id: 3, title: "Neuromancer", pages: 271, _version: "1" }],
+  ]);
+  private nextRecordId = 4;
+  private readonly submitKeys = new Map<string, { payloadHash: string; status: number; body: unknown }>();
+
   constructor(private readonly opts: MockGoServerOptions) {
     this.server = createServer((req, res) => {
       void this.handle(req, res);
@@ -244,11 +257,14 @@ export class MockGoServer {
       return;
     }
 
-    // GO-020: render — mock simplificado da mesma classificação de
-    // internal/views/render.go (só template "List" com layout.besides não
-    // vazio é compatível); não reimplementa paginação real por cursor
-    // opaco, só o suficiente para o BFF exercitar propagação de query
-    // params/422 sem duplicar toda a lógica de classificação do Go.
+    // GO-020/GO-039: render — mock simplificado da mesma classificação de
+    // internal/views/{render,show,edit}.go. Fonte de verdade:
+    // `configuration.columns` (lista flat, GO-039 — NÃO
+    // `configuration.layout`, que é só a árvore de arranjo visual e este
+    // runtime nunca interpreta). Não reimplementa paginação real por
+    // cursor opaco nem toda a classificação do Go — só o suficiente para
+    // o BFF exercitar propagação de query params/idempotência/422 sem
+    // duplicar a lógica de domínio (já coberta em cmd/server/*_test.go).
     const renderMatch = url.pathname.match(/\/views\/(\d+)\/render$/);
     if (renderMatch && req.method === "GET") {
       const id = Number(renderMatch[1]);
@@ -257,29 +273,158 @@ export class MockGoServer {
         sendJSON(res, 404, { error: { code: "not_found", message: "view não encontrada" } });
         return;
       }
-      const configuration = view.configuration as { layout?: { besides?: Array<{ header_label?: string; contents?: { type?: string; field_name?: string } }> } };
-      const besides = configuration?.layout?.besides;
-      if (view.template !== "List" || !besides || besides.length === 0) {
-        sendJSON(res, 422, { error: { code: "view_unsupported", message: "layout incompatível com o runtime atual (mock)" } });
+      const configuration = view.configuration as { columns?: Array<{ type?: string; field_name?: string; header_label?: string; fieldview?: string; action_name?: string }> };
+      const columns = configuration?.columns;
+      if (!columns || columns.length === 0) {
+        sendJSON(res, 422, { error: { code: "view_unsupported", message: "configuration.columns ausente ou não é uma lista (mock)" } });
         return;
       }
-      const allRows = [
-        { id: 1, title: "Dune", pages: 412 },
-        { id: 2, title: "Foundation", pages: 255 },
-        { id: 3, title: "Neuromancer", pages: 271 },
-      ];
-      const limit = Number(url.searchParams.get("limit") ?? "50");
-      const offset = Number(url.searchParams.get("cursor") ?? "0");
-      const page = allRows.slice(offset, offset + limit);
-      const hasMore = offset + limit < allRows.length;
-      sendJSON(res, 200, {
-        view_id: id,
-        columns: besides.map((c) => ({ field_name: c.contents?.field_name ?? "", header_label: c.header_label ?? c.contents?.field_name ?? "" })),
-        rows: page,
-        order_by: "id",
-        descending: false,
-        next_cursor: hasMore ? String(offset + limit) : null,
-      });
+
+      if (view.template === "List") {
+        const limit = Number(url.searchParams.get("limit") ?? "50");
+        const offset = Number(url.searchParams.get("cursor") ?? "0");
+        const allRows = Array.from(this.records.values());
+        const page = allRows.slice(offset, offset + limit);
+        const hasMore = offset + limit < allRows.length;
+        sendJSON(res, 200, {
+          view_id: id,
+          columns: columns.map((c) => ({
+            kind: c.type === "Action" ? "action" : c.type === "JoinField" ? "join_field" : "field",
+            field_name: c.field_name,
+            header_label: c.header_label ?? c.field_name,
+            action_name: c.action_name,
+          })),
+          rows: page,
+          order_by: "id",
+          descending: false,
+          next_cursor: hasMore ? String(offset + limit) : null,
+        });
+        return;
+      }
+
+      if (view.template === "Show") {
+        const recordId = Number(url.searchParams.get("record"));
+        if (!recordId) {
+          sendJSON(res, 400, { error: { code: "record_required", message: "parâmetro ?record= é obrigatório para Show (mock)" } });
+          return;
+        }
+        const record = this.records.get(recordId);
+        if (!record) {
+          sendJSON(res, 404, { error: { code: "not_found", message: "registro não encontrado" } });
+          return;
+        }
+        sendJSON(res, 200, {
+          view_id: id,
+          table: "books",
+          record_id: recordId,
+          columns: columns.filter((c) => c.type === "Field").map((c) => ({ kind: "field", field_name: c.field_name, header_label: c.header_label ?? c.field_name })),
+          values: record,
+        });
+        return;
+      }
+
+      if (view.template === "Edit") {
+        const recordRaw = url.searchParams.get("record");
+        const recordId = recordRaw ? Number(recordRaw) : 0;
+        const record = recordId ? this.records.get(recordId) : undefined;
+        if (recordId && !record) {
+          sendJSON(res, 404, { error: { code: "not_found", message: "registro não encontrado" } });
+          return;
+        }
+        const fields = columns
+          .filter((c) => c.type === "Field")
+          .map((c) => ({
+            field_name: c.field_name,
+            label: c.field_name,
+            field_type: "text",
+            fieldview: c.fieldview ?? "edit",
+            required: false,
+            value: record ? (record[c.field_name as string] ?? null) : null,
+          }));
+        const actionCol = columns.find((c) => c.type === "Action");
+        sendJSON(res, 200, {
+          view_id: id,
+          table: "books",
+          record_id: recordId,
+          _version: record ? (record._version as string) : undefined,
+          fields,
+          action_name: actionCol?.action_name ?? "Save",
+        });
+        return;
+      }
+
+      sendJSON(res, 422, { error: { code: "view_unsupported", message: `template ${JSON.stringify(view.template)} não suportado (mock)` } });
+      return;
+    }
+
+    // GO-039: submit (form_action) — cria (sem record_id) ou atualiza
+    // (com record_id + _version) um registro real do mock, com o mesmo
+    // dedup por Idempotency-Key+hash de payload de handleIdempotentCreate.
+    const submitMatch = url.pathname.match(/\/views\/(\d+)\/submit$/);
+    if (submitMatch && req.method === "POST") {
+      const idempotencyKey = req.headers["idempotency-key"];
+      if (!idempotencyKey || Array.isArray(idempotencyKey)) {
+        sendJSON(res, 400, { error: { code: "idempotency_key_required", message: "cabeçalho Idempotency-Key é obrigatório" } });
+        return;
+      }
+      const body = (await readBody(req)) as { record_id?: number; _version?: string; values: Record<string, unknown> };
+      const payloadHash = hashPayload(body);
+      const existing = this.submitKeys.get(idempotencyKey);
+      if (existing) {
+        if (existing.payloadHash !== payloadHash) {
+          sendJSON(res, 409, { error: { code: "idempotency_key_conflict", message: "Idempotency-Key já foi usada com um payload diferente" } });
+          return;
+        }
+        sendJSON(res, existing.status, existing.body);
+        return;
+      }
+      if (body.record_id) {
+        const current = this.records.get(body.record_id);
+        if (!current) {
+          sendJSON(res, 404, { error: { code: "not_found", message: "registro não encontrado" } });
+          return;
+        }
+        if (current._version !== body._version) {
+          sendJSON(res, 409, { error: { code: "version_conflict", message: "o registro foi modificado por outra transação" } });
+          return;
+        }
+        const updated = { ...current, ...body.values, id: body.record_id, _version: String(Number(current._version) + 1) };
+        this.records.set(body.record_id, updated);
+        const responseBody = { record: updated, navigate: { type: "reload" } };
+        this.submitKeys.set(idempotencyKey, { payloadHash, status: 200, body: responseBody });
+        sendJSON(res, 200, responseBody);
+        return;
+      }
+      const newId = this.nextRecordId++;
+      const created = { ...body.values, id: newId, _version: "1" };
+      this.records.set(newId, created);
+      const responseBody = { record: created, navigate: { type: "reload" } };
+      this.submitKeys.set(idempotencyKey, { payloadHash, status: 201, body: responseBody });
+      sendJSON(res, 201, responseBody);
+      return;
+    }
+
+    // GO-039: rows/{recordId} (ação de coluna "Delete" de List).
+    const deleteRowMatch = url.pathname.match(/\/views\/(\d+)\/rows\/(\d+)$/);
+    if (deleteRowMatch && req.method === "DELETE") {
+      const recordId = Number(deleteRowMatch[2]);
+      const version = url.searchParams.get("version");
+      if (!version) {
+        sendJSON(res, 400, { error: { code: "version_required", message: "parâmetro ?version= é obrigatório" } });
+        return;
+      }
+      const current = this.records.get(recordId);
+      if (!current) {
+        sendJSON(res, 404, { error: { code: "not_found", message: "registro não encontrado" } });
+        return;
+      }
+      if (current._version !== version) {
+        sendJSON(res, 409, { error: { code: "version_conflict", message: "o registro foi modificado por outra transação" } });
+        return;
+      }
+      this.records.delete(recordId);
+      res.writeHead(204);
+      res.end();
       return;
     }
 
