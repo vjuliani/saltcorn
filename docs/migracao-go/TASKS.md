@@ -767,8 +767,8 @@ GO-036 permanece **BLOCKED** (ver [canario/RESULTADOS.md](canario/RESULTADOS.md)
 - **Responsável sugerido:** Backend + Frontend
 - **Depende de:** GO-019, GO-020, GO-029
 - **Branch:** `task/go-039`
-- **Escopo:** Estender o pipeline classify/compile/render de `internal/views` (hoje só "List", `render.go:37`) e os componentes React correspondentes para os viewtemplates Edit, Show e Feed — os três templates que o pack piloto `guitars` usa além de List (9 views ao todo: 2 List, 5 Edit, 1 Feed, 1 Show, conforme GO-033/GO-036); incluir o formulário de escrita real (create/update) que Edit exige.
-- **Aceite:** As 9 views do pack `guitars` renderizam e operam (leitura E escrita) através do runtime Go/React; GO-033 (CAP-034 "Viewtemplates nativos", CAP-040 "Formulários") reclassificado de PARTIAL para PASS para este pack; comportamento comparado ao legado e divergências documentadas.
+- **Escopo:** Estender o pipeline classify/compile/render de `internal/views` (hoje só "List", `render.go:37`) e os componentes React correspondentes para os viewtemplates Edit, Show e Feed — os três templates que o pack piloto `guitars` usa além de List (9 views ao todo: 2 List, 5 Edit, 1 Feed, 1 Show, conforme GO-033/GO-036); incluir o formulário de escrita real (create/update) que Edit exige. **Emendado por auditoria de 2026-09-21 (CAP-073/074/085, ver GO-001-matriz-capacidades.md §6):** "formulário de escrita real" significa especificamente portar a ação `form_action` (`base-plugin/actions.ts` — o mecanismo real do botão "Salvar": `tryInsertRow`/`tryUpdateRow` + upload de arquivo) e a ação `navigate` (redirecionamento pós-ação) — sem as duas, Edit não salva nem redireciona, mesmo "portado" visualmente. Cobrir também, dentro dos templates Edit/Show/Feed, os nós de coluna que o pack `guitars` de fato usa além de `field` simples (verificar `join_field`/`view_link`/`action`/`aggregation` antes de declarar pronto — `internal/views/render.go` hoje rejeita qualquer `colType != "Field"`).
+- **Aceite:** As 9 views do pack `guitars` renderizam e operam (leitura E escrita, incluindo salvar via `form_action` e redirecionar via `navigate`) através do runtime Go/React; GO-033 (CAP-034 "Viewtemplates nativos", CAP-040 "Formulários", CAP-073, CAP-074, CAP-085) reclassificado de PARTIAL/NÃO LISTADA para PASS para este pack; comportamento comparado ao legado e divergências documentadas.
 - **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
 - **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
 - **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-039; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
@@ -853,4 +853,141 @@ Execute a task GO-042 — Validar substituição de plugins de terceiro do pilot
 
 ```text
 Execute a task GO-043 — Implementar coordenação real de corte entre processos (edge/ownership), de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-043 a partir da base registrada. Escopo: Mecanismo de bloqueio/drenagem de admissões no edge por capacidade/tenant; atualização coordenada de cutover.Guard em todas as réplicas de servidor/worker; acknowledgment explícito de troca de ownership antes de liberar tráfego. Valide: Executar preflight da onda em ambiente identificado, reconciliação de dados, SLOs e ensaio de recuperação; registrar critérios de promoção e abortar. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+## Tarefas de fechamento de lacunas — auditoria independente de completude (2026-09-21)
+
+Antes de prosseguir com GO-039, o usuário pediu garantia de que TODA funcionalidade do legado está refletida na migração. Uma auditoria com 4 agentes independentes (varredura de rotas HTTP, modelos de domínio, builder/viewtemplates/ações, e CLI/mobile/tenancy/i18n — cada um caçando o que NUNCA foi listado, não re-julgando o que já está PARTIAL/BLOCKED) confirmou que a resposta era **não**: pelo menos 15 capacidades reais do legado, incluindo uma superfície de segurança inteira (administração de usuário/servidor), nunca entraram em nenhuma das duas matrizes existentes. Detalhes completos e evidência de código em [GO-001-matriz-capacidades.md §6](inventario/GO-001-matriz-capacidades.md#6-achados-adicionais-de-auditoria-independente-2026-09-21) e no [adendo da GO-033](paridade/RESULTADOS.md) (CAP-071 a CAP-085). GO-039 já foi emendada acima (CAP-073/074/085). As 7 tasks abaixo cobrem o restante.
+
+### GO-044 — Portar administração de usuário e segurança do servidor
+
+- [ ] **Status:** TODO
+- **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
+- **Responsável sugerido:** Backend + Plataforma
+- **Depende de:** GO-008, GO-009
+- **Branch:** `task/go-044`
+- **Escopo:** Portar (ou decidir explicitamente bloquear, com justificativa de risco) as capacidades de `packages/server/auth/admin.ts` (CAP-071: impersonação de usuário "become-user", emissão/gestão de certificado SSL/Let's Encrypt, matriz de permissões por tabela, admin de API tokens, force-logout, reset de senha) e `packages/server/auth/roleadmin.ts` (CAP-072: CRUD de role customizada, restrição de métodos de auth/layout/push por role) — nenhum dos dois arquivos entrou na contagem original de "39 arquivos em `routes/`" porque vivem em `auth/`.
+- **Aceite:** Cada sub-capacidade de CAP-071/072 tem uma decisão explícita e documentada — portada com equivalente Go testado, OU bloqueada com justificativa de risco de segurança registrada (nunca silêncio); se impersonação de usuário for portada, tem trilha de auditoria própria (quem virou quem, quando); emissão de certificado nunca aceita entrada não sanitizada de domínio.
+- **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
+- **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-044; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-044 — Portar administração de usuário e segurança do servidor, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-044 a partir da base registrada. Escopo: Portar ou decidir explicitamente bloquear (com justificativa de risco) as capacidades de auth/admin.ts (impersonação de usuário, SSL/Let's Encrypt, permissões por tabela, tokens, reset de senha) e auth/roleadmin.ts (CRUD de role, restrições por role). Valide: Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-045 — Portar versionamento de linha (table history) e sistema de tags
+
+- [ ] **Status:** TODO
+- **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
+- **Responsável sugerido:** Backend
+- **Depende de:** GO-011, GO-013, GO-027
+- **Branch:** `task/go-045`
+- **Escopo:** Portar versionamento de linha (CAP-075: flag `versioned` por tabela, tabela `<nome>__history`, consulta/restauração de versão anterior de um registro, `models/table.ts`) e o sistema de tags (CAP-077: CRUD de tag, associação tag↔entidade, export de Pack filtrado por tag, `models/tag.ts`/`tag_entry.ts`).
+- **Aceite:** Uma tabela marcada `versioned` grava histórico a cada update/delete e permite consultar/restaurar uma versão anterior de um registro; tags podem ser criadas, associadas a tabelas/views/páginas/triggers, e usadas para filtrar um export de Pack (GO-027); GO-033 (CAP-075, CAP-077) reclassificado de NÃO LISTADA para PASS/PARTIAL com lacuna explícita.
+- **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
+- **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-045; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-045 — Portar versionamento de linha (table history) e sistema de tags, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-045 a partir da base registrada. Escopo: Portar versionamento de linha (flag versioned, tabela de histórico, restaurar versão anterior) e sistema de tags (CRUD, associação a entidades, export de Pack filtrado por tag). Valide: Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-046 — Portar catálogo administrativo de instalação (metadata, plugins, backup completo)
+
+- [ ] **Status:** TODO
+- **Fase:** F5 · **Prioridade:** P1 · **Tamanho:** L
+- **Responsável sugerido:** Backend
+- **Depende de:** GO-026, GO-027, GO-032
+- **Branch:** `task/go-046`
+- **Escopo:** Portar `_sc_metadata` (CAP-078: key/value genérico, rastreamento de versão do core, payload de backup); catálogo/governança de plugins (CAP-079: descoberta via npm registry, versão/upgrade, compatibilidade de engine, checagem de views dependentes antes de remover — distinto do MECANISMO de execução já coberto por GO-022/029); backup de instalação completa distinto de Pack (CAP-080: Plugin/Role/Page/PageGroup/MetaData/File/Crash/Table/View/Field num zip) com agendamento/retenção GFS/criptografia/destinos S3/SFTP (CAP-081); e-mail HTML/MJML renderizado a partir de uma View (CAP-083, `viewToMjml`).
+- **Aceite:** `_sc_config`/`_sc_metadata` cobrem os casos de uso reais do legado (versão do core, payload de backup); catálogo de plugins rastreia versão/compatibilidade; backup de instalação completa exporta/restaura as entidades listadas; ao menos um modo de e-mail HTML a partir de View funciona; cada sub-capacidade sem porte real tem decisão de escopo explícita registrada.
+- **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
+- **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-046; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-046 — Portar catálogo administrativo de instalação (metadata, plugins, backup completo), de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-046 a partir da base registrada. Escopo: Portar _sc_metadata, catálogo/governança de plugins, backup de instalação completa (distinto de Pack) com agendamento/retenção/criptografia/destinos remotos, e e-mail HTML/MJML a partir de View. Valide: Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-047 — Portar internacionalização (i18n) da interface
+
+- [ ] **Status:** TODO
+- **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
+- **Responsável sugerido:** Backend + Frontend
+- **Depende de:** GO-017, GO-018
+- **Branch:** `task/go-047`
+- **Escopo:** Portar internacionalização da interface (CAP-082): configuração de idiomas por tenant, seleção de idioma por usuário/cookie, mecanismo de tradução de strings da UI no frontend React + BFF. Decidir explicitamente se a tradução assistida por LLM (`saltcorn dev translate`) é portada, substituída, ou fica fora de escopo (com justificativa) — não é core, mas precisa de decisão registrada.
+- **Aceite:** A interface (frontend React + páginas servidas pelo BFF) suporta pelo menos 2 idiomas configuráveis por tenant, com seleção por usuário persistida; GO-033 (CAP-082) reclassificado de NÃO LISTADA para PASS/PARTIAL com lacuna explícita.
+- **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
+- **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-047; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-047 — Portar internacionalização (i18n) da interface, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-047 a partir da base registrada. Escopo: Portar configuração de idiomas por tenant, seleção de idioma por usuário, mecanismo de tradução de strings da UI; decidir escopo da tradução assistida por LLM. Valide: Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-048 — Portar editor visual de Workflow
+
+- [ ] **Status:** TODO
+- **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
+- **Responsável sugerido:** Frontend
+- **Depende de:** GO-018, GO-024
+- **Branch:** `task/go-048`
+- **Escopo:** Portar a UI de autoria de grafos de workflow (CAP-076: nós/arestas/condições, hoje `packages/workflow-editor` em React Flow) para o frontend novo, produzindo/editando a mesma definição que `internal/workflow` (GO-024) já executa — sem esta UI, o motor de workflow existe mas ninguém consegue autorar um workflow novo.
+- **Aceite:** Um usuário cria/edita um workflow visualmente no frontend novo (React) e o resultado é executado de ponta a ponta por `internal/workflow`; GO-033 (CAP-076) reclassificado de NÃO LISTADA para PASS/PARTIAL.
+- **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
+- **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-048; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-048 — Portar editor visual de Workflow, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-048 a partir da base registrada. Escopo: Portar a UI de autoria de grafos de workflow (nós/arestas/condições) para o frontend novo, produzindo a mesma definição que internal/workflow executa. Valide: Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-049 — Portar administração de ciclo de vida de tenants
+
+- [ ] **Status:** TODO
+- **Fase:** F6 · **Prioridade:** P1 · **Tamanho:** M
+- **Responsável sugerido:** Plataforma
+- **Depende de:** GO-009, GO-032
+- **Branch:** `task/go-049`
+- **Escopo:** Portar administração de ciclo de vida de tenants (CAP-084: criar/listar/deletar/configurar tenant via UI/CLI administrativa, provisionamento a partir de um tenant-template) — distinto da RESOLUÇÃO de tenant em runtime (CAP-009, já coberta). Decidir explicitamente o escopo de emissão automática de certificado TLS por tenant (Let's Encrypt/Greenlock) — não é core, mas é uma superfície de segurança/operação que precisa de decisão registrada, não silêncio.
+- **Aceite:** Um operador cria/lista/deleta um tenant e opcionalmente o provisiona a partir de um template, via CLI Go (`cmd/cli`) ou rota administrativa; decisão sobre TLS automático documentada (portado com biblioteca madura, ou explicitamente delegado a um proxy/edge externo); GO-033 (CAP-084) reclassificado de NÃO LISTADA para PASS/PARTIAL.
+- **Rotina de validação:** Executar preflight da onda em ambiente identificado, reconciliação de dados, SLOs e ensaio de recuperação; registrar critérios de promoção e abortar.
+- **Regra de retomada:** Verificar estado real de tráfego, escritor ativo, schema e jobs; reconciliar a onda interrompida antes de avançar ou executar rollback; não repetir corte às cegas.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-049; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-049 — Portar administração de ciclo de vida de tenants, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-049 a partir da base registrada. Escopo: Portar criar/listar/deletar/configurar tenant via UI/CLI administrativa e provisionamento por template; decidir escopo de TLS automático por tenant. Valide: Executar preflight da onda em ambiente identificado, reconciliação de dados, SLOs e ensaio de recuperação; registrar critérios de promoção e abortar. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-050 — Decidir escopo dos achados de nicho da auditoria de completude
+
+- [ ] **Status:** TODO
+- **Fase:** F4 · **Prioridade:** P2 · **Tamanho:** S
+- **Responsável sugerido:** Arquitetura
+- **Depende de:** GO-001
+- **Branch:** `task/go-050`
+- **Escopo:** Para cada achado de nicho listado em `GO-001-matriz-capacidades.md §6.3` e no adendo de `paridade/RESULTADOS.md` (copiloto de IA para layout, Blockly/ação `blocks`, diagrama Cytoscape de tabelas/tags/roles, rotas HTTP registradas por plugin, PWA/Web Share Target, `robots.txt`/`sitemap.xml`, layout de emergência, câmera/geolocalização mobile, e as ~21 ações de `base-plugin/actions.ts` ainda sem menção nominal), registrar uma decisão EXPLÍCITA: portar (abrindo task própria), substituir funcionalmente, ou aceitar como fora de escopo — com justificativa em cada caso. Não é uma task de implementação; é uma task de DECISÃO documentada, para que nenhum desses itens fique esquecido por padrão.
+- **Aceite:** Cada item da lista de nicho tem uma linha própria na matriz de capacidades com destino decidido (Go nativo/Frontend/Fora de escopo/Bloqueador) e justificativa — nenhum item permanece "não avaliado".
+- **Rotina de validação:** Revisão de documentação — não há código para testar nesta task.
+- **Regra de retomada:** Conferir quais itens já têm decisão registrada antes de reabrir os demais.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-050; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-050 — Decidir escopo dos achados de nicho da auditoria de completude, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-050 a partir da base registrada. Escopo: Para cada achado de nicho da auditoria de 2026-09-21 (copiloto de IA, Blockly, diagrama, rotas de plugin, PWA, robots/sitemap, layout de emergência, camera/geolocalização mobile, ações não citadas), registrar decisão explícita de portar/substituir/aceitar fora de escopo com justificativa. Valide: Revisão de documentação. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
 ```
