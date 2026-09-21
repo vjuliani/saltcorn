@@ -1,0 +1,9 @@
+{
+  "dockerContext": "default",
+  "postgresPort": 55436,
+  "backendPort": 8092,
+  "bffPort": 3102,
+  "frontendPort": 5173,
+  "tenant": "local",
+  "adminEmail": "admin@local.test"
+}

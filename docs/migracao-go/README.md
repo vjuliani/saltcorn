@@ -11,6 +11,8 @@ CQRS separa os caminhos de escrita e leitura; BFF (Backend for Frontend) adapta 
 
 A conversão não é tradução automática de TypeScript: Saltcorn executa aplicações definidas por metadados e extensões. O maior risco é alterar essa semântica. O objetivo é migrar as regras de negócio e a persistência para Go, mantendo Node.js como tecnologia permanente do BFF. O host temporário de plugins JavaScript é um componente separado do BFF e tem seu próprio plano de retirada.
 
+Para desenvolver e visualizar a migração no computador, siga o [how-to de execução local de frontend, BFF e backend](EXECUCAO-LOCAL.md).
+
 As tarefas executáveis estão em [TASKS.md](TASKS.md), com rotinas individuais de validação e retomada. O [protocolo de execução](EXECUCAO.md) define estados, checkpoints, evidências e controle de concorrência; [tasks.csv](tasks.csv) mantém os campos de acompanhamento. Premissas a validar na fase 0: aplicações prioritárias, plugins instalados, volume de dados, SLOs, equipe, exigência de SQLite/mobile e compatibilidade das extensões de domínio. Não há inventário de produção neste checkout.
 
 ## 1. Diagnóstico do repositório
