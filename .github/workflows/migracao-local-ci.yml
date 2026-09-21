@@ -1,0 +1,76 @@
+name: migracao-local-ci
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'migracao/local/**'
+      - 'migracao/distribution/**'
+      - 'migracao/packages/bff/**'
+      - 'migracao/packages/frontend/**'
+      - '.github/workflows/migracao-local-ci.yml'
+  pull_request:
+    paths:
+      - 'migracao/local/**'
+      - 'migracao/distribution/**'
+      - 'migracao/packages/bff/**'
+      - 'migracao/packages/frontend/**'
+      - '.github/workflows/migracao-local-ci.yml'
+permissions:
+  contents: read
+jobs:
+  local-howto:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: migracao/backend/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preparar navegador
+        run: |
+          cd migracao/e2e
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Setup persistente, navegador e reinicialização
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_pid=''
+          cleanup() {
+            if [[ -n "$app_pid" ]]; then
+              kill -TERM "$app_pid" 2>/dev/null || true
+              wait "$app_pid" || true
+            fi
+            migracao/local/local.sh db-stop || true
+          }
+          trap cleanup EXIT
+          start_app() {
+            migracao/local/local.sh up > "$RUNNER_TEMP/local-app-$1.log" 2>&1 &
+            app_pid=$!
+            for _ in $(seq 1 60); do
+              if curl --silent --fail http://127.0.0.1:3102/readyz >/dev/null && curl --silent --fail http://127.0.0.1:5173/ >/dev/null; then return; fi
+              kill -0 "$app_pid"
+              sleep 1
+            done
+            return 1
+          }
+          migracao/local/local.sh setup > "$RUNNER_TEMP/local-setup.log" 2>&1
+          start_app first
+          node migracao/local/smoke.mjs create
+          kill -TERM "$app_pid"
+          wait "$app_pid"
+          app_pid=''
+          migracao/local/local.sh setup > "$RUNNER_TEMP/local-setup-repeat.log" 2>&1
+          migracao/local/local.sh db-stop
+          migracao/local/local.sh db-up
+          start_app restart
+          node migracao/local/smoke.mjs recheck
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: local-howto-logs
+          path: ${{ runner.temp }}/local-*.log

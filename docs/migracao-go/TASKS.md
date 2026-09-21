@@ -701,7 +701,7 @@ Execute a task GO-035 — Validar carga e falhas operacionais, de docs/migracao-
 
 ### GO-036 — Liberar canário do piloto
 
-- [ ] **Status:** BLOCKED — liberação impedida; [preflight](canario/RESULTADOS.md) e [histórico](execucoes/GO-036.md)
+- [ ] **Status:** BLOCKED — PR preparatório [#40](https://github.com/vjuliani/saltcorn/pull/40); liberação impedida; [preflight](canario/RESULTADOS.md) e [histórico](execucoes/GO-036.md)
 - **Fase:** F6 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Plataforma + QA
 - **Depende de:** GO-021, GO-024, GO-025, GO-026, GO-027, GO-034
