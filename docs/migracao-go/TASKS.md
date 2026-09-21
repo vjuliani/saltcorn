@@ -762,7 +762,7 @@ GO-036 permanece **BLOCKED** (ver [canario/RESULTADOS.md](canario/RESULTADOS.md)
 
 ### GO-039 — Portar viewtemplates Edit/Show/Feed e formulário do piloto guitars
 
-- [ ] **Status:** IN_REVIEW — PR a abrir nesta mesma tentativa; histórico em [execucoes/GO-039.md](execucoes/GO-039.md)
+- [ ] **Status:** IN_REVIEW — PR [#45](https://github.com/vjuliani/saltcorn/pull/45) aberto, aguardando checks/revisão; histórico em [execucoes/GO-039.md](execucoes/GO-039.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend + Frontend
 - **Depende de:** GO-019, GO-020, GO-029
