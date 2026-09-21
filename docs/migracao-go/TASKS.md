@@ -755,3 +755,102 @@ Execute a task GO-037 — Expandir migração por ondas, de docs/migracao-go/TAS
 ```text
 Execute a task GO-038 — Retirar legado e encerrar migração, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-038 a partir da base registrada. Escopo: Remover rotas de domínio, jobs, credenciais e bridge do backend legado; manter BFF Node.js e frontend React + SB Admin 2; atualizar distribuição e runbooks dos serviços finais. Valide: Comprovar ausência de chamadas ao backend legado/host temporário na janela acordada; testar instalação e restore mantendo BFF Node.js e frontend React + SB Admin 2. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
 ```
+
+## Tarefas de fechamento de lacunas (pós-auditoria de 2026-09-21)
+
+GO-036 permanece **BLOCKED** (ver [canario/RESULTADOS.md](canario/RESULTADOS.md) e [canario/RUNBOOK.md](canario/RUNBOOK.md)): a matriz de paridade da GO-033 ([paridade/RESULTADOS.md](paridade/RESULTADOS.md)) mostra 39 das 48 capacidades do piloto `guitars` como PARTIAL/BLOCKED, apesar de todas as tasks GO-001–GO-038 estarem DONE/mescladas. As 5 tasks abaixo fecham os bloqueios de ENGENHARIA identificados no runbook do canário — a retomada da GO-036 exige que estas estejam DONE, mais uma decisão operacional que nenhuma delas cobre: **alvo do canário (ambiente, dois tenants, janela, SLOs)**, que só o proprietário do piloto pode definir (não é uma tarefa de código, ver runbook).
+
+### GO-039 — Portar viewtemplates Edit/Show/Feed e formulário do piloto guitars
+
+- [ ] **Status:** TODO
+- **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
+- **Responsável sugerido:** Backend + Frontend
+- **Depende de:** GO-019, GO-020, GO-029
+- **Branch:** `task/go-039`
+- **Escopo:** Estender o pipeline classify/compile/render de `internal/views` (hoje só "List", `render.go:37`) e os componentes React correspondentes para os viewtemplates Edit, Show e Feed — os três templates que o pack piloto `guitars` usa além de List (9 views ao todo: 2 List, 5 Edit, 1 Feed, 1 Show, conforme GO-033/GO-036); incluir o formulário de escrita real (create/update) que Edit exige.
+- **Aceite:** As 9 views do pack `guitars` renderizam e operam (leitura E escrita) através do runtime Go/React; GO-033 (CAP-034 "Viewtemplates nativos", CAP-040 "Formulários") reclassificado de PARTIAL para PASS para este pack; comportamento comparado ao legado e divergências documentadas.
+- **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
+- **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-039; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-039 — Portar viewtemplates Edit/Show/Feed e formulário do piloto guitars, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-039 a partir da base registrada. Escopo: Estender o pipeline classify/compile/render de internal/views e os componentes React para os viewtemplates Edit, Show e Feed usados pelo pack piloto guitars (9 views: 2 List, 5 Edit, 1 Feed, 1 Show), incluindo formulário de escrita real. Valide: Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-040 — Ligar automação (triggers/ações) ao caminho HTTP real
+
+- [ ] **Status:** TODO
+- **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
+- **Responsável sugerido:** Backend
+- **Depende de:** GO-022, GO-024, GO-025, GO-029
+- **Branch:** `task/go-040`
+- **Escopo:** Ligar `internal/triggers.Dispatcher.HooksFor` em `cmd/server` (`createRecordHandler`/`updateRecordHandler`/`deleteRecordHandler` chamam `records.CreateRecord`/... com `hooks=nil` hoje, `records.go:260`) e decidir o ciclo de vida do processo host de plugins (`internal/pluginhost`, GO-022) dentro de `cmd/server`; garantir que o trigger `receive_share_trigger` (`run_js_code`/`ReceiveMobileShareData`) do pack `guitars` dispare de verdade a partir de uma escrita HTTP real.
+- **Aceite:** Uma requisição HTTP real de criação/atualização/remoção de registro dispara triggers/ações (incluindo ações via host de plugins) na mesma transação/outbox já testados no nível de pacote desde GO-024; GO-033 (CAP-047 "Triggers", CAP-048 "Ações multi-etapa") reclassificado de PARTIAL para PASS.
+- **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
+- **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-040; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-040 — Ligar automação (triggers/ações) ao caminho HTTP real, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-040 a partir da base registrada. Escopo: Ligar internal/triggers.Dispatcher.HooksFor em cmd/server (hoje hooks=nil) e decidir o ciclo de vida do processo host de plugins (internal/pluginhost) dentro de cmd/server, garantindo que o trigger run_js_code/ReceiveMobileShareData do pack guitars dispare a partir de escrita HTTP real. Valide: Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-041 — Completar adapter SQLite (identidade, views, worker e caminho web)
+
+- [ ] **Status:** TODO
+- **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** L
+- **Responsável sugerido:** Backend
+- **Depende de:** GO-030, GO-008, GO-019, GO-020, GO-025
+- **Branch:** `task/go-041`
+- **Escopo:** Estender a fronteira `internal/platform/database.Tx` (GO-030 — já usada por `internal/records`/`internal/platform/outbox` desde a extensão pós-GO-030) para `internal/identity` e `internal/views`; ligar `internal/platform/sqlite` em `cmd/server` e `cmd/worker`, que hoje não têm nenhuma referência a esse pacote.
+- **Aceite:** `cmd/server` e `cmd/worker` sobem e servem tráfego real contra um tenant em arquivo SQLite (identidade, views, triggers, scheduler funcionando); GO-033 (CAP-021 "Facade de banco", CAP-023 "Adapter SQLite") reclassificado de PARTIAL para PASS.
+- **Rotina de validação:** Executar as mesmas fixtures de domínio (identidade, views, triggers, scheduler) nos dois adapters; testar concorrência/rollback SQLite sem depender de sintaxe exclusiva de PG.
+- **Regra de retomada:** Identificar versões e checkpoints de banco, cliente e artefatos; retomar a partir de estado consistente comprovado, sem apagar dados locais pendentes.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-041; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-041 — Completar adapter SQLite (identidade, views, worker e caminho web), de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-041 a partir da base registrada. Escopo: Estender internal/platform/database.Tx para internal/identity e internal/views; ligar internal/platform/sqlite em cmd/server e cmd/worker. Valide: Executar as mesmas fixtures de domínio nos dois adapters; testar concorrência/rollback SQLite sem depender de sintaxe exclusiva de PG. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-042 — Validar substituição de plugins de terceiro do piloto ponta a ponta
+
+- [ ] **Status:** TODO
+- **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
+- **Responsável sugerido:** Backend + Frontend + QA
+- **Depende de:** GO-018, GO-020, GO-029, GO-039
+- **Branch:** `task/go-042`
+- **Escopo:** Publicar e operar a aplicação `guitars` completa (após GO-039) com o tema SB Admin 2 padrão e um campo de data HTML5 nativo no lugar de `@saltcorn/any-bootstrap-theme` e `@saltcorn/flatpickr-date` (plugins de terceiro reais sem código-fonte neste checkout, ver GO-029); comparar visual/funcionalmente ao legado.
+- **Aceite:** Aplicação `guitars` publicada e usável ponta a ponta no novo frontend, nos papéis previstos pelo piloto; divergências visuais/UX documentadas explicitamente; GO-033 (CAP-045 "Plugins de terceiro do pack piloto") reclassificado de PARTIAL para PASS ou divergência formalmente aceita.
+- **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
+- **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-042; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-042 — Validar substituição de plugins de terceiro do piloto ponta a ponta, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-042 a partir da base registrada. Escopo: Publicar e operar a aplicação guitars completa com o tema SB Admin 2 padrão e campo de data HTML5 nativo no lugar de any-bootstrap-theme/flatpickr-date; comparar visual/funcionalmente ao legado. Valide: Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-043 — Implementar coordenação real de corte entre processos (edge/ownership)
+
+- [ ] **Status:** TODO
+- **Fase:** F6 · **Prioridade:** P0 · **Tamanho:** L
+- **Responsável sugerido:** Plataforma
+- **Depende de:** GO-009, GO-025
+- **Branch:** `task/go-043`
+- **Escopo:** Mecanismo de bloqueio/drenagem de admissões no edge por capacidade/tenant; atualização coordenada de `cutover.Guard` em TODAS as réplicas de servidor/worker (hoje carregado só uma vez no boot de cada processo, ver ADR-0008); acknowledgment explícito de troca de ownership antes de liberar tráfego para o novo dono.
+- **Aceite:** Um ensaio de corte real com múltiplos processos (≥2 `cmd/server` + ≥1 `cmd/worker`) demonstra troca de ownership sem dois escritores simultâneos em nenhum momento, sem depender de expiração de lease como prova de que o dono antigo parou; ADR-0008 atualizado com o mecanismo implementado.
+- **Rotina de validação:** Executar preflight da onda em ambiente identificado, reconciliação de dados, SLOs e ensaio de recuperação; registrar critérios de promoção e abortar.
+- **Regra de retomada:** Verificar estado real de tráfego, escritor ativo, schema e jobs; reconciliar a onda interrompida antes de avançar ou executar rollback; não repetir corte às cegas.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-043; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-043 — Implementar coordenação real de corte entre processos (edge/ownership), de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-043 a partir da base registrada. Escopo: Mecanismo de bloqueio/drenagem de admissões no edge por capacidade/tenant; atualização coordenada de cutover.Guard em todas as réplicas de servidor/worker; acknowledgment explícito de troca de ownership antes de liberar tráfego. Valide: Executar preflight da onda em ambiente identificado, reconciliação de dados, SLOs e ensaio de recuperação; registrar critérios de promoção e abortar. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
