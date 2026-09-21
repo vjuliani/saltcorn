@@ -1,0 +1,15 @@
+**
+!migracao/
+!migracao/backend/**
+!migracao/packages/
+!migracao/packages/bff/**
+!migracao/packages/frontend/**
+!migracao/contracts/**
+!migracao/distribution/**
+!migracao/local/
+!migracao/local/docker/**
+**/node_modules
+**/dist
+**/.env*
+**/.state
+**/.docker-state
