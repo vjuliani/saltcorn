@@ -682,7 +682,7 @@ Execute a task GO-034 — Ensaiar migração de dados e rollback, de docs/migrac
 
 ### GO-035 — Validar carga e falhas operacionais
 
-- [ ] **Status:** IN_REVIEW — PR [#39](https://github.com/vjuliani/saltcorn/pull/39); [resultados](operacao/RESULTADOS.md) e [histórico](execucoes/GO-035.md)
+- [x] **Status:** DONE — PR [#39](https://github.com/vjuliani/saltcorn/pull/39); [resultados](operacao/RESULTADOS.md) e [histórico](execucoes/GO-035.md)
 - **Fase:** F6 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** QA + Plataforma
 - **Depende de:** GO-002, GO-010, GO-014, GO-025, GO-033
@@ -701,7 +701,7 @@ Execute a task GO-035 — Validar carga e falhas operacionais, de docs/migracao-
 
 ### GO-036 — Liberar canário do piloto
 
-- [ ] **Status:** TODO
+- [ ] **Status:** BLOCKED — liberação impedida; [preflight](canario/RESULTADOS.md) e [histórico](execucoes/GO-036.md)
 - **Fase:** F6 · **Prioridade:** P0 · **Tamanho:** M
 - **Responsável sugerido:** Plataforma + QA
 - **Depende de:** GO-021, GO-024, GO-025, GO-026, GO-027, GO-034

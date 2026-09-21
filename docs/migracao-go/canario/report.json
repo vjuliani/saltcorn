@@ -1,0 +1,600 @@
+{
+  "format": 1,
+  "task": "GO-036",
+  "pilot": "guitars",
+  "decision": "BLOCKED",
+  "canary_released": false,
+  "runtime_verified": false,
+  "repository_checks_passed": false,
+  "capability_count": 48,
+  "parity_blockers": 39,
+  "capabilities": [
+    {
+      "id": "CAP-001",
+      "capability": "Autenticação local (usuário/senha, bcrypt)",
+      "status": "BLOCKED",
+      "gap": "Login/senha de usuário final não integrado ao BFF; recuperação e políticas de conta pendentes",
+      "missing": []
+    },
+    {
+      "id": "CAP-006",
+      "capability": "Sessão HTTP (cookie + store)",
+      "status": "BLOCKED",
+      "gap": "Store de sessão em memória; login final e durabilidade multi-instância pendentes",
+      "missing": []
+    },
+    {
+      "id": "CAP-007",
+      "capability": "CSRF",
+      "status": "PASS",
+      "gap": "",
+      "missing": []
+    },
+    {
+      "id": "CAP-008",
+      "capability": "Rate limiting de login",
+      "status": "BLOCKED",
+      "gap": "Fluxo de login de usuário final e limitadores sem prova de paridade",
+      "missing": [
+        "nenhuma suíte executada"
+      ]
+    },
+    {
+      "id": "CAP-009",
+      "capability": "Resolução de tenant (subdomínio)",
+      "status": "BLOCKED",
+      "gap": "DNS/proxy de subdomínios reais não ensaiados",
+      "missing": []
+    },
+    {
+      "id": "CAP-010",
+      "capability": "Propagação de contexto de tenant/transação",
+      "status": "PASS",
+      "gap": "",
+      "missing": []
+    },
+    {
+      "id": "CAP-011",
+      "capability": "Defesa contra \"tenant drift\" (sessão de um tenant usada em outro)",
+      "status": "PASS",
+      "gap": "",
+      "missing": []
+    },
+    {
+      "id": "CAP-012",
+      "capability": "Autorização por papel (role_id)",
+      "status": "PASS",
+      "gap": "",
+      "missing": []
+    },
+    {
+      "id": "CAP-013",
+      "capability": "Ownership por campo",
+      "status": "PASS",
+      "gap": "",
+      "missing": []
+    },
+    {
+      "id": "CAP-014",
+      "capability": "Ownership por fórmula JS",
+      "status": "BLOCKED",
+      "gap": "Fórmulas arbitrárias de ownership não ligadas ao HTTP",
+      "missing": []
+    },
+    {
+      "id": "CAP-015",
+      "capability": "RLS nativa Postgres (políticas `CREATE POLICY`, GUC por conexão)",
+      "status": "PASS",
+      "gap": "",
+      "missing": []
+    },
+    {
+      "id": "CAP-017",
+      "capability": "Tabelas/campos/relações dinâmicos",
+      "status": "BLOCKED",
+      "gap": "Relações/constraints arbitrárias do legado não cobertas integralmente",
+      "missing": []
+    },
+    {
+      "id": "CAP-018",
+      "capability": "Constraints de tabela definidas pelo usuário",
+      "status": "BLOCKED",
+      "gap": "Catálogo completo de constraints definidas pelo usuário não portado",
+      "missing": []
+    },
+    {
+      "id": "CAP-019",
+      "capability": "Config key/value (global e por tenant)",
+      "status": "BLOCKED",
+      "gap": "Configuração global legada completa sem equivalência comprovada",
+      "missing": []
+    },
+    {
+      "id": "CAP-021",
+      "capability": "Facade de banco (`db/index.ts`)",
+      "status": "BLOCKED",
+      "gap": "Domínios ainda acoplados a pgx impedem facade integral PG/SQLite",
+      "missing": []
+    },
+    {
+      "id": "CAP-022",
+      "capability": "Adapter Postgres",
+      "status": "PASS",
+      "gap": "",
+      "missing": []
+    },
+    {
+      "id": "CAP-024",
+      "capability": "Sanitização de identificadores (`sqlsanitize`/`sqlsanitizeAllowDots`)",
+      "status": "PASS",
+      "gap": "",
+      "missing": []
+    },
+    {
+      "id": "CAP-025",
+      "capability": "DSL de filtros parametrizados (`mkWhere`)",
+      "status": "BLOCKED",
+      "gap": "DSL relacional completa do legado não demonstrada",
+      "missing": []
+    },
+    {
+      "id": "CAP-026",
+      "capability": "Migrations do framework (tabelas `_sc_*`)",
+      "status": "BLOCKED",
+      "gap": "Adoção/upgrade de schema legado existente recusado; GO-034 pendente",
+      "missing": []
+    },
+    {
+      "id": "CAP-027",
+      "capability": "Pack (import/export de aplicação)",
+      "status": "BLOCKED",
+      "gap": "Formato não importa diretamente backup legado guitars completo",
+      "missing": []
+    },
+    {
+      "id": "CAP-029",
+      "capability": "Componentes de biblioteca (snippets reutilizáveis)",
+      "status": "BLOCKED",
+      "gap": "Integração completa no editor e snippets legados pendente",
+      "missing": []
+    },
+    {
+      "id": "CAP-030",
+      "capability": "Log de eventos / auditoria",
+      "status": "BLOCKED",
+      "gap": "Histórico/auditoria administrativa equivalente ao legado sem prova",
+      "missing": []
+    },
+    {
+      "id": "CAP-031",
+      "capability": "Log de erros/crash",
+      "status": "BLOCKED",
+      "gap": "Catálogo de crashes e interface administrativa não portados integralmente",
+      "missing": []
+    },
+    {
+      "id": "CAP-033",
+      "capability": "Modelo de View (config JSON, execução)",
+      "status": "BLOCKED",
+      "gap": "Execução dos demais templates e páginas não implementada",
+      "missing": []
+    },
+    {
+      "id": "CAP-034",
+      "capability": "Viewtemplates nativos (List/Show/Edit/Feed/Filter/ListShowList/Room/WorkflowRoom)",
+      "status": "BLOCKED",
+      "gap": "Show/Edit/Feed/Filter/ListShowList/Room/WorkflowRoom pendentes; formulário P0 do piloto bloqueado",
+      "missing": []
+    },
+    {
+      "id": "CAP-035",
+      "capability": "Árvore de layout (`layout.ts`)",
+      "status": "BLOCKED",
+      "gap": "Catálogo completo de nós legados e canvas persistente não integrado",
+      "missing": []
+    },
+    {
+      "id": "CAP-036",
+      "capability": "Geração de HTML server-side (`@saltcorn/markup`)",
+      "status": "BLOCKED",
+      "gap": "Todos os elementos/HTML legado não comparados",
+      "missing": []
+    },
+    {
+      "id": "CAP-037",
+      "capability": "Tema SB Admin 2 (server-side hoje)",
+      "status": "BLOCKED",
+      "gap": "Substituição visual do tema do piloto sem validação da aplicação completa",
+      "missing": []
+    },
+    {
+      "id": "CAP-038",
+      "capability": "Builder de views/páginas (React + Craft.js)",
+      "status": "BLOCKED",
+      "gap": "Alterações do canvas Craft.js não persistem por ponte completa ao editor conectado",
+      "missing": []
+    },
+    {
+      "id": "CAP-040",
+      "capability": "Formulários (`Form`)",
+      "status": "BLOCKED",
+      "gap": "Formulários finais Edit e validação equivalentes ao legado pendentes",
+      "missing": []
+    },
+    {
+      "id": "CAP-041",
+      "capability": "Arquivos: upload/download/miniaturas",
+      "status": "BLOCKED",
+      "gap": "Miniaturas e todas as variantes de armazenamento legadas não demonstradas",
+      "missing": []
+    },
+    {
+      "id": "CAP-042",
+      "capability": "Carregador de plugins (npm install em runtime, `import()` dinâmico)",
+      "status": "BLOCKED",
+      "gap": "npm dinâmico e todos os plugins legados não portados; host temporário permanece",
+      "missing": []
+    },
+    {
+      "id": "CAP-043",
+      "capability": "Contrato de plugin (types/viewtemplates/actions/fieldviews/auth)",
+      "status": "BLOCKED",
+      "gap": "Extensões arbitrárias types/views/fieldviews/auth não cobertas",
+      "missing": []
+    },
+    {
+      "id": "CAP-044",
+      "capability": "Plugins fixos (base-plugin, sbadmin2)",
+      "status": "BLOCKED",
+      "gap": "Catálogo completo base-plugin e templates não portado",
+      "missing": []
+    },
+    {
+      "id": "CAP-045",
+      "capability": "Plugins de terceiro do pack piloto (`@saltcorn/any-bootstrap-theme`, `@saltcorn/flatpickr-date`)",
+      "status": "BLOCKED",
+      "gap": "any-bootstrap-theme/flatpickr-date ausentes; aplicação guitars substituída não validada ponta a ponta",
+      "missing": []
+    },
+    {
+      "id": "CAP-046",
+      "capability": "Motor de expressões JS (fórmulas de usuário)",
+      "status": "BLOCKED",
+      "gap": "Host temporário requerido; fórmulas legadas com acesso direto a modelos não equivalentes",
+      "missing": []
+    },
+    {
+      "id": "CAP-047",
+      "capability": "Triggers (Insert/Update/Delete/Weekly/Daily/Hourly/Often/Cron/API call/PageLoad/Login/…)",
+      "status": "BLOCKED",
+      "gap": "HTTP CreateRecord recebe hooks nil; eventos reais não disparam cadeia de automação do piloto",
+      "missing": []
+    },
+    {
+      "id": "CAP-048",
+      "capability": "Ações multi-etapa",
+      "status": "BLOCKED",
+      "gap": "Catálogo de ~29 ações e CRUD por trigger incompleto; sem wiring HTTP",
+      "missing": []
+    },
+    {
+      "id": "CAP-051",
+      "capability": "Motor de workflow (estado, retomada)",
+      "status": "BLOCKED",
+      "gap": "Waiting/formulário, subworkflow e wiring no processo real pendentes",
+      "missing": []
+    },
+    {
+      "id": "CAP-052",
+      "capability": "Mutex distribuído entre nós (workflow)",
+      "status": "PASS",
+      "gap": "",
+      "missing": []
+    },
+    {
+      "id": "CAP-053",
+      "capability": "Scheduler (tick loop + eleição de líder)",
+      "status": "BLOCKED",
+      "gap": "Often tem granularidade de minuto; catálogo de ações do worker limitado",
+      "missing": []
+    },
+    {
+      "id": "CAP-054",
+      "capability": "Ações registradas por plugin (`state.actions`)",
+      "status": "BLOCKED",
+      "gap": "Closures/efeitos e inventário completo de ações de terceiros ausentes",
+      "missing": []
+    },
+    {
+      "id": "CAP-064",
+      "capability": "Roteamento HTTP builder/admin (39 arquivos em `routes/`)",
+      "status": "BLOCKED",
+      "gap": "39 grupos de rotas administrativas não substituídos integralmente",
+      "missing": []
+    },
+    {
+      "id": "CAP-065",
+      "capability": "API REST genérica sobre tabelas",
+      "status": "BLOCKED",
+      "gap": "Compatibilidade da API pública legada e integrações externas não comprovada",
+      "missing": []
+    },
+    {
+      "id": "CAP-067",
+      "capability": "Segurança de cabeçalhos (Helmet/CSP)",
+      "status": "BLOCKED",
+      "gap": "Paridade de Helmet/CSP e política para todas as extensões não demonstrada",
+      "missing": []
+    },
+    {
+      "id": "CAP-068",
+      "capability": "CORS",
+      "status": "BLOCKED",
+      "gap": "Origens mobile reais e todos os cenários CORS não validados",
+      "missing": []
+    },
+    {
+      "id": "CAP-069",
+      "capability": "Mitigação de poluição de protótipo",
+      "status": "BLOCKED",
+      "gap": "Não há teste específico de prototype pollution no BFF/host",
+      "missing": []
+    },
+    {
+      "id": "CAP-070",
+      "capability": "CLI (`saltcorn`, oclif)",
+      "status": "BLOCKED",
+      "gap": "CLI geral tenant/user/trigger/mobile-build e outras plataformas pendentes",
+      "missing": []
+    }
+  ],
+  "blockers": [
+    {
+      "code": "PARITY",
+      "detail": "CAP-001: Login/senha de usuário final não integrado ao BFF; recuperação e políticas de conta pendentes"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-006: Store de sessão em memória; login final e durabilidade multi-instância pendentes"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-008: Fluxo de login de usuário final e limitadores sem prova de paridade"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-009: DNS/proxy de subdomínios reais não ensaiados"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-014: Fórmulas arbitrárias de ownership não ligadas ao HTTP"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-017: Relações/constraints arbitrárias do legado não cobertas integralmente"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-018: Catálogo completo de constraints definidas pelo usuário não portado"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-019: Configuração global legada completa sem equivalência comprovada"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-021: Domínios ainda acoplados a pgx impedem facade integral PG/SQLite"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-025: DSL relacional completa do legado não demonstrada"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-026: Adoção/upgrade de schema legado existente recusado; GO-034 pendente"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-027: Formato não importa diretamente backup legado guitars completo"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-029: Integração completa no editor e snippets legados pendente"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-030: Histórico/auditoria administrativa equivalente ao legado sem prova"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-031: Catálogo de crashes e interface administrativa não portados integralmente"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-033: Execução dos demais templates e páginas não implementada"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-034: Show/Edit/Feed/Filter/ListShowList/Room/WorkflowRoom pendentes; formulário P0 do piloto bloqueado"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-035: Catálogo completo de nós legados e canvas persistente não integrado"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-036: Todos os elementos/HTML legado não comparados"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-037: Substituição visual do tema do piloto sem validação da aplicação completa"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-038: Alterações do canvas Craft.js não persistem por ponte completa ao editor conectado"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-040: Formulários finais Edit e validação equivalentes ao legado pendentes"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-041: Miniaturas e todas as variantes de armazenamento legadas não demonstradas"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-042: npm dinâmico e todos os plugins legados não portados; host temporário permanece"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-043: Extensões arbitrárias types/views/fieldviews/auth não cobertas"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-044: Catálogo completo base-plugin e templates não portado"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-045: any-bootstrap-theme/flatpickr-date ausentes; aplicação guitars substituída não validada ponta a ponta"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-046: Host temporário requerido; fórmulas legadas com acesso direto a modelos não equivalentes"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-047: HTTP CreateRecord recebe hooks nil; eventos reais não disparam cadeia de automação do piloto"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-048: Catálogo de ~29 ações e CRUD por trigger incompleto; sem wiring HTTP"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-051: Waiting/formulário, subworkflow e wiring no processo real pendentes"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-053: Often tem granularidade de minuto; catálogo de ações do worker limitado"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-054: Closures/efeitos e inventário completo de ações de terceiros ausentes"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-064: 39 grupos de rotas administrativas não substituídos integralmente"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-065: Compatibilidade da API pública legada e integrações externas não comprovada"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-067: Paridade de Helmet/CSP e política para todas as extensões não demonstrada"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-068: Origens mobile reais e todos os cenários CORS não validados"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-069: Não há teste específico de prototype pollution no BFF/host"
+    },
+    {
+      "code": "PARITY",
+      "detail": "CAP-070: CLI geral tenant/user/trigger/mobile-build e outras plataformas pendentes"
+    },
+    {
+      "code": "LOAD_SCOPE",
+      "detail": "GO-035 comprova laboratório, não carga/SLO e baseline do piloto alvo"
+    },
+    {
+      "code": "RECOVERY_SCOPE",
+      "detail": "GO-034 não ensaiou recuperação do piloto guitars no ambiente alvo"
+    },
+    {
+      "code": "TARGET_PLAN",
+      "detail": "Ambiente alvo não identificado"
+    },
+    {
+      "code": "TARGET_PLAN",
+      "detail": "Piloto exige allowlist de dois tenants distintos; curingas não são aceitos"
+    },
+    {
+      "code": "TARGET_PLAN",
+      "detail": "Janela de observação não acordada"
+    },
+    {
+      "code": "TARGET_PLAN",
+      "detail": "SLOs de latência/recuperação não acordados"
+    }
+  ],
+  "pending_operational_checks": [
+    "Identificar edge, artefatos, banco/schema, sessões, réplicas e workers do alvo.",
+    "Comprovar escritor único e drenagem em TODOS os processos do escopo.",
+    "Validar identidade/tenant no edge e roteamento por allowlist, sem fallback de mutações.",
+    "Ensaiar recuperação/reconciliação com dados e versões do alvo.",
+    "Executar carga do piloto e comparar ao baseline HTTP no mesmo ambiente.",
+    "Observar a janela acordada e registrar incidentes, métricas e reconciliação final."
+  ],
+  "legacy_return_certified": false,
+  "note": "Diagnóstico documental; não consulta o ambiente nem certifica seu estado atual. Plano preenchido não autoriza corte.",
+  "pack_inventory": {
+    "views": [
+      {
+        "name": "create_guitar",
+        "template": "Edit"
+      },
+      {
+        "name": "edit_guitar_process",
+        "template": "Edit"
+      },
+      {
+        "name": "guitar_feed",
+        "template": "Feed"
+      },
+      {
+        "name": "guitar_list",
+        "template": "List"
+      },
+      {
+        "name": "list_processed",
+        "template": "List"
+      },
+      {
+        "name": "show_guitar",
+        "template": "Show"
+      },
+      {
+        "name": "upload_photo",
+        "template": "Edit"
+      },
+      {
+        "name": "edit_processed_embed",
+        "template": "Edit"
+      },
+      {
+        "name": "add_process_type",
+        "template": "Edit"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "receive_share_trigger",
+        "action": "run_js_code",
+        "event": "ReceiveMobileShareData"
+      }
+    ]
+  },
+  "diagnostic_sha256": "c1702f5b59cdcbe3359d6525dcbcf2ff4db028508d3ab6f3bc6ab1dffabcf97f",
+  "inputs_sha256": {
+    "migracao/parity/matrix.json": "dfe659e8b2dcfdd72eca8b2bd01fc2e54499863ccc16de06e71bbafca971e2b9",
+    "docs/migracao-go/paridade/report.json": "c9c5bbe06bff351a035f4c88eb6b1f1a16a07a50c3855523b0d102586d3dbfef",
+    "docs/migracao-go/operacao/report.json": "8540a84605a9fbfdc8c176e8032e3a47af72bd38b961b816c2988d5073564330",
+    "docs/migracao-go/recuperacao/checkpoint.json": "04132984988055f437840153ffe9b554572dadc1d104024971d6f731fe320a88",
+    "deploy/playwright_mobile/backups/guitars_backup.zip": "c48c6be32dc1c2443d8ba01112c7861a3a9e1f0ba6a833875c7bc287800a13ff"
+  },
+  "plan_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+  "commit": "337d5c648697259310c05e8177d9a5be8476387c"
+}

@@ -1,0 +1,55 @@
+name: migracao-canary-ci
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'migracao/canary/**'
+      - 'migracao/parity/matrix.json'
+      - 'docs/migracao-go/paridade/report.json'
+      - 'docs/migracao-go/operacao/report.json'
+      - 'docs/migracao-go/recuperacao/checkpoint.json'
+      - 'deploy/playwright_mobile/backups/guitars_backup.zip'
+      - '.github/workflows/migracao-canary-ci.yml'
+  pull_request:
+    paths:
+      - 'migracao/canary/**'
+      - 'migracao/parity/matrix.json'
+      - 'docs/migracao-go/paridade/report.json'
+      - 'docs/migracao-go/operacao/report.json'
+      - 'docs/migracao-go/recuperacao/checkpoint.json'
+      - 'deploy/playwright_mobile/backups/guitars_backup.zip'
+      - '.github/workflows/migracao-canary-ci.yml'
+permissions:
+  contents: read
+jobs:
+  canary-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Negativos e escopo web/PostgreSQL
+        run: python3 -m unittest discover -s migracao/canary -v
+      - name: Diagnóstico deve preservar bloqueio do piloto atual
+        shell: bash
+        run: |
+          set +e
+          python3 migracao/canary/preflight.py --output "$RUNNER_TEMP/go036-preflight.json"
+          result=$?
+          set -e
+          test "$result" -eq 2
+          python3 - "$RUNNER_TEMP/go036-preflight.json" <<'PY'
+          import json, sys
+          report = json.load(open(sys.argv[1]))
+          assert report['decision'] == 'BLOCKED'
+          assert report['canary_released'] is False
+          assert report['parity_blockers'] > 0
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: go036-preflight-evidence
+          if-no-files-found: error
+          path: ${{ runner.temp }}/go036-preflight.json
