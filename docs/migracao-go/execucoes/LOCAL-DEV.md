@@ -31,3 +31,30 @@ Na preparação, um erro de sintaxe do executor foi corrigido antes de iniciar o
 Artefatos locais de diagnóstico: `/tmp/saltcorn-local-setup.log`, `saltcorn-local-setup-repeat.log`, `saltcorn-local-rebuild.log`, `saltcorn-local-restart.log` e logs do modo separado. Arquivos privados e releases permanecem em `migracao/local/.state`; não fazem parte do commit. O smoke deixa uma tabela de demonstração `local_howto_*`, identificada em `.state/smoke-table.txt`.
 
 Ao finalizar os checks locais, parar os processos da aplicação e manter PostgreSQL/dados disponíveis. O usuário pode iniciar com `migracao/local/local.sh up` e emitir novo `login`. CI e URL do PR ficam registrados na descrição da entrega; nenhuma liberação de canário é inferida desses testes locais.
+
+## Complemento — aplicação inteira em Docker Compose
+
+Pedido adicional: executar também frontend, BFF e backend via Docker Compose. O PR #41 foi integrado em `f07e6ed28c2`; o complemento usa a branch `feat/migracao-docker-local`, em um único novo PR, sem alterar o estado da GO-036.
+
+- `docker.sh`: build/inicialização com espera por saúde, login, status, logs, parada e remoção de containers sem remover volumes.
+- `compose.app.yaml`: projeto isolado com PostgreSQL, CLI/supervisor Go+BFF+worker e frontend Nginx; somente a porta HTTP do frontend é publicada em loopback (5180 por padrão).
+- Dockerfile em múltiplos estágios reutiliza o build da distribuição; frontend compartilha a rede de `app` para preservar os binds internos em loopback. Não é necessário Node ou Go no host.
+- Credenciais aleatórias em `.docker-state/compose.env`, ignorado pelo Git; configuração/arquivos e banco em volumes persistentes separados. O contexto do build exclui estado local e dependências instaladas no host.
+- How-to atualizado com preparação, acesso, contexto/porta, recompilação, persistência e solução de problemas. Smoke existente ganhou `--docker`; a CI ganhou `docker-howto`.
+
+### Validação do complemento
+
+Ambiente: Linux, Docker Engine no contexto `default`, imagens Go 1.22/Node 22/PostgreSQL 16/Nginx, Chromium do Playwright já instalado no host.
+
+| Procedimento | Resultado |
+| --- | --- |
+| `docker.sh up` | Build e três serviços healthy; única publicação `127.0.0.1:5180` |
+| Repetir `docker.sh up` | Exit 0; setup preserva a instância existente |
+| `node migracao/local/smoke.mjs create --docker` | Login, React/Nginx/BFF/Go, criação/publicação de view, escrita e leitura aprovados |
+| `docker.sh down`, `docker.sh up`, smoke `recheck --docker` | Exit 0; containers recriados e registro anterior lido com nova sessão |
+| `docker.sh status` | PostgreSQL, app e frontend healthy |
+| `bash -n`, `node --check`, `git diff --check`, actionlint 1.7.7 | Aprovados |
+
+Falhas corrigidas durante a implementação: a imagem slim de build não continha certificados TLS; o Dockerfile passou a copiar o conjunto de certificados da imagem Go. Uma edição do wrapper enquanto o Bash ainda o executava causou erro de leitura ao terminar a primeira inicialização; a validação foi repetida com o arquivo estável e passou. Nenhum desses ensaios apagou volumes ou reinicializou o banco existente.
+
+Logs locais em `/tmp/migracao-docker-{up,repeat,recreate}.log`, sem tickets de login. URL do PR e resultados da CI registrados na descrição da entrega. Ao finalizar a validação, os containers deste complemento são parados e os dados permanecem nos volumes para `docker.sh up`.

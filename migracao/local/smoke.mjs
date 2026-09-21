@@ -7,18 +7,21 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 const local=path.dirname(fileURLToPath(import.meta.url));
 const root=path.resolve(local,'../..');
-const config=JSON.parse(await readFile(path.join(local,'.state/settings.json'),'utf8'));
+const docker=process.argv.includes('--docker');
+const dockerEnv=docker ? await readFile(path.join(local,'.docker-state/compose.env'),'utf8') : '';
+const port=docker ? Number(dockerEnv.match(/^HTTP_PORT=(\d+)$/m)[1]) : null;
+const config=docker ? {bffPort:port,frontendPort:port} : JSON.parse(await readFile(path.join(local,'.state/settings.json'),'utf8'));
 const mode=process.argv[2] || 'create';
-if(!['create','recheck'].includes(mode))throw Error('Uso: smoke.mjs create|recheck');
-const tableFile=path.join(local,'.state/smoke-table.txt');
+if(!['create','recheck'].includes(mode))throw Error('Uso: smoke.mjs create|recheck [--docker]');
+const tableFile=path.join(local,docker?'.docker-state/smoke-table.txt':'.state/smoke-table.txt');
 const {chromium,expect}=createRequire(root+'/migracao/e2e/package.json')('@playwright/test');
-const login=(await promisify(execFile)(root+'/migracao/local/local.sh',['login'])).stdout.trim();
+const login=(await promisify(execFile)(root+'/migracao/local/'+(docker?'docker.sh':'local.sh'),['login'])).stdout.trim();
 const browser=await chromium.launch({headless:true});
 try {
  const page=await browser.newPage();
  await page.goto(login);await page.waitForURL(`http://localhost:${config.bffPort}/`);
  await page.goto(`http://localhost:${config.frontendPort}`);
- const response=await page.request.get(`http://localhost:${config.frontendPort}/@vite/client`);if(!response.ok())throw Error('Vite indisponível');
+ if(!docker) { const response=await page.request.get(`http://localhost:${config.frontendPort}/@vite/client`);if(!response.ok())throw Error('Vite indisponível'); }
  let table;
  if(mode==='recheck') table=(await readFile(tableFile,'utf8')).trim();
  else {
@@ -39,5 +42,5 @@ try {
  await page.getByRole('button',{name:/Ver views/}).click();
  await page.getByRole('row',{name:new RegExp(table+'_view')}).getByRole('button',{name:'Visualizar'}).click();
  await expect(page.getByTestId('list-view')).toContainText('Persistência local validada');
- console.log(JSON.stringify({login:true,vite:true,reactBffGo:true,persisted:true,mode}));
+ console.log(JSON.stringify({login:true,vite:!docker,docker,reactBffGo:true,persisted:true,mode}));
 }finally{await browser.close();}

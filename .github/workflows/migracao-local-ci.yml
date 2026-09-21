@@ -5,6 +5,7 @@ on:
     paths:
       - 'migracao/local/**'
       - 'migracao/distribution/**'
+      - 'migracao/backend/**'
       - 'migracao/packages/bff/**'
       - 'migracao/packages/frontend/**'
       - '.github/workflows/migracao-local-ci.yml'
@@ -12,6 +13,7 @@ on:
     paths:
       - 'migracao/local/**'
       - 'migracao/distribution/**'
+      - 'migracao/backend/**'
       - 'migracao/packages/bff/**'
       - 'migracao/packages/frontend/**'
       - '.github/workflows/migracao-local-ci.yml'
@@ -74,3 +76,35 @@ jobs:
         with:
           name: local-howto-logs
           path: ${{ runner.temp }}/local-*.log
+  docker-howto:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preparar navegador
+        run: |
+          cd migracao/e2e
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Compose completo, navegador e persistência após recriação
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup() {
+            docker --context default compose --env-file migracao/local/.docker-state/compose.env -f migracao/local/compose.app.yaml logs --no-color > "$RUNNER_TEMP/docker-services.log" 2>&1 || true
+            migracao/local/docker.sh down || true
+          }
+          trap cleanup EXIT
+          migracao/local/docker.sh up > "$RUNNER_TEMP/docker-build.log" 2>&1
+          node migracao/local/smoke.mjs create --docker
+          migracao/local/docker.sh down
+          migracao/local/docker.sh up >> "$RUNNER_TEMP/docker-build.log" 2>&1
+          node migracao/local/smoke.mjs recheck --docker
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: docker-howto-logs
+          path: ${{ runner.temp }}/docker-*.log
