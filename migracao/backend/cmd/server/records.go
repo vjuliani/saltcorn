@@ -21,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/config"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
@@ -62,29 +63,43 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// resolveActorRole busca o papel atual do ator (o `sub` da identidade
-// delegada é o ID do usuário, nunca o papel em si — ADR-0007) dentro da
-// MESMA transação que a operação de domínio vai usar. Retorna false quando
-// a resposta de erro já foi escrita (ator inexistente neste tenant é
-// tratado como Forbidden, não uma categoria de erro nova fora do
-// contrato).
-func resolveActorRole(ctx context.Context, tx pgx.Tx, r *http.Request, w http.ResponseWriter) (identity.RoleID, bool) {
+// resolveActorUser busca o registro completo do ator (o `sub` da
+// identidade delegada é o ID do usuário, nunca o papel em si —
+// ADR-0007) dentro da MESMA transação que a operação de domínio vai
+// usar. Retorna false quando a resposta de erro já foi escrita (ator
+// inexistente neste tenant é tratado como Forbidden, não uma categoria
+// de erro nova fora do contrato). resolveActorRole (abaixo) é o atalho
+// que a maioria dos handlers usa quando só o papel importa — só
+// getActorHandler/setActorLanguageHandler (GO-047) precisam do registro
+// inteiro (Language).
+func resolveActorUser(ctx context.Context, tx pgx.Tx, r *http.Request, w http.ResponseWriter) (*identity.User, bool) {
 	actorSub, _ := tenancy.ActorFromContext(ctx)
 	actorID, err := strconv.Atoi(actorSub)
 	if err != nil {
 		writeAPIError(w, http.StatusForbidden, "actor_invalid", "identidade delegada com sub inválido")
-		return 0, false
+		return nil, false
 	}
 	user, err := identity.FindUserByID(ctx, tx, actorID)
 	if err != nil {
 		if errors.Is(err, identity.ErrUserNotFound) {
 			writeAPIError(w, http.StatusForbidden, "actor_not_found", "ator da identidade delegada não existe neste tenant")
-			return 0, false
+			return nil, false
 		}
 		writeAPIError(w, http.StatusBadGateway, "actor_lookup_failed", "falha ao resolver o papel do ator")
-		return 0, false
+		return nil, false
 	}
 	_ = r
+	return user, true
+}
+
+// resolveActorRole busca só o papel atual do ator — atalho de
+// resolveActorUser para os handlers (a maioria) que não precisam do
+// registro completo.
+func resolveActorRole(ctx context.Context, tx pgx.Tx, r *http.Request, w http.ResponseWriter) (identity.RoleID, bool) {
+	user, ok := resolveActorUser(ctx, tx, r, w)
+	if !ok {
+		return 0, false
+	}
 	return user.RoleID, true
 }
 
@@ -108,19 +123,13 @@ func getActorHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFun
 			return
 		}
 
-		type actorResponse struct {
-			ID     int `json:"id"`
-			RoleID int `json:"role_id"`
-		}
 		var resp actorResponse
 		err = db.WithTenant(r.Context(), tenant, func(ctx context.Context, tx pgx.Tx) error {
-			role, ok := resolveActorRole(ctx, tx, r, w)
+			user, ok := resolveActorUser(ctx, tx, r, w)
 			if !ok {
 				return errHandled
 			}
-			actorSub, _ := tenancy.ActorFromContext(ctx)
-			id, _ := strconv.Atoi(actorSub)
-			resp = actorResponse{ID: id, RoleID: int(role)}
+			resp = actorResponse{ID: user.ID, RoleID: int(user.RoleID), Language: user.Language, DefaultLocale: defaultLocaleOrFallback(ctx, tx)}
 			return nil
 		})
 		if err != nil {
@@ -128,6 +137,100 @@ func getActorHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFun
 				return
 			}
 			writeAPIError(w, http.StatusBadGateway, "database_error", "erro ao consultar o ator")
+			return
+		}
+		writeJSON(w, http.StatusOK, resp)
+	}
+}
+
+// actorResponse é o shape de getActor (Actor de internal-api.yaml) —
+// Language (GO-047) é a preferência EXPLÍCITA do usuário ("" = sem
+// preferência); DefaultLocale é sempre preenchido (fallback "pt" —
+// mesmo idioma "nativo" deste port, ver README), nunca vazio, para o
+// BFF nunca precisar de uma segunda chamada só para resolver o idioma
+// efetivo do tenant.
+type actorResponse struct {
+	ID            int    `json:"id"`
+	RoleID        int    `json:"role_id"`
+	Language      string `json:"language"`
+	DefaultLocale string `json:"default_locale"`
+}
+
+// defaultLocaleDefault é o fallback quando o tenant nunca configurou
+// "default_locale" — mesmo idioma em que todo este port foi escrito
+// desde GO-018, nunca "en" como suposição arbitrária.
+const defaultLocaleDefault = "pt"
+
+func defaultLocaleOrFallback(ctx context.Context, tx pgx.Tx) string {
+	value, ok, err := config.Get(ctx, tx, "default_locale")
+	if err != nil || !ok {
+		return defaultLocaleDefault
+	}
+	s, ok := value.(string)
+	if !ok || s == "" {
+		return defaultLocaleDefault
+	}
+	return s
+}
+
+// setActorLanguageRequest é o corpo de PATCH .../actor.
+type setActorLanguageRequest struct {
+	Language *string `json:"language"`
+}
+
+// setActorLanguageHandler implementa PATCH /v1/tenants/{tenant}/actor
+// (setActorLanguage de internal-api.yaml, GO-047) — self-service: o ator
+// muda a PRÓPRIA preferência de idioma, nunca a de outro usuário (nunca
+// há um userID no path/body, só a identidade delegada da própria
+// requisição, mesmo modelo de getActor). Language "" ou ausente LIMPA a
+// preferência (volta ao fallback de cookie/default_locale do tenant).
+func setActorLanguageHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		end, err := tracker.Begin()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer end()
+
+		tenant, _ := tenancy.TenantFromContext(r.Context())
+		if db == nil {
+			writeAPIError(w, http.StatusBadGateway, "database_unavailable", "banco não configurado nesta instância")
+			return
+		}
+
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<12))
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_body", "não foi possível ler o corpo da requisição")
+			return
+		}
+		var req setActorLanguageRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_json", "corpo da requisição não é um JSON válido")
+			return
+		}
+		language := ""
+		if req.Language != nil {
+			language = *req.Language
+		}
+
+		var resp actorResponse
+		err = db.WithTenant(r.Context(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+			user, ok := resolveActorUser(ctx, tx, r, w)
+			if !ok {
+				return errHandled
+			}
+			if err := identity.SetUserLanguage(ctx, tx, user.ID, language); err != nil {
+				return err
+			}
+			resp = actorResponse{ID: user.ID, RoleID: int(user.RoleID), Language: language, DefaultLocale: defaultLocaleOrFallback(ctx, tx)}
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, errHandled) {
+				return
+			}
+			writeAPIError(w, http.StatusBadGateway, "database_error", "erro ao gravar a preferência de idioma")
 			return
 		}
 		writeJSON(w, http.StatusOK, resp)

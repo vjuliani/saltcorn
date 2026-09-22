@@ -16,6 +16,7 @@
 // (`coerceForSubmit`); quem decide o que fazer depois de submeter
 // (`navigate`) é o chamador via `onSubmit`.
 import { useState, type FormEvent } from "react";
+import { useT } from "../i18n/I18nContext";
 
 export interface EditViewFieldOption {
   id: number;
@@ -88,6 +89,7 @@ function coerceForSubmit(field: EditViewField, raw: string): unknown {
 }
 
 export function EditView({ plan, onSubmit, submitting }: EditViewProps) {
+  const t = useT();
   const [values, setValues] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
     for (const f of plan.fields) {
@@ -147,7 +149,7 @@ export function EditView({ plan, onSubmit, submitting }: EditViewProps) {
         </div>
       ))}
       <button type="submit" className="btn btn-primary" disabled={submitting}>
-        {plan.action_name === "Save" || plan.action_name === "SubmitWithAjax" ? "Salvar" : plan.action_name}
+        {plan.action_name === "Save" || plan.action_name === "SubmitWithAjax" ? t("edit.save") : plan.action_name}
       </button>
     </form>
   );

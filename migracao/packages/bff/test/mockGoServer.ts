@@ -56,6 +56,10 @@ export class MockGoServer {
   private readonly impersonations = new Map<number, MockImpersonation>();
   private nextLogId = 1;
 
+  // GO-047: preferência de idioma por ator (sub) — "" = sem preferência,
+  // mesma semântica de identity.User.Language do Go real.
+  private readonly languages = new Map<string, string>();
+
   // GO-039: registros de "books" — usados por render (List/Show/Edit),
   // submit e delete-row. Seedados com os mesmos 3 livros que o render
   // List sempre devolveu (Dune/Foundation/Neuromancer), agora como
@@ -128,7 +132,15 @@ export class MockGoServer {
     const isAdmin = this.opts.adminUserIds?.includes(String(claims.sub)) ?? false;
 
     if (url.pathname.endsWith("/actor")) {
-      sendJSON(res, 200, { id: Number(claims.sub), role_id: isAdmin ? 1 : 80 });
+      const sub = String(claims.sub);
+      if (req.method === "PATCH") {
+        const body = (await readBody(req)) as { language?: string };
+        const language = typeof body.language === "string" ? body.language : "";
+        this.languages.set(sub, language);
+        sendJSON(res, 200, { id: Number(claims.sub), role_id: isAdmin ? 1 : 80, language, default_locale: "pt" });
+        return;
+      }
+      sendJSON(res, 200, { id: Number(claims.sub), role_id: isAdmin ? 1 : 80, language: this.languages.get(sub) ?? "", default_locale: "pt" });
       return;
     }
 

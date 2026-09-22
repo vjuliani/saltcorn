@@ -8,6 +8,8 @@
 import type { paths } from "../../../contracts/gen/ts/bff-api.js";
 
 type BootstrapResponse = paths["/api/bff/bootstrap"]["get"]["responses"]["200"]["content"]["application/json"];
+type SetActorLanguageResponse =
+  paths["/api/bff/actor/language"]["patch"]["responses"]["200"]["content"]["application/json"];
 type ListRecordsResponse =
   paths["/api/bff/tables/{table}/records"]["get"]["responses"]["200"]["content"]["application/json"];
 type CreateRecordResponse =
@@ -84,6 +86,16 @@ export class BffClient {
 
   async getBootstrap(): Promise<BootstrapResponse> {
     return this.request<BootstrapResponse>("/api/bff/bootstrap", { method: "GET" });
+  }
+
+  // setActorLanguage (GO-047) — self-service, sempre sobre a PRÓPRIA
+  // sessão (o BFF nunca aceita um userID de parâmetro para esta rota).
+  async setActorLanguage(language: string): Promise<SetActorLanguageResponse> {
+    return this.request<SetActorLanguageResponse>("/api/bff/actor/language", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+      body: JSON.stringify({ language }),
+    });
   }
 
   async listRecords(table: string, cursor?: string): Promise<ListRecordsResponse> {

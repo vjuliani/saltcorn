@@ -99,6 +99,21 @@ npm run build       # tsc --noEmit && vite build → dist/
 npm run dev         # vite, http://localhost:5173
 ```
 
+## Internacionalização (i18n) — `src/i18n/` (GO-047)
+
+Catálogo de traduções pt/en com chaves SEMÂNTICAS (`src/i18n/
+translations.ts`) + `I18nProvider`/`useT()` (`src/i18n/I18nContext.tsx`),
+aplicado às ~20 strings de produto real (`Topbar.tsx`, `ListView.tsx`,
+`EditView.tsx`, `ViewsListPage.tsx` — `App.tsx`/`EditorPage.tsx` são
+páginas de demonstração/dev, não traduzidas). O locale vem SEMPRE já
+resolvido do bootstrap do BFF (`actor.language` > cookie `lang` >
+`default_locale` do tenant > `"pt"`, ver `migracao/packages/bff/src/
+locale.ts`) — este pacote nunca reimplementa essa cadeia. Seletor de
+idioma na Topbar (`data-testid="locale-select"`), troca otimista local +
+persistência assíncrona via `bffClient.setActorLanguage`. Detalhes
+completos em `migracao/backend/README.md` §"Internacionalização (i18n)
+da interface" e `docs/migracao-go/execucoes/GO-047.md`.
+
 ## Limitações desta entrega (deliberadas, não fabricadas)
 
 - **Topbar mínima**: a versão de `packages/saltcorn-sbadmin2/index.js` usada neste repositório não monta uma topbar completa (busca/dropdown de usuário) — só o botão de colapsar a sidebar. `Topbar.tsx` porta exatamente o que existe hoje, não uma topbar de SB Admin 2 genérica inventada sem essa referência real.

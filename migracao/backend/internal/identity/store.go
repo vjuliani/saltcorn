@@ -16,6 +16,12 @@ type User struct {
 	RoleID       RoleID
 	TOTPSecret   string
 	TOTPEnabled  bool
+	// Language (GO-047, `User.language` do legado) é a preferência de
+	// idioma EXPLÍCITA do usuário — "" significa "sem preferência", nunca
+	// um idioma padrão implícito (a resolução de idioma efetivo, cookie
+	// > default_locale do tenant > "pt", é responsabilidade do BFF, não
+	// deste pacote).
+	Language string
 }
 
 var (
@@ -41,11 +47,11 @@ func CreateUser(ctx context.Context, tx pgx.Tx, email, passwordHash string, role
 func FindUserByEmail(ctx context.Context, tx pgx.Tx, email string) (*User, error) {
 	u := &User{}
 	var roleID int
-	var totpSecret *string
+	var totpSecret, language *string
 	err := tx.QueryRow(ctx,
-		"SELECT id, email, password_hash, role_id, totp_secret, totp_enabled FROM _sc_users WHERE email = $1",
+		"SELECT id, email, password_hash, role_id, totp_secret, totp_enabled, language FROM _sc_users WHERE email = $1",
 		email,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &roleID, &totpSecret, &u.TOTPEnabled)
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &roleID, &totpSecret, &u.TOTPEnabled, &language)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrUserNotFound
@@ -55,6 +61,9 @@ func FindUserByEmail(ctx context.Context, tx pgx.Tx, email string) (*User, error
 	u.RoleID = RoleID(roleID)
 	if totpSecret != nil {
 		u.TOTPSecret = *totpSecret
+	}
+	if language != nil {
+		u.Language = *language
 	}
 	return u, nil
 }
@@ -69,11 +78,11 @@ func FindUserByEmail(ctx context.Context, tx pgx.Tx, email string) (*User, error
 func FindUserByID(ctx context.Context, tx pgx.Tx, id int) (*User, error) {
 	u := &User{}
 	var roleID int
-	var totpSecret *string
+	var totpSecret, language *string
 	err := tx.QueryRow(ctx,
-		"SELECT id, email, password_hash, role_id, totp_secret, totp_enabled FROM _sc_users WHERE id = $1",
+		"SELECT id, email, password_hash, role_id, totp_secret, totp_enabled, language FROM _sc_users WHERE id = $1",
 		id,
-	).Scan(&u.ID, &u.Email, &u.PasswordHash, &roleID, &totpSecret, &u.TOTPEnabled)
+	).Scan(&u.ID, &u.Email, &u.PasswordHash, &roleID, &totpSecret, &u.TOTPEnabled, &language)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrUserNotFound
@@ -83,6 +92,9 @@ func FindUserByID(ctx context.Context, tx pgx.Tx, id int) (*User, error) {
 	u.RoleID = RoleID(roleID)
 	if totpSecret != nil {
 		u.TOTPSecret = *totpSecret
+	}
+	if language != nil {
+		u.Language = *language
 	}
 	return u, nil
 }
@@ -102,6 +114,22 @@ func Authenticate(ctx context.Context, tx pgx.Tx, email, password string) (*User
 		return nil, ErrInvalidCredentials
 	}
 	return u, nil
+}
+
+// SetUserLanguage grava a preferência de idioma EXPLÍCITA de userID
+// (GO-047, self-service — o próprio usuário muda sua preferência, nunca
+// um admin em nome de outro; a checagem de "userID é o ator autenticado"
+// é responsabilidade do handler HTTP, este pacote só persiste). language
+// vazio LIMPA a preferência (volta a "sem preferência", cai no fallback
+// de cookie/default_locale do tenant) — nunca um erro, apagar a
+// preferência é uma operação legítima.
+func SetUserLanguage(ctx context.Context, tx pgx.Tx, userID int, language string) error {
+	var value any
+	if language != "" {
+		value = language
+	}
+	_, err := tx.Exec(ctx, "UPDATE _sc_users SET language = $1 WHERE id = $2", value, userID)
+	return err
 }
 
 // EnableTOTP grava o segredo TOTP de um usuário e marca MFA como ativado.

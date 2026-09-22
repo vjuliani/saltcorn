@@ -150,6 +150,48 @@ paths:
           $ref: "./common.yaml#/components/responses/Unauthorized"
         "403":
           $ref: "./common.yaml#/components/responses/Forbidden"
+    patch:
+      operationId: setActorLanguage
+      summary: "Command: define a preferência de idioma do ator autenticado"
+      description: >
+        GO-047 — self-service: o ator muda a PRÓPRIA preferência de
+        idioma (`identity.User.Language`), nunca a de outro usuário —
+        `id` vem do `sub` do token, nunca de um parâmetro, mesma garantia
+        de `getActor` acima. `language` vazio ou ausente LIMPA a
+        preferência (volta ao fallback de `default_locale` do tenant).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                language:
+                  type: string
+                  description: Código de locale curto (ex. "pt", "en") ou "" para limpar a preferência.
+      responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "200":
+          description: preferência de idioma atualizada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Actor"
+        "400":
+          description: corpo inválido
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
 
   /v1/tenants/{tenant}/tables:
     parameters:
@@ -1400,13 +1442,26 @@ components:
   schemas:
     Actor:
       type: object
-      required: [id, role_id]
+      required: [id, role_id, language, default_locale]
       properties:
         id:
           $ref: "./common.yaml#/components/schemas/Id"
         role_id:
           type: integer
           description: Papel atual do ator (identity.RoleID) — nunca cacheado pelo chamador, sempre resolvido nesta consulta.
+        language:
+          type: string
+          description: >
+            GO-047 — preferência de idioma EXPLÍCITA do usuário
+            (`identity.User.Language`). "" significa "sem preferência" —
+            nunca um idioma padrão implícito; o BFF resolve o idioma
+            efetivo (cookie `lang` > `default_locale`) quando vazio.
+        default_locale:
+          type: string
+          description: >
+            GO-047 — idioma padrão do TENANT (`internal/config`, chave
+            `default_locale`), sempre preenchido (fallback `"pt"` quando
+            o tenant nunca configurou), nunca vazio.
 
     User:
       type: object

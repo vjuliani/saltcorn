@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS _sc_users (
 	role_id int NOT NULL DEFAULT 80,
 	totp_secret text,
 	totp_enabled boolean NOT NULL DEFAULT false,
+	language text,
 	created_at timestamptz NOT NULL DEFAULT now()
 )`
 
