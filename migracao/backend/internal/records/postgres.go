@@ -70,3 +70,9 @@ func Compile(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query)
 func Rows(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, q Query) ([]map[string]any, error) {
 	return RowsTx(ctx, database.AsTx(tx), actorRole, q)
 }
+func GetHistory(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableName string, id int) ([]HistoryVersion, error) {
+	return GetHistoryTx(ctx, database.AsTx(tx), actorRole, tableName, id)
+}
+func RestoreRowVersion(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableName string, id int, historyVersion int, hooks *Hooks) (map[string]any, error) {
+	return RestoreRowVersionTx(ctx, database.AsTx(tx), actorRole, tableName, id, historyVersion, adaptHooks(tx, hooks))
+}

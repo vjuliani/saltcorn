@@ -20,6 +20,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/realtime"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/scheduler"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/tags"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/workflow"
@@ -126,7 +127,7 @@ func Migrate(ctx context.Context, root string, c *Config, email, password string
 				return err
 			}
 			if pg != nil {
-				for _, ensure := range []func(context.Context, pgx.Tx) error{identity.EnsureSchema, views.EnsureSchema, triggers.EnsureSchema, scheduler.EnsureSchema, workflow.EnsureSchema, files.EnsureSchema, notify.EnsureSchema, realtime.EnsureSchema, library.EnsureSchema, appconfig.EnsureSchema} {
+				for _, ensure := range []func(context.Context, pgx.Tx) error{identity.EnsureSchema, views.EnsureSchema, triggers.EnsureSchema, scheduler.EnsureSchema, workflow.EnsureSchema, files.EnsureSchema, notify.EnsureSchema, realtime.EnsureSchema, library.EnsureSchema, appconfig.EnsureSchema, tags.EnsureSchema} {
 					if err = ensure(ctx, pg); err != nil {
 						return err
 					}

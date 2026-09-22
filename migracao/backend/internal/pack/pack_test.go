@@ -19,6 +19,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/scheduler"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/tags"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 )
@@ -58,9 +59,10 @@ func buildSampleApp(t *testing.T, db *database.DB, tenant tenancy.Tenant) {
 		// de renderização de GO-020 (ClassifyView só valida layout quando a
 		// view É publicada) — este teste exercita export/import, não
 		// renderização.
-		if _, err := views.CreateView(ctx, tx, identity.RoleAdmin, "books_list", books.ID, "List", map[string]any{
+		booksList, err := views.CreateView(ctx, tx, identity.RoleAdmin, "books_list", books.ID, "List", map[string]any{
 			"columns": []any{map[string]any{"field_name": "title"}},
-		}, views.ViewOptions{MinRole: identity.RoleAdmin}); err != nil {
+		}, views.ViewOptions{MinRole: identity.RoleAdmin})
+		if err != nil {
 			return err
 		}
 
@@ -82,7 +84,23 @@ func buildSampleApp(t *testing.T, db *database.DB, tenant tenancy.Tenant) {
 		if err := config.Set(ctx, tx, "site_name", "Livraria Exemplo"); err != nil {
 			return err
 		}
-		return config.Set(ctx, tx, "menu_items", []any{"Início", "Sobre"})
+		if err := config.Set(ctx, tx, "menu_items", []any{"Início", "Sobre"}); err != nil {
+			return err
+		}
+
+		tag, err := tags.CreateTag(ctx, tx, identity.RoleAdmin, "catalogo")
+		if err != nil {
+			return err
+		}
+		booksID := books.ID
+		if _, err := tags.AddEntry(ctx, tx, identity.RoleAdmin, tag.ID, tags.TagEntryRef{TableID: &booksID}); err != nil {
+			return err
+		}
+		viewID := booksList.ID
+		if _, err := tags.AddEntry(ctx, tx, identity.RoleAdmin, tag.ID, tags.TagEntryRef{ViewID: &viewID}); err != nil {
+			return err
+		}
+		return nil
 	}); err != nil {
 		t.Fatalf("buildSampleApp: %v", err)
 	}
@@ -118,7 +136,8 @@ func TestRoundTrip_ExportImportExport_NoLoss(t *testing.T) {
 	// categoria — um teste que passasse comparando dois packs VAZIOS não
 	// provaria nada.
 	if len(original.Tables) != 2 || len(original.Views) != 1 || len(original.Triggers) != 1 ||
-		len(original.ScheduledTriggers) != 1 || len(original.Library) != 1 || len(original.Config) != 2 {
+		len(original.ScheduledTriggers) != 1 || len(original.Library) != 1 || len(original.Config) != 2 ||
+		len(original.Tags) != 1 || len(original.Tags[0].Tables) != 1 || len(original.Tags[0].Views) != 1 {
 		t.Fatalf("pack original incompleto, corpus não cobre todas as categorias: %+v", original)
 	}
 
@@ -314,7 +333,77 @@ func TestExport_EmptyTenant_ReturnsEmptyPack(t *testing.T) {
 		t.Errorf("Version = %d, esperado %d", p.Version, Version)
 	}
 	if len(p.Tables) != 0 || len(p.Views) != 0 || len(p.Triggers) != 0 ||
-		len(p.ScheduledTriggers) != 0 || len(p.Library) != 0 || len(p.Config) != 0 {
+		len(p.ScheduledTriggers) != 0 || len(p.Library) != 0 || len(p.Config) != 0 || len(p.Tags) != 0 {
 		t.Errorf("Export de tenant vazia não é vazio: %+v", p)
+	}
+}
+
+// TestExportByTag_Filtered
+// é o segundo critério de aceite de GO-045 ("tags... usadas para filtrar
+// um export de Pack"): a tag "catalogo" (buildSampleApp) só referencia
+// DIRETAMENTE a tabela "books" e a view "books_list" — nunca "authors" —
+// mas "books" tem um FieldKey para "authors", então o Pack filtrado
+// PRECISA incluir "authors" também (fechamento transitivo), senão o
+// próprio Import deste Pack falharia com "tabela desconhecida". Triggers/
+// ScheduledTriggers/Library/Config nunca entram num export filtrado por
+// tag — prova que o filtro realmente restringe, não só "documenta" a tag
+// junto de um export completo.
+func TestExportByTag_Filtered(t *testing.T) {
+	db := testDB(t)
+	tenant := newTenant(t, db, "filtered")
+	buildSampleApp(t, db, tenant)
+
+	var filtered Pack
+	if err := db.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		filtered, err = ExportFilteredByTag(ctx, tx, identity.RoleAdmin, "catalogo", nil)
+		return err
+	}); err != nil {
+		t.Fatalf("ExportFilteredByTag: %v", err)
+	}
+
+	if len(filtered.Tables) != 2 {
+		t.Fatalf("Tables = %d, esperado 2 (books + authors via fechamento transitivo): %+v", len(filtered.Tables), filtered.Tables)
+	}
+	names := map[string]bool{}
+	for _, tp := range filtered.Tables {
+		names[tp.Name] = true
+	}
+	if !names["books"] || !names["authors"] {
+		t.Errorf("Tables = %+v, esperado books e authors", filtered.Tables)
+	}
+	if len(filtered.Views) != 1 || filtered.Views[0].Name != "books_list" {
+		t.Errorf("Views = %+v, esperado só books_list", filtered.Views)
+	}
+	if len(filtered.Triggers) != 0 || len(filtered.ScheduledTriggers) != 0 || len(filtered.Library) != 0 || len(filtered.Config) != 0 {
+		t.Errorf("categorias fora do escopo de tag deveriam ficar vazias: triggers=%d scheduled=%d library=%d config=%d",
+			len(filtered.Triggers), len(filtered.ScheduledTriggers), len(filtered.Library), len(filtered.Config))
+	}
+	if len(filtered.Tags) != 1 || filtered.Tags[0].Name != "catalogo" ||
+		len(filtered.Tags[0].Tables) != 1 || filtered.Tags[0].Tables[0] != "books" ||
+		len(filtered.Tags[0].Views) != 1 || filtered.Tags[0].Views[0] != "books_list" {
+		t.Errorf("Tags = %+v, esperado só a entrada direta da tag (nunca inflado pelo fechamento transitivo)", filtered.Tags)
+	}
+
+	// O Pack filtrado precisa ser, ele mesmo, importável — a prova final
+	// de que o fechamento transitivo realmente resolve a dependência.
+	dest := newTenant(t, db, "filtered_dest")
+	if err := db.WithTenant(context.Background(), dest, func(ctx context.Context, tx pgx.Tx) error {
+		return Import(ctx, tx, identity.RoleAdmin, filtered, nil)
+	}); err != nil {
+		t.Fatalf("Import do pack filtrado: %v", err)
+	}
+}
+
+func TestExportFilteredByTag_UnknownTag_ReturnsError(t *testing.T) {
+	db := testDB(t)
+	tenant := newTenant(t, db, "notag")
+
+	err := db.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := ExportFilteredByTag(ctx, tx, identity.RoleAdmin, "inexistente", nil)
+		return err
+	})
+	if !errors.Is(err, ErrTagNotFound) {
+		t.Fatalf("err = %v, esperado ErrTagNotFound", err)
 	}
 }

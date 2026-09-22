@@ -48,9 +48,9 @@ func GetTable(ctx context.Context, tx database.Tx, name string) (*Table, error) 
 	t := &Table{}
 	var minRead, minWrite int
 	err := tx.QueryRow(ctx,
-		"SELECT id, name, min_role_read, min_role_write FROM _sc_tables WHERE name = $1",
+		"SELECT id, name, min_role_read, min_role_write, versioned FROM _sc_tables WHERE name = $1",
 		name,
-	).Scan(&t.ID, &t.Name, &minRead, &minWrite)
+	).Scan(&t.ID, &t.Name, &minRead, &minWrite, &t.Versioned)
 	if err != nil {
 		if errors.Is(err, database.ErrNoRows) {
 			return nil, ErrTableNotFound
@@ -67,7 +67,7 @@ func GetTable(ctx context.Context, tx database.Tx, name string) (*Table, error) 
 // inteira; nenhum outro chamador precisava disto até aqui (GetTable, por
 // nome, bastava).
 func ListTables(ctx context.Context, tx database.Tx) ([]Table, error) {
-	rows, err := tx.Query(ctx, "SELECT id, name, min_role_read, min_role_write FROM _sc_tables ORDER BY id")
+	rows, err := tx.Query(ctx, "SELECT id, name, min_role_read, min_role_write, versioned FROM _sc_tables ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func ListTables(ctx context.Context, tx database.Tx) ([]Table, error) {
 	for rows.Next() {
 		var t Table
 		var minRead, minWrite int
-		if err := rows.Scan(&t.ID, &t.Name, &minRead, &minWrite); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &minRead, &minWrite, &t.Versioned); err != nil {
 			return nil, err
 		}
 		t.MinRoleRead = identity.RoleID(minRead)
@@ -176,10 +176,10 @@ func CreateTable(ctx context.Context, tx database.Tx, actorRole identity.RoleID,
 		minWrite = identity.RoleAdmin
 	}
 
-	t := &Table{Name: sanitized, MinRoleRead: minRead, MinRoleWrite: minWrite}
+	t := &Table{Name: sanitized, MinRoleRead: minRead, MinRoleWrite: minWrite, Versioned: opts.Versioned}
 	err := tx.QueryRow(ctx,
-		"INSERT INTO _sc_tables (name, min_role_read, min_role_write) VALUES ($1, $2, $3) RETURNING id",
-		sanitized, int(minRead), int(minWrite),
+		"INSERT INTO _sc_tables (name, min_role_read, min_role_write, versioned) VALUES ($1, $2, $3, $4) RETURNING id",
+		sanitized, int(minRead), int(minWrite), opts.Versioned,
 	).Scan(&t.ID)
 	if err != nil {
 		return nil, fmt.Errorf("metadata: inserir tabela no catálogo: %w", err)
@@ -192,6 +192,12 @@ func CreateTable(ctx context.Context, tx database.Tx, actorRole identity.RoleID,
 	createDDL := fmt.Sprintf("CREATE TABLE %s (%s)", pgx.Identifier{sanitized}.Sanitize(), columns)
 	if err := tx.Exec(ctx, createDDL); err != nil {
 		return nil, fmt.Errorf("metadata: criar tabela física %q: %w", sanitized, err)
+	}
+
+	if opts.Versioned {
+		if err := createHistoryTable(ctx, tx, sanitized, nil); err != nil {
+			return nil, fmt.Errorf("metadata: criar tabela de histórico %q: %w", historyTableName(sanitized), err)
+		}
 	}
 
 	if _, err := bumpVersion(ctx, tx); err != nil {
@@ -232,6 +238,60 @@ func UpdateTablePermissions(ctx context.Context, tx database.Tx, actorRole ident
 	return GetTableByID(ctx, tx, tableID)
 }
 
+// SetTableVersioned habilita/desabilita o versionamento de linha (GO-045)
+// de uma tabela já existente — `CreateTable` só define `Versioned` na
+// CRIAÇÃO (mesmo padrão de UpdateTablePermissions acima para
+// min_role_read/write). Habilitar cria `<table>__history` com uma coluna
+// por campo JÁ catalogado (createHistoryTable) — snapshots começam a
+// existir a partir daqui, nunca retroativamente (não há como reconstruir
+// histórico de escritas que já aconteceram antes de a tabela ser
+// versionada). Desabilitar DESCARTA a tabela de histórico inteira — mesmo
+// comportamento do legado (`models/table.ts`: `versioned=false` sobre uma
+// tabela `existing.versioned=true` dropa `__history`), não uma escolha
+// nova deste port; religar depois começa um histórico vazio, nunca
+// recupera o descartado.
+func SetTableVersioned(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableID int, versioned bool) (*Table, error) {
+	if err := requireAdmin(actorRole); err != nil {
+		return nil, err
+	}
+
+	if err := lockCatalog(ctx, tx); err != nil {
+		return nil, err
+	}
+
+	table, err := GetTableByID(ctx, tx, tableID)
+	if err != nil {
+		return nil, err
+	}
+	if table.Versioned == versioned {
+		return table, nil
+	}
+
+	if versioned {
+		fields, err := ListFields(ctx, tx, tableID)
+		if err != nil {
+			return nil, err
+		}
+		if err := createHistoryTable(ctx, tx, table.Name, fields); err != nil {
+			return nil, fmt.Errorf("metadata: criar tabela de histórico %q: %w", historyTableName(table.Name), err)
+		}
+	} else {
+		if err := dropHistoryTable(ctx, tx, table.Name); err != nil {
+			return nil, fmt.Errorf("metadata: remover tabela de histórico %q: %w", historyTableName(table.Name), err)
+		}
+	}
+
+	if err := tx.Exec(ctx, "UPDATE _sc_tables SET versioned = $1 WHERE id = $2", versioned, tableID); err != nil {
+		return nil, fmt.Errorf("metadata: atualizar versioned da tabela: %w", err)
+	}
+
+	if _, err := bumpVersion(ctx, tx); err != nil {
+		return nil, fmt.Errorf("metadata: incrementar versão do catálogo: %w", err)
+	}
+
+	return GetTableByID(ctx, tx, tableID)
+}
+
 // AddField adiciona um campo a uma tabela existente: registra no catálogo
 // (_sc_fields) e executa `ALTER TABLE ... ADD COLUMN` na mesma transação, e
 // incrementa a versão do catálogo. Idempotente quando a definição é
@@ -255,10 +315,11 @@ func AddField(ctx context.Context, tx database.Tx, actorRole identity.RoleID, ta
 		return nil, err
 	}
 
-	tableName, err := tableNameByID(ctx, tx, tableID)
+	table, err := GetTableByID(ctx, tx, tableID)
 	if err != nil {
 		return nil, err
 	}
+	tableName := table.Name
 
 	if existing, err := getFieldByName(ctx, tx, tableID, sanitized); err == nil {
 		if existing.Type != def.Type {
@@ -329,6 +390,13 @@ func AddField(ctx context.Context, tx database.Tx, actorRole identity.RoleID, ta
 			return nil, err
 		}
 	}
+
+	if table.Versioned {
+		if err := addHistoryColumn(ctx, tx, tableName, *f); err != nil {
+			return nil, fmt.Errorf("metadata: adicionar coluna %q na tabela de histórico: %w", sanitized, err)
+		}
+	}
+
 	if _, err := bumpVersion(ctx, tx); err != nil {
 		return nil, err
 	}
@@ -406,7 +474,7 @@ func DropTable(ctx context.Context, tx database.Tx, actorRole identity.RoleID, t
 		return err
 	}
 
-	tableName, err := tableNameByID(ctx, tx, tableID)
+	table, err := GetTableByID(ctx, tx, tableID)
 	if err != nil {
 		if errors.Is(err, ErrTableNotFound) {
 			return nil
@@ -418,9 +486,15 @@ func DropTable(ctx context.Context, tx database.Tx, actorRole identity.RoleID, t
 		return fmt.Errorf("metadata: remover tabela do catálogo: %w", err)
 	}
 
-	ddl := fmt.Sprintf("DROP TABLE IF EXISTS %s", pgx.Identifier{tableName}.Sanitize())
+	ddl := fmt.Sprintf("DROP TABLE IF EXISTS %s", pgx.Identifier{table.Name}.Sanitize())
 	if err := tx.Exec(ctx, ddl); err != nil {
-		return fmt.Errorf("metadata: remover tabela física %q: %w", tableName, err)
+		return fmt.Errorf("metadata: remover tabela física %q: %w", table.Name, err)
+	}
+
+	if table.Versioned {
+		if err := dropHistoryTable(ctx, tx, table.Name); err != nil {
+			return fmt.Errorf("metadata: remover tabela de histórico %q: %w", historyTableName(table.Name), err)
+		}
 	}
 
 	if _, err := bumpVersion(ctx, tx); err != nil {
@@ -449,9 +523,9 @@ func GetTableByID(ctx context.Context, tx database.Tx, id int) (*Table, error) {
 	t := &Table{}
 	var minRead, minWrite int
 	err := tx.QueryRow(ctx,
-		"SELECT id, name, min_role_read, min_role_write FROM _sc_tables WHERE id = $1",
+		"SELECT id, name, min_role_read, min_role_write, versioned FROM _sc_tables WHERE id = $1",
 		id,
-	).Scan(&t.ID, &t.Name, &minRead, &minWrite)
+	).Scan(&t.ID, &t.Name, &minRead, &minWrite, &t.Versioned)
 	if err != nil {
 		if errors.Is(err, database.ErrNoRows) {
 			return nil, ErrTableNotFound

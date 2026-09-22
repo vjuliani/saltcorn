@@ -880,13 +880,13 @@ Execute a task GO-044 — Portar administração de usuário e segurança do ser
 
 ### GO-045 — Portar versionamento de linha (table history) e sistema de tags
 
-- [ ] **Status:** TODO
+- [x] **Status:** IN_REVIEW
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-011, GO-013, GO-027
 - **Branch:** `task/go-045`
-- **Escopo:** Portar versionamento de linha (CAP-075: flag `versioned` por tabela, tabela `<nome>__history`, consulta/restauração de versão anterior de um registro, `models/table.ts`) e o sistema de tags (CAP-077: CRUD de tag, associação tag↔entidade, export de Pack filtrado por tag, `models/tag.ts`/`tag_entry.ts`).
-- **Aceite:** Uma tabela marcada `versioned` grava histórico a cada update/delete e permite consultar/restaurar uma versão anterior de um registro; tags podem ser criadas, associadas a tabelas/views/páginas/triggers, e usadas para filtrar um export de Pack (GO-027); GO-033 (CAP-075, CAP-077) reclassificado de NÃO LISTADA para PASS/PARTIAL com lacuna explícita.
+- **Escopo:** Portar versionamento de linha (CAP-075: flag `versioned` por tabela, tabela `<nome>__history`, consulta/restauração de versão anterior de um registro, `models/table.ts`) e o sistema de tags (CAP-077: CRUD de tag, associação tag↔entidade, export de Pack filtrado por tag, `models/tag.ts`/`tag_entry.ts`). **Emendado na execução (2026-09-22, leitura real do legado):** `Table.deleteRows` nunca chama `insert_history_row` — o histórico só é gravado em insert/update, nunca em delete; o texto original deste escopo ("grava a cada update/delete") presumia o contrário sem ter confirmado contra o código real, corrigido para seguir o comportamento VERDADEIRO. Tags cobrem só Table/View — Page nunca foi portada para Go, e `internal/triggers.Trigger` (GO-024) nunca modelou um campo `Name`, então uma tag de trigger não seria portável entre tenants (toda referência de Pack é por nome); os dois carve-outs são divergências deliberadas e documentadas, não um esquecimento.
+- **Aceite:** Uma tabela marcada `versioned` grava histórico a cada insert/update (nunca delete, ver achado acima) e permite consultar/restaurar uma versão anterior de um registro; tags podem ser criadas, associadas a tabelas/views, e usadas para filtrar um export de Pack (GO-027, com fechamento transitivo de referências FieldKey — o pack filtrado é, ele mesmo, importável); GO-033 (CAP-075, CAP-077) reclassificado de NÃO LISTADA para PASS PARCIAL com lacuna explícita (undo/redo explícito e exposição HTTP/CLI/UI de tags ficam de fora, documentado).
 - **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
 - **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
 - **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-045; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.

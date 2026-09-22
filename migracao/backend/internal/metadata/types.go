@@ -9,15 +9,22 @@ type Table struct {
 	Name         string
 	MinRoleRead  identity.RoleID
 	MinRoleWrite identity.RoleID
+	// Versioned (GO-045, `models/table.ts` — flag `versioned`) — se true,
+	// toda escrita física (insert/update/delete) grava um snapshot na
+	// tabela `<Name>__history` na MESMA transação, ver
+	// internal/records.insertHistoryRow.
+	Versioned bool
 }
 
 // TableOptions são os parâmetros opcionais de CreateTable. Zero-value usa
 // os padrões seguros: leitura pública (identity.RolePublic), escrita só
 // admin (identity.RoleAdmin) — o mesmo espírito de "nada é liberado por
-// omissão" já usado em internal/cutover (GO-009).
+// omissão" já usado em internal/cutover (GO-009). Versioned zero-value é
+// false — versionamento é opt-in, mesmo padrão do legado.
 type TableOptions struct {
 	MinRoleRead  identity.RoleID
 	MinRoleWrite identity.RoleID
+	Versioned    bool
 }
 
 // Field é um campo (coluna) de uma tabela dinâmica, registrado no

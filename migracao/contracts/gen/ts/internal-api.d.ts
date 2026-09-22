@@ -494,6 +494,54 @@ export interface paths {
         patch: operations["updateRecord"];
         trace?: never;
     };
+    "/v1/tenants/{tenant}/tables/{table}/records/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                table: string;
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Query: lista os snapshots de versionamento de um registro
+         * @description GO-045 (`models/table.ts`, flag `versioned`) — só disponível para tabelas `versioned=true` (ver TableInput/Table); 409 caso contrário (nunca uma lista vazia ambígua entre "sem versões ainda" e "tabela nem tem histórico"). Ordem mais recente primeiro.
+         */
+        get: operations["getRecordHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/tables/{table}/records/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                table: string;
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: restaura um registro para um snapshot anterior
+         * @description GO-045 — restaurar é sempre ADITIVO: cria um NOVO snapshot no histórico (marcado `restore_of_version`, apontando para a versão restaurada), nunca apaga nem sobrescreve um snapshot existente. Mesmo controle de concorrência otimista de qualquer escrita — a versão ATUAL do registro (não a do histórico) é lida no momento da restauração; um 409 aqui significa que o registro mudou entre a leitura do histórico e esta chamada, não um conflito de snapshots.
+         */
+        post: operations["restoreRecordVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -517,12 +565,15 @@ export interface components {
             name: string;
             min_role_read?: number;
             min_role_write?: number;
+            /** @description GO-045 — se true, toda escrita (insert/update) grava um snapshot em `<name>__history`, consultável via `GET .../records/{id}/history` e restaurável via `POST .../records/{id}/restore`. Omitido/false: tabela sem histórico, mesmo padrão de hoje. */
+            versioned?: boolean;
         };
         Table: {
             id: components["schemas"]["Id"];
             name: string;
             min_role_read: number;
             min_role_write: number;
+            versioned: boolean;
         };
         FieldInput: {
             name: string;
@@ -692,6 +743,18 @@ export interface components {
             _version: string;
         } & {
             [key: string]: unknown;
+        };
+        /** @description GO-045 — um snapshot de `<table>__history`. `version` é `_history_version` (posição na linha do tempo do registro), nunca confundir com `_version`/xmin de Record (controle de concorrência otimista, um conceito distinto que o snapshot nem carrega). */
+        RecordHistoryVersion: {
+            version: number;
+            /** @description RFC3339 — quando este snapshot foi gravado. */
+            time: string;
+            /** @description Presente só quando este snapshot é o resultado de um restoreRecordVersion — a versão que foi restaurada. */
+            restore_of_version?: number;
+            /** @description Os campos de dados do registro naquele instante (nunca inclui id/_version — id já está no path, _version não existe no histórico). */
+            record: {
+                [key: string]: unknown;
+            };
         };
         Scope: {
             tenant: string;
@@ -2037,6 +2100,130 @@ export interface operations {
                 };
             };
             /** @description conflito de versão otimista ou de idempotência */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getRecordHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                table: string;
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description snapshots do registro, mais recente primeiro */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        versions: components["schemas"]["RecordHistoryVersion"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description tabela desconhecida */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description tabela não é versionada */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    restoreRecordVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                table: string;
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description _history_version do snapshot a restaurar (ver getRecordHistory). */
+                    version: number;
+                };
+            };
+        };
+        responses: {
+            /** @description registro restaurado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Record"];
+                };
+            };
+            /** @description corpo inválido ou version ausente */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description tabela, registro ou snapshot não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description tabela não é versionada, ou conflito de versão otimista no registro atual */
             409: {
                 headers: {
                     [name: string]: unknown;
