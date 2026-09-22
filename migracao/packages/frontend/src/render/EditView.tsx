@@ -2,11 +2,19 @@
 // internal/views/edit.go do lado Go) — o formulário de escrita real do
 // pack piloto guitars (`form_action`). Cada campo vira um `<input>` ou
 // `<select>` (fieldview "select", opções reais trazidas pelo Go) — sem
-// nenhum widget de terceiro (flatpickr vira um `<input type="text">`
-// simples, já que o Go só grava/lê a string RFC3339 por baixo, nunca
-// interpreta o widget). O componente só desenha e coage valores para o
-// tipo que o Go espera (`coerceForSubmit`); quem decide o que fazer
-// depois de submeter (`navigate`) é o chamador via `onSubmit`.
+// nenhum widget de terceiro: `flatpickr` (o plugin de terceiro real do
+// pack, sem código-fonte neste checkout — ver GO-001/GO-029) vira um
+// `<input type="date">` HTML5 NATIVO (GO-042), não um `<input
+// type="text">` simples — um substituto funcional real (seletor de
+// calendário, validação de formato pelo próprio navegador), nunca uma
+// mera ausência de widget. `internal/records.coerceJSONValue` (Go) só
+// aceita RFC3339 completo (`time.Parse(time.RFC3339, s)`), nunca a forma
+// curta `AAAA-MM-DD` que `<input type="date">` produz/consome — este
+// componente converte nas duas direções (`dateValueFor`/
+// `coerceForSubmit`), o Go nunca precisa saber a diferença. O componente
+// só desenha e coage valores para o tipo que o Go espera
+// (`coerceForSubmit`); quem decide o que fazer depois de submeter
+// (`navigate`) é o chamador via `onSubmit`.
 import { useState, type FormEvent } from "react";
 
 export interface EditViewFieldOption {
@@ -42,7 +50,21 @@ export interface EditViewProps {
 
 function inputTypeFor(field: EditViewField): string {
   if (field.field_type === "integer" || field.field_type === "float") return "number";
+  if (field.field_type === "date") return "date";
   return "text";
+}
+
+/**
+ * dateValueFor extrai a parte `AAAA-MM-DD` de um valor RFC3339 vindo do
+ * Go (ex.: "2024-01-15T00:00:00Z" → "2024-01-15") — o único formato que
+ * `<input type="date">` aceita como `value`; qualquer outra coisa (valor
+ * nulo, string já curta, string não reconhecida) passa como está ou vira
+ * "" — nunca um `<input>` HTML5 recebendo um valor que o navegador
+ * rejeitaria silenciosamente.
+ */
+function dateValueFor(raw: string): string {
+  const match = /^\d{4}-\d{2}-\d{2}/.exec(raw);
+  return match ? match[0] : raw;
 }
 
 /**
@@ -50,7 +72,10 @@ function inputTypeFor(field: EditViewField): string {
  * tipo que internal/records espera (ver internal/records.coerceJSONValue
  * do lado Go, GO-039 — números/booleans decodificados de JSON, nunca de
  * um `<input>` de string direto). Campo vazio vira `undefined` (omitido
- * do corpo, nunca um valor inválido submetido).
+ * do corpo, nunca um valor inválido submetido). Campo `date`: o
+ * navegador sempre entrega `AAAA-MM-DD` (GO-042) — completado para
+ * RFC3339 (`T00:00:00Z`), o único formato que `coerceJSONValue` do Go
+ * aceita.
  */
 function coerceForSubmit(field: EditViewField, raw: string): unknown {
   if (raw === "") return undefined;
@@ -58,13 +83,17 @@ function coerceForSubmit(field: EditViewField, raw: string): unknown {
     const n = Number(raw);
     return Number.isNaN(n) ? raw : n;
   }
+  if (field.field_type === "date") return `${raw}T00:00:00Z`;
   return raw;
 }
 
 export function EditView({ plan, onSubmit, submitting }: EditViewProps) {
   const [values, setValues] = useState<Record<string, string>>(() => {
     const initial: Record<string, string> = {};
-    for (const f of plan.fields) initial[f.field_name] = f.value === null || f.value === undefined ? "" : String(f.value);
+    for (const f of plan.fields) {
+      const raw = f.value === null || f.value === undefined ? "" : String(f.value);
+      initial[f.field_name] = f.field_type === "date" ? dateValueFor(raw) : raw;
+    }
     return initial;
   });
 

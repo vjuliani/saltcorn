@@ -750,3 +750,63 @@ para trás. Corrigido, revalidado de ponta a ponta (não só `go test`): `cli
 e2e-seed` → `cmd/server` real → HTTP create real com token de identidade
 delegada assinado. Detalhes completos em
 `docs/migracao-go/execucoes/GO-040.md`.
+
+## Validação de plugins de terceiro do piloto ponta a ponta (GO-042)
+
+Confirma, com evidência real (não só documentada), a substituição
+funcional dos dois plugins de terceiro reais do pack piloto `guitars`
+(`@saltcorn/any-bootstrap-theme`, `@saltcorn/flatpickr-date` — sem
+código-fonte neste checkout, ver GO-001/GO-029).
+
+- **Tema SB Admin 2**: já satisfeito por construção desde GO-018 — o
+  frontend novo NUNCA ofereceu `any-bootstrap-theme` como opção; SB Admin
+  2 é a ÚNICA folha de estilo/shell deste stack, em toda página. Nenhuma
+  mudança de código nesta task.
+- **Campo de data nativo** (`migracao/packages/frontend/src/render/
+  EditView.tsx`): a fieldview `"flatpickr"` (a mesma que o pack `guitars`
+  usa de verdade em `edit_processed_embed`/`upload_photo`, campo
+  `date_processed`) agora vira um `<input type="date">` HTML5 NATIVO —
+  antes (GO-039) virava um `<input type="text">` simples, sem seletor de
+  calendário nem validação de formato pelo navegador. `internal/records.
+  coerceJSONValue` (Go) só aceita RFC3339 completo, nunca a forma curta
+  `AAAA-MM-DD` que `<input type="date">` produz/consome — o componente
+  converte nas duas direções, o Go nunca precisa saber a diferença.
+- **Prova ponta a ponta em navegador real** (`migracao/e2e/tests/
+  date-field-edit.spec.ts`, novo): cria tabela/campos/views Edit e List
+  via HTTP (mesmo shape de `configuration.columns[]` que o pack real
+  usa — não existe hoje um tradutor do formato de `pack.json` do legado
+  para `internal/pack.Pack`, formatos distintos, achado de preflight),
+  abre a view Edit pelo navegador (Chromium+Firefox), confirma o
+  `<input type="date">`, preenche e salva, reabre a view List sobre a
+  MESMA tabela e confirma que o valor persistiu corretamente.
+
+**Achado real, corrigido — `database.CollectMaps` devolvia `time.Time` no
+fuso LOCAL DO PROCESSO, nunca UTC**: rodar o E2E acima pela primeira vez
+contra um Postgres/processo real revelou que um campo `date` gravado como
+meia-noite UTC (`"2024-03-20T00:00:00Z"`) voltava, num processo rodando
+num fuso negativo (`America/Sao_Paulo`, UTC-3), como `"2024-03-19T21:00:
+00-03:00"` — um dia ANTES do valor gravado. Causa raiz: `pgx` decodifica
+`timestamptz` para `time.Time` no fuso `time.Local` do processo CLIENTE
+(nunca UTC, nunca o fuso da sessão Postgres — confirmado `SHOW TimeZone`
+= UTC no banco); `internal/metadata.FieldType.pgType()` mapeia `FieldDate`
+para `timestamptz`, então todo campo de data saía deslocado dependendo só
+de em que fuso o SERVIDOR estava rodando, nunca do valor realmente
+gravado — nenhum teste anterior pegou isso porque nenhuma fixture Go
+constrói um `time.Time` passando por um roundtrip real de Postgres com o
+processo fora de UTC. Corrigido em `internal/platform/database.
+CollectMaps` (o ponto genérico onde `internal/records.RowsTx`/
+`CreateRecordTx`/`UpdateRecordTx` coletam linhas do driver): todo
+`time.Time` é normalizado para UTC (`t.UTC()`) antes de sair deste
+pacote — corrige o problema para QUALQUER consumidor, não só o caminho
+HTTP desta task. Exatamente o tipo de divergência ambiental que "operar
+ponta a ponta" (o aceite desta task) existe para revelar.
+
+**Verificação de regressão deliberada** (desabilitar → confirmar falha
+real → restaurar → confirmar passe), duas vezes: a conversão
+`AAAA-MM-DD → RFC3339` em `EditView.coerceForSubmit` (sem ela, o Go
+rejeitaria o valor com `ErrTypeMismatch`); e a normalização `.UTC()` em
+`CollectMaps` (sem ela, `TestCollectMaps_NormalizesTimeToUTC` — que fixa
+`time.Local` para um fuso negativo conhecido dentro do próprio teste,
+determinístico independente de onde o CI realmente roda — reproduz
+exatamente o mesmo bug encontrado no E2E: `Location()` no fuso local, dia
+deslocado). Detalhes completos em `docs/migracao-go/execucoes/GO-042.md`.
