@@ -50,7 +50,10 @@ test("valor de registro com <script> nunca executa — só aparece como texto es
       name: `${tableName}_view`,
       table: tableName,
       template: "List",
-      configuration: { layout: { besides: [{ header_label: "Título", contents: { type: "Field", field_name: "titulo" } }] } },
+      // configuration.columns (GO-039) é a fonte de verdade real de List —
+      // não configuration.layout.besides (árvore de arranjo visual, nunca
+      // interpretada pelo runtime; achado de preflight de GO-039).
+      configuration: { columns: [{ type: "Field", field_name: "titulo", header_label: "Título" }] },
       min_role: 100,
     },
   });
