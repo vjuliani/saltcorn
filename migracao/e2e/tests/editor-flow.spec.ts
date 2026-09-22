@@ -38,9 +38,10 @@ test("cria tabela, cria view, publica e opera (lista/pré-visualiza) — ponta a
   const preview = page.getByTestId("views-preview");
   await expect(preview).toBeVisible();
   // `EditorPage.tsx` cria a view já com um layout compatível com o
-  // runtime de renderização (GO-020: `layout.besides` referenciando o
-  // campo "titulo" que `handleCreateTable` também cria — ver achado de
-  // integração corrigido em docs/migracao-go/execucoes/GO-021.md) —
+  // runtime de renderização (GO-020/GO-039: `configuration.columns`
+  // referenciando o campo "titulo" que `handleCreateTable` também cria —
+  // ver achado de integração corrigido em docs/migracao-go/execucoes/
+  // GO-021.md e a correção de fonte de verdade em GO-039.md) —
   // "operar" de ponta a ponta é a pré-visualização renderizar de verdade
   // uma tabela com o cabeçalho "Título" e nenhum registro ainda (a tabela
   // acabou de ser criada, sem dados), nunca a mensagem de "não suportado".
