@@ -31,6 +31,33 @@ type ActionFunc func(ctx context.Context, tx pgx.Tx, table metadata.Table, row m
 type Dispatcher struct {
 	Expression *expression.Evaluator
 	Actions    map[string]ActionFunc
+	// RunJSCode (GO-040), se não-nil, atende a ação "run_js_code" em vez
+	// de uma busca em Actions — a ÚNICA ação que precisa saber o tenant
+	// (para o mesmo motivo de shouldFire: checar cutover.Guard antes de
+	// tocar no host de plugins, internal/expression.Evaluator.Eval). Ver
+	// NewRunJSCode em runjscode.go.
+	RunJSCode RunJSCodeFunc
+}
+
+// RunOne despacha uma única ação de trigger (nativa ou run_js_code) — o
+// código comum entre runBefore/runAfter, evitando duplicar o
+// caso-especial de run_js_code nos dois. Exportado (GO-040) porque é
+// também exatamente o que o consumidor de outbox do worker precisa para
+// executar de fato um trigger AfterCommit enfileirado por
+// enqueueAfterCommit — nenhum segundo mecanismo de despacho é criado só
+// para esse caminho.
+func (d *Dispatcher) RunOne(ctx context.Context, tx pgx.Tx, tenant tenancy.Tenant, table metadata.Table, trig Trigger, row map[string]any) error {
+	if trig.Action == ActionRunJSCode {
+		if d.RunJSCode == nil {
+			return fmt.Errorf("%w: %q (trigger %d)", ErrUnknownAction, trig.Action, trig.ID)
+		}
+		return d.RunJSCode(ctx, tx, tenant, table, row, trig.Configuration)
+	}
+	action, ok := d.Actions[trig.Action]
+	if !ok {
+		return fmt.Errorf("%w: %q (trigger %d)", ErrUnknownAction, trig.Action, trig.ID)
+	}
+	return action(ctx, tx, table, row, trig.Configuration)
 }
 
 // HooksFor constrói um *records.Hooks (o ponto de extensão reservado
@@ -78,11 +105,7 @@ func (d *Dispatcher) runBefore(ctx context.Context, tx pgx.Tx, tenant tenancy.Te
 		if !fire {
 			continue
 		}
-		action, ok := d.Actions[trig.Action]
-		if !ok {
-			return fmt.Errorf("%w: %q (trigger %d)", ErrUnknownAction, trig.Action, trig.ID)
-		}
-		if err := action(ctx, tx, table, values, trig.Configuration); err != nil {
+		if err := d.RunOne(ctx, tx, tenant, table, trig, values); err != nil {
 			return err
 		}
 	}
@@ -111,11 +134,7 @@ func (d *Dispatcher) runAfter(ctx context.Context, tx pgx.Tx, tenant tenancy.Ten
 			}
 			continue
 		}
-		action, ok := d.Actions[trig.Action]
-		if !ok {
-			return fmt.Errorf("%w: %q (trigger %d)", ErrUnknownAction, trig.Action, trig.ID)
-		}
-		if err := action(ctx, tx, table, record, trig.Configuration); err != nil {
+		if err := d.RunOne(ctx, tx, tenant, table, trig, record); err != nil {
 			return err
 		}
 	}

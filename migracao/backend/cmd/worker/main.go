@@ -30,12 +30,15 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/expression"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/files"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/notify"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
@@ -45,7 +48,9 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/telemetry"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/pluginhost"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/scheduler"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 )
 
 // jobInterval é fixo nesta fundação — permanece assim mesmo após GO-025:
@@ -155,25 +160,47 @@ func main() {
 		},
 	}}
 
+	// triggerDispatcher (GO-040) é o mesmo catálogo de ações nativas e a
+	// mesma Evaluator de expressão que cmd/server usa para triggers
+	// síncronos — o worker só entra em cena para o caso AfterCommit
+	// (Dispatcher.enqueueAfterCommit), reaproveitando Dispatcher.RunOne em
+	// vez de inventar um segundo caminho de despacho por nome de ação. O
+	// cliente do host de plugins é sempre construído (início preguiçoso,
+	// sem custo se run_js_code nunca for usado); RunJSCode só é registrado
+	// se um script de host foi configurado, mesmo critério de cmd/server.
+	pluginClient := pluginhost.NewClient(pluginhost.ClientOptions{
+		NodeBin:    cfg.PluginHostNodeBin,
+		HostScript: cfg.PluginHostScript,
+	})
+	defer pluginClient.Close()
+	evaluator := &expression.Evaluator{Client: pluginClient, Guard: guard}
+	triggerDispatcher := &triggers.Dispatcher{Expression: evaluator, Actions: triggers.BuiltinActions()}
+	if cfg.PluginHostScript != "" {
+		triggerDispatcher.RunJSCode = triggers.NewRunJSCode(evaluator)
+	} else {
+		logger.Warn("SALTCORN_GO_PLUGINHOST_SCRIPT não configurada — ação nativa run_js_code indisponível em triggers AfterCommit (ErrUnknownAction ao disparar)")
+	}
+
 	// notifyHandler (GO-026) é o primeiro consumidor REAL de
 	// outbox.ProcessPending desde GO-014 — antes disso, todo evento só era
 	// logado ("sem consumidor real ainda"). SMTPHost vazio não impede o
 	// job de rodar: um evento de e-mail enfileirado sem servidor
 	// configurado falha explicitamente (entra no retry normal do outbox),
-	// nunca é descartado silenciosamente. O fallback preserva o
-	// comportamento de log de qualquer tipo de evento que não seja
-	// e-mail/webhook — nenhum consumidor futuro perde esse log só por
-	// GO-026 ter sido implementada.
+	// nunca é descartado silenciosamente. triggerOutboxHandler (GO-040) é o
+	// primeiro consumidor real de "trigger:<ação>" (Dispatcher.
+	// enqueueAfterCommit) — o fallback final preserva o comportamento de
+	// log de qualquer tipo de evento que não seja e-mail/webhook/trigger,
+	// nenhum consumidor futuro perde esse log.
 	smtpCfg := notify.SMTPConfig{
 		Host: cfg.SMTPHost, Port: cfg.SMTPPort,
 		Username: cfg.SMTPUsername, Password: cfg.SMTPPassword, From: cfg.SMTPFrom,
 	}
 	httpClient := &http.Client{Timeout: 10 * time.Second}
-	notifyHandler := notify.Handler(smtpCfg, httpClient, func(ctx context.Context, tx pgx.Tx, ev outbox.OutboxEvent) error {
+	notifyHandler := notify.Handler(smtpCfg, httpClient, triggerOutboxHandler(triggerDispatcher, func(ctx context.Context, tx pgx.Tx, ev outbox.OutboxEvent) error {
 		telemetry.LoggerFor(ctx).Info("evento de outbox processado (demonstração, sem consumidor real)",
 			"event_type", ev.Type, "attempts", ev.Attempts)
 		return nil
-	})
+	}))
 
 	// filesBackend (GO-026) só existe se um diretório de armazenamento
 	// foi configurado — sem isso, runFileCleanupJob é um no-op (mesmo
@@ -226,6 +253,35 @@ func runCycle(ctx context.Context, tenants []string, db *database.DB, guard *cut
 		runOutboxJob(ctx, t, db, guard, metrics, notifyHandler)
 		runScheduledTriggersJob(ctx, t, db, guard, metrics, workerID, dispatcher)
 		runFileCleanupJob(ctx, t, db, guard, metrics, filesBackend)
+	}
+}
+
+// triggerOutboxHandler executa de fato um trigger AfterCommit (GO-040)
+// enfileirado por internal/triggers.Dispatcher.enqueueAfterCommit — até
+// aqui, o evento "trigger:<ação>" só era logado pelo fallback de
+// demonstração (comentário histórico de GO-014: "sem consumidor real
+// ainda"). Payload é sempre o mesmo shape gravado por enqueueAfterCommit
+// (trigger_id/action/table/record/configuration); trigger_id chega como
+// float64 (decodificação JSON genérica de outbox.ListPending, mesma razão
+// de internal/records.coerceJSONValue). Delega a `fallback` qualquer
+// evento cujo Type não comece com "trigger:" — nenhum log existente se
+// perde.
+func triggerOutboxHandler(dispatcher *triggers.Dispatcher, fallback outbox.Handler) outbox.Handler {
+	return func(ctx context.Context, tx pgx.Tx, ev outbox.OutboxEvent) error {
+		if !strings.HasPrefix(ev.Type, "trigger:") {
+			if fallback != nil {
+				return fallback(ctx, tx, ev)
+			}
+			return nil
+		}
+		action, _ := ev.Payload["action"].(string)
+		tableName, _ := ev.Payload["table"].(string)
+		record, _ := ev.Payload["record"].(map[string]any)
+		configuration, _ := ev.Payload["configuration"].(map[string]any)
+		triggerID, _ := ev.Payload["trigger_id"].(float64)
+		tenant, _ := tenancy.TenantFromContext(ctx)
+		trig := triggers.Trigger{ID: int(triggerID), Action: action, Configuration: configuration}
+		return dispatcher.RunOne(ctx, tx, tenant, metadata.Table{Name: tableName}, trig, record)
 	}
 }
 

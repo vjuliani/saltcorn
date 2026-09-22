@@ -480,13 +480,16 @@ export interface paths {
         get: operations["getRecord"];
         put?: never;
         post?: never;
-        /** Command: remove um registro */
+        /**
+         * Command: remove um registro
+         * @description Adicionado por GO-040 — mesma correção de `_version` de `updateRecord` acima. `?version=` é obrigatório (o `_version` de uma leitura anterior). Idempotente por natureza (não por Idempotency-Key, mesma convenção de `deleteViewRow` desde GO-039): remover um registro já removido devolve 404, um estado final consistente, não um efeito duplicado — por isso esta rota não exige o cabeçalho.
+         */
         delete: operations["deleteRecord"];
         options?: never;
         head?: never;
         /**
          * Command: atualiza campos de um registro
-         * @description Semântica de JSON Merge Patch (RFC 7396): campo ausente do corpo = sem alteração; campo presente com valor `null` = limpar o campo. Falha de versão otimista retorna 409.
+         * @description Adicionado por GO-040 — o desenho original (GO-006) já reservava esta rota, mas nunca definia como o cliente transmitiria a versão esperada (nem `_version` no corpo, nem `If-Match`), apesar do 409 de conflito já documentado; corrigido aqui. `_version` (de uma leitura anterior, ex.: `getRecord`/`listRecords`) é OBRIGATÓRIO — mesma convenção de `_version` em `ViewUpdateInput`/ `ViewSubmitInput`. Campos ausentes do corpo permanecem inalterados (nunca um PUT que sobrescreve o registro inteiro); mesmo controle de concorrência otimista de qualquer outra escrita — 409 se o registro mudou desde a leitura. Idempotente por Idempotency-Key (retry com a mesma chave e o mesmo corpo reaproveita o resultado, nunca reaplica a escrita duas vezes).
          */
         patch: operations["updateRecord"];
         trace?: never;
@@ -676,12 +679,17 @@ export interface components {
         RecordInput: {
             [key: string]: unknown;
         };
+        /** @description Adicionado por GO-040. `_version` é obrigatório mesmo quando só um campo está sendo alterado. Campos ausentes do corpo (além de `_version`) permanecem inalterados — nunca uma sobrescrita completa do registro. */
+        RecordUpdateInput: {
+            _version: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Corrigido em GO-040: o desenho original (GO-006) declarava `version` (integer) e `created_at`/`updated_at`, nenhum dos três jamais implementado — `internal/metadata` (GO-011) não grava colunas de auditoria em tabelas dinâmicas, e a versão otimista real (`internal/records`, GO-012/013) é `_version` (string, derivada de `xmin` no Postgres), o mesmo campo que `View`/ `ViewUpdateInput` já usam. `listRecords`/`createRecord` (GO-017) sempre devolveram este shape real — o schema é quem estava desatualizado, não o comportamento. */
         Record: {
             id: components["schemas"]["Id"];
             /** @description Versão otimista do registro (ADR-0001) — usada para detectar escrita concorrente. */
-            version: number;
-            created_at: components["schemas"]["DateTime"];
-            updated_at?: components["schemas"]["DateTime"];
+            _version: string;
         } & {
             [key: string]: unknown;
         };
@@ -764,12 +772,6 @@ export interface components {
             /** @description Cursor para a próxima página, ou `null` se não houver mais páginas. */
             next_cursor: string | null;
         };
-        /**
-         * Format: date-time
-         * @description Sempre UTC explícito (sufixo Z), nunca hora local implícita. Mitiga a classe de bug encontrada em GO-002 (2 falsos positivos de teste causados pelo timezone do host não ser UTC) — ver docs/migracao-go/baseline/GO-002-baseline.md §2.
-         * @example 2026-01-15T00:00:00Z
-         */
-        DateTime: string;
     };
     responses: {
         /** @description Identidade ausente, expirada ou com assinatura inválida. */
@@ -1925,11 +1927,10 @@ export interface operations {
     };
     deleteRecord: {
         parameters: {
-            query?: never;
-            header: {
-                /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
-                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            query: {
+                version: string;
             };
+            header?: never;
             path: {
                 tenant: components["schemas"]["Tenant"];
                 table: string;
@@ -1946,14 +1947,34 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description ?version= ausente */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            /** @description já não existia (delete é idempotente) */
+            /** @description registro não encontrado */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description conflito de versão otimista */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
             };
             /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
             503: {
@@ -1982,9 +2003,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/merge-patch+json": {
-                    [key: string]: unknown;
-                };
+                "application/json": components["schemas"]["RecordUpdateInput"];
             };
         };
         responses: {
@@ -1997,8 +2016,26 @@ export interface operations {
                     "application/json": components["schemas"]["Record"];
                 };
             };
+            /** @description corpo inválido, Idempotency-Key ausente, ou _version ausente */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description registro não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description conflito de versão otimista ou de idempotência */
             409: {
                 headers: {

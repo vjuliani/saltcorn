@@ -26,6 +26,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/records"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 )
 
 // recordsListDefaultLimit/recordsListMaxLimit espelham default/maximum de
@@ -138,6 +139,18 @@ func getActorHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFun
 // falha de banco genérica.
 var errHandled = errors.New("resposta já escrita")
 
+// actorUserContext monta o "user" exposto a only_if/run_js_code
+// (internal/expression.Request.User) — só id e role_id, os dois campos que
+// as fórmulas de trigger do pack piloto guitars realmente usam (`user.id`,
+// `user.role`). Nunca o e-mail: nenhuma fórmula existente precisa dele, e
+// buscar de novo seria uma segunda consulta a identity.FindUserByID só
+// para isso — resolveActorRole já pagou o custo de resolver o papel.
+func actorUserContext(ctx context.Context, role identity.RoleID) map[string]any {
+	actorSub, _ := tenancy.ActorFromContext(ctx)
+	actorID, _ := strconv.Atoi(actorSub)
+	return map[string]any{"id": actorID, "role_id": int(role)}
+}
+
 // listRecordsHandler implementa GET .../records (listRecords de
 // internal-api.yaml). Cursor é opaco para o cliente (contrato:
 // "cursor opaco da página anterior") mas, internamente, é só um offset
@@ -216,7 +229,7 @@ func listRecordsHandler(tracker *shutdown.Tracker, db *database.DB) http.Handler
 // Idempotency-Key com o MESMO corpo retorna o registro já criado sem
 // rodar CreateRecord de novo; a mesma chave com corpo diferente falha com
 // 409 (outbox.ErrKeyConflict).
-func createRecordHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFunc {
+func createRecordHandler(tracker *shutdown.Tracker, db *database.DB, dispatcher *triggers.Dispatcher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		end, err := tracker.Begin()
 		if err != nil {
@@ -257,7 +270,7 @@ func createRecordHandler(tracker *shutdown.Tracker, db *database.DB) http.Handle
 			}
 			result, _, doErr := outbox.Do(ctx, tx, idempotencyKey, input,
 				func(ctx context.Context, tx pgx.Tx) (any, []outbox.Event, error) {
-					rec, err := records.CreateRecord(ctx, tx, role, table, input, nil)
+					rec, err := records.CreateRecord(ctx, tx, role, table, input, dispatcher.HooksFor(tenant, actorUserContext(ctx, role)))
 					if err != nil {
 						return nil, nil, err
 					}
@@ -284,6 +297,153 @@ func createRecordHandler(tracker *shutdown.Tracker, db *database.DB) http.Handle
 	}
 }
 
+// updateRecordHandler implementa PATCH .../records/{id} (updateRecord de
+// internal-api.yaml) — GO-040: a rota já existia no contrato desde GO-006,
+// mas nunca tinha handler nem um jeito real de transmitir a versão
+// esperada (achado de preflight, corrigido no contrato junto com esta
+// rota). `_version` no corpo é obrigatório (mesma convenção de
+// updateViewHandler/submitViewHandler); campos ausentes permanecem
+// inalterados — internal/records.UpdateRecordTx já trata `values` como um
+// PATCH parcial, nunca uma sobrescrita completa. Idempotência via
+// outbox.Do: mesmo Idempotency-Key + mesmo corpo reaproveita o resultado,
+// nunca reaplica a escrita (sem isso, um retry de rede pegaria um 409
+// version_conflict falso — a versão já teria avançado na primeira
+// tentativa bem-sucedida).
+func updateRecordHandler(tracker *shutdown.Tracker, db *database.DB, dispatcher *triggers.Dispatcher) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		end, err := tracker.Begin()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer end()
+
+		tenant, _ := tenancy.TenantFromContext(r.Context())
+		table := r.PathValue("table")
+		id, convErr := strconv.Atoi(r.PathValue("id"))
+		if convErr != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_id", "id inválido")
+			return
+		}
+		if db == nil {
+			writeAPIError(w, http.StatusBadGateway, "database_unavailable", "banco não configurado nesta instância")
+			return
+		}
+
+		idempotencyKey := r.Header.Get("Idempotency-Key")
+		if idempotencyKey == "" {
+			writeAPIError(w, http.StatusBadRequest, "idempotency_key_required", "cabeçalho Idempotency-Key é obrigatório")
+			return
+		}
+
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_body", "não foi possível ler o corpo da requisição")
+			return
+		}
+		var input map[string]any
+		if err := json.Unmarshal(body, &input); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_json", "corpo da requisição não é um JSON válido")
+			return
+		}
+		expectedVersion, _ := input["_version"].(string)
+		if expectedVersion == "" {
+			writeAPIError(w, http.StatusBadRequest, "version_required", "_version é obrigatório")
+			return
+		}
+		values := make(map[string]any, len(input))
+		for k, v := range input {
+			if k == "_version" {
+				continue
+			}
+			values[k] = v
+		}
+
+		var updated any
+		err = db.WithTenant(r.Context(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+			role, ok := resolveActorRole(ctx, tx, r, w)
+			if !ok {
+				return errHandled
+			}
+			result, _, doErr := outbox.Do(ctx, tx, idempotencyKey, input,
+				func(ctx context.Context, tx pgx.Tx) (any, []outbox.Event, error) {
+					rec, err := records.UpdateRecord(ctx, tx, role, table, id, expectedVersion, values, dispatcher.HooksFor(tenant, actorUserContext(ctx, role)))
+					if err != nil {
+						return nil, nil, err
+					}
+					return rec, nil, nil
+				})
+			if doErr != nil {
+				return doErr
+			}
+			updated = result
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, errHandled) {
+				return
+			}
+			if errors.Is(err, outbox.ErrKeyConflict) {
+				writeAPIError(w, http.StatusConflict, "idempotency_key_conflict", "Idempotency-Key já foi usada com um payload diferente")
+				return
+			}
+			writeRecordsError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, updated)
+	}
+}
+
+// deleteRecordHandler implementa DELETE .../records/{id} (deleteRecord de
+// internal-api.yaml) — GO-040, mesma correção de `_version` de
+// updateRecordHandler acima. `?version=` é obrigatório. Sem
+// Idempotency-Key: idempotente por natureza (mesma convenção de
+// deleteViewRowHandler desde GO-039) — remover um registro já removido
+// devolve 404, um estado final consistente, não um efeito duplicado.
+func deleteRecordHandler(tracker *shutdown.Tracker, db *database.DB, dispatcher *triggers.Dispatcher) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		end, err := tracker.Begin()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer end()
+
+		tenant, _ := tenancy.TenantFromContext(r.Context())
+		table := r.PathValue("table")
+		id, convErr := strconv.Atoi(r.PathValue("id"))
+		if convErr != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_id", "id inválido")
+			return
+		}
+		if db == nil {
+			writeAPIError(w, http.StatusBadGateway, "database_unavailable", "banco não configurado nesta instância")
+			return
+		}
+		expectedVersion := r.URL.Query().Get("version")
+		if expectedVersion == "" {
+			writeAPIError(w, http.StatusBadRequest, "version_required", "parâmetro ?version= é obrigatório")
+			return
+		}
+
+		err = db.WithTenant(r.Context(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+			role, ok := resolveActorRole(ctx, tx, r, w)
+			if !ok {
+				return errHandled
+			}
+			return records.DeleteRecord(ctx, tx, role, table, id, expectedVersion, dispatcher.HooksFor(tenant, actorUserContext(ctx, role)))
+		})
+		if err != nil {
+			if errors.Is(err, errHandled) {
+				return
+			}
+			writeRecordsError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // writeRecordsError classifica os erros sentinela de internal/records para
 // o formato de resposta do contrato — nunca a mensagem crua do erro Go.
 // ErrUnknownTable/ErrUnknownField (404) e os erros de validação de
@@ -295,8 +455,10 @@ func writeRecordsError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, records.ErrNotAuthorized):
 		writeAPIError(w, http.StatusForbidden, "not_authorized", "ator não tem papel suficiente para esta operação")
-	case errors.Is(err, records.ErrUnknownTable), errors.Is(err, records.ErrUnknownField):
-		writeAPIError(w, http.StatusNotFound, "not_found", "tabela ou campo não encontrado")
+	case errors.Is(err, records.ErrUnknownTable), errors.Is(err, records.ErrUnknownField), errors.Is(err, records.ErrRecordNotFound):
+		writeAPIError(w, http.StatusNotFound, "not_found", "recurso não encontrado")
+	case errors.Is(err, records.ErrVersionConflict):
+		writeAPIError(w, http.StatusConflict, "version_conflict", "o registro foi modificado por outra transação — releia e tente novamente")
 	case errors.Is(err, records.ErrTypeMismatch),
 		errors.Is(err, records.ErrRequiredField),
 		errors.Is(err, records.ErrNoFields):

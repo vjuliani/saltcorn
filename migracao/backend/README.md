@@ -666,3 +666,75 @@ completas em `docs/migracao-go/execucoes/GO-044.md`):
   arriscaria checagem de permissão inconsistente/contornável. Candidata a
   uma task própria de redesenho de autorização, não uma extensão incremental
   desta entrega.
+
+## Automação ligada ao caminho HTTP real: triggers/ações e `run_js_code` (GO-040)
+
+`internal/triggers.Dispatcher` (mecanismo desde GO-024) e
+`internal/expression.Evaluator` (fachada desde GO-023) existiam só em
+teste até esta tarefa — nenhum handler HTTP real construía um `Dispatcher`
+nem passava hooks não-nulos a `internal/records`. GO-040 fecha essa
+lacuna: uma requisição HTTP real de criação/atualização/remoção de
+registro agora dispara triggers/ações de verdade, na mesma transação.
+
+- **`updateRecordHandler`/`deleteRecordHandler` (novos, `cmd/server/records.go`)**
+  — achado real de preflight: a descrição original da task presumia que os
+  três handlers de escrita já existiam com `hooks=nil`; só `createRecordHandler`
+  existia. As duas rotas (`PATCH`/`DELETE .../records/{id}`) já estavam no
+  contrato desde GO-006, mas sem handler nem um jeito real de transmitir a
+  versão esperada — corrigido junto com o handler (`_version` obrigatório no
+  corpo do PATCH, `?version=` obrigatório no DELETE; `RecordUpdateInput`/
+  `Record` do contrato também corrigidos, a versão antiga tinha campos
+  fictícios `created_at`/`updated_at` que nunca foram implementados).
+  Idempotência via `outbox.Do`, mesma convenção de `createRecordHandler`.
+- **Wiring real do `Dispatcher` em `cmd/server/main.go`** — um único
+  `*pluginhost.Client` por processo (início preguiçoso: só sobe o processo
+  Node no primeiro `Eval` real, sem custo quando nenhum trigger usa
+  `run_js_code`), fechado no shutdown gracioso. `dispatcher.HooksFor(tenant,
+  user)` substitui o `nil` que os três handlers de escrita passavam a
+  `internal/records` — `user` é `{"id", "role_id"}` do ator já resolvido por
+  `resolveActorRole`, os dois únicos campos que fórmulas de trigger
+  (`only_if`/`run_js_code`) precisam.
+- **`run_js_code` (`internal/triggers/runjscode.go`, novo)** — ação nativa
+  deliberadamente deferida em GO-029, portada aqui reaproveitando
+  INTEGRALMENTE o mesmo contrato de avaliação que `only_if` (GO-023) já usa
+  (`internal/expression.Evaluator.Eval`) — nunca uma segunda fronteira de
+  execução de JS para o mesmo host. Herda os dois limites já documentados em
+  GO-022/023: `code` precisa ser uma EXPRESSÃO, não um corpo de função com
+  statements (`condição || (function(){ throw new Error(...) })()`, não
+  `if`/`throw` soltos — divergência real e documentada do `function(row,
+  user) { ... }` livre do legado); e uma referência a um singleton de
+  domínio (`Table`/`File`/`View`) falha explicitamente
+  (`ErrUnsupportedReference`), nunca um `undefined` silencioso — o trigger
+  real do pack piloto guitars (`receive_share_trigger`) precisa de ESCRITA
+  via `Table`, fora deste limite (ver GO-052).
+- **Consumidor real do outbox de triggers `AfterCommit` (`cmd/worker/main.go`,
+  `triggerOutboxHandler`)** — até esta tarefa, um trigger `AfterCommit`
+  enfileirava um evento durável (`Dispatcher.enqueueAfterCommit`, GO-024) mas
+  o fallback do `notify.Handler` só LOGAVA qualquer evento que não fosse
+  e-mail/webhook ("demonstração, sem consumidor real ainda"). `triggerOutboxHandler`
+  reconhece o prefixo `"trigger:"` e reexecuta a ação de verdade via
+  `Dispatcher.RunOne` (exportado nesta tarefa, MESMO código usado pelo
+  disparo síncrono — nenhum segundo caminho de despacho por nome de ação),
+  dentro da transação própria do ciclo do worker; qualquer outro tipo de
+  evento continua caindo no fallback de log, sem regressão.
+- **Carve-outs para GO-052, achados de preflight ao ler o trigger real do
+  pack guitars (`receive_share_trigger`)**: (1) mecanismo de evento NOMEADO
+  (`Trigger.emitEvent`/`POST /api/emit-event` do legado) — `WhenTrigger` é um
+  conjunto fechado (`Validate`/`Insert`/`Update`/`Delete`) atado aos hooks de
+  `internal/records`, sem nenhum canal para um evento arbitrário disparar um
+  trigger; (2) capacidade de ESCRITA em `internal/pluginhost` — o trigger
+  real do pack faz `Table.findOne(...).insertRow(...)`, mas o host só expõe
+  `CapDBRead` (decisão já registrada em GO-022). Nenhum dos dois é uma
+  extensão mecânica do wiring desta task — cada um é uma capacidade nova e
+  maior, com sua própria política de autorização/idempotência a decidir.
+
+**Verificação de regressão deliberada** (desabilitar → confirmar falha real
+→ restaurar → confirmar passe), três vezes: hooks de `createRecordHandler`
+(sem eles, um trigger `Validate` configurado para abortar não impede mais a
+escrita, e um trigger `Insert` não enfileira mais o e-mail — os dois
+confirmados via HTTP real); hooks de `updateRecordHandler` (mesmo padrão,
+via PATCH real); e o reconhecimento do prefixo `"trigger:"` em
+`triggerOutboxHandler` no worker (invertendo a condição, o evento cai no
+fallback de log em vez de executar `send_email` de verdade — confirmado via
+`outbox.ProcessPending` real). Detalhes completos em
+`docs/migracao-go/execucoes/GO-040.md`.
