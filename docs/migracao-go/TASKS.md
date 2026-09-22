@@ -880,7 +880,7 @@ Execute a task GO-044 — Portar administração de usuário e segurança do ser
 
 ### GO-045 — Portar versionamento de linha (table history) e sistema de tags
 
-- [x] **Status:** IN_REVIEW
+- [x] **Status:** DONE — integrada via PR [#49](https://github.com/vjuliani/saltcorn/pull/49) (merge `534af3a21d7`); histórico em [execucoes/GO-045.md](execucoes/GO-045.md)
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-011, GO-013, GO-027
