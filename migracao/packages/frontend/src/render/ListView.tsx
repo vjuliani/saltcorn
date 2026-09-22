@@ -9,7 +9,12 @@
 // texto plano. Estendido em GO-039: colunas "join_field" (mesma célula de
 // texto, valor já trazido pelo Go sob a chave "<local>__<remoto>") e
 // "action" (um botão por linha, ex.: "Excluir" — o Go já confirmou que a
-// view declara essa ação antes de expor a coluna).
+// view declara essa ação antes de expor a coluna). GO-047: os textos
+// fixos ("Nenhum registro.", "Excluir", "Próxima página") passam por
+// `t()` — nunca os dados do usuário (nomes de coluna/valores de célula,
+// que continuam exatamente como o Go devolve).
+import { useT } from "../i18n/I18nContext";
+
 export interface ListViewColumn {
   /** Ausente = "field", mesmo default de antes de GO-039 (compatibilidade). */
   kind?: "field" | "join_field" | "action";
@@ -49,6 +54,7 @@ function columnKey(c: ListViewColumn, i: number): string {
 }
 
 export function ListView({ plan, onNextPage, onRowAction }: ListViewProps) {
+  const t = useT();
   return (
     <div data-testid="list-view">
       <table className="table table-sm table-hover">
@@ -65,7 +71,7 @@ export function ListView({ plan, onNextPage, onRowAction }: ListViewProps) {
         <tbody>
           {plan.rows.length === 0 ? (
             <tr>
-              <td colSpan={plan.columns.length || 1}>Nenhum registro.</td>
+              <td colSpan={plan.columns.length || 1}>{t("list.noRecords")}</td>
             </tr>
           ) : (
             plan.rows.map((row, i) => (
@@ -80,7 +86,7 @@ export function ListView({ plan, onNextPage, onRowAction }: ListViewProps) {
                           className="btn btn-sm btn-outline-danger"
                           onClick={() => onRowAction?.(c.action_name ?? "", row)}
                         >
-                          {c.action_name === "Delete" ? "Excluir" : c.action_name}
+                          {c.action_name === "Delete" ? t("list.delete") : c.action_name}
                         </button>
                       </td>
                     );
@@ -94,7 +100,7 @@ export function ListView({ plan, onNextPage, onRowAction }: ListViewProps) {
       </table>
       {plan.next_cursor && (
         <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => onNextPage?.(plan.next_cursor!)}>
-          Próxima página
+          {t("list.nextPage")}
         </button>
       )}
     </div>

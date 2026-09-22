@@ -231,6 +231,81 @@
         }
       }
     },
+    "/api/bff/actor/language": {
+      "patch": {
+        "operationId": "setActorLanguage",
+        "summary": "Define a preferência de idioma do ator autenticado (GO-047)",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "language": {
+                    "type": "string",
+                    "description": "Código de locale curto (ex. \"pt\", \"en\") ou \"\" para limpar a preferência."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "preferência atualizada — mesmo shape de Bootstrap.actor, mais `locale` (o idioma efetivo já recalculado)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "actor",
+                    "locale"
+                  ],
+                  "properties": {
+                    "actor": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "$ref": "#/components/schemas/Id"
+                        },
+                        "role_id": {
+                          "type": "integer"
+                        },
+                        "language": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "locale": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "corpo inválido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/SessionRequired"
+          }
+        }
+      }
+    },
     "/api/bff/tables/{table}/records": {
       "parameters": [
         {
@@ -1106,7 +1181,8 @@
         "type": "object",
         "required": [
           "actor",
-          "tenant"
+          "tenant",
+          "locale"
         ],
         "properties": {
           "actor": {
@@ -1117,11 +1193,19 @@
               },
               "role_id": {
                 "type": "integer"
+              },
+              "language": {
+                "type": "string",
+                "description": "GO-047 — preferência de idioma EXPLÍCITA do usuário (\"\" = sem preferência, ver `locale` para o idioma EFETIVO já resolvido)."
               }
             }
           },
           "tenant": {
             "$ref": "#/components/schemas/Tenant"
+          },
+          "locale": {
+            "type": "string",
+            "description": "GO-047 — idioma EFETIVO já resolvido pelo BFF (`actor.language` > cookie `lang` > `default_locale` do tenant > `\"pt\"`), sempre preenchido — o frontend nunca precisa reimplementar essa cadeia de prioridade.\n"
           }
         }
       },

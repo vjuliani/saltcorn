@@ -895,3 +895,63 @@ snapshot restaurado não fica marcado como restauração); os dois índices
 apontando para uma tabela ausente, e o próprio Import do pack filtrado
 falha — confirmado end-to-end, não só a lista de tabelas). Detalhes
 completos em `docs/migracao-go/execucoes/GO-045.md`.
+
+## Internacionalização (i18n) da interface (GO-047)
+
+Divergência DELIBERADA e documentada do mecanismo do legado
+(`packages/server/app.js`, lib npm `i18n`, ~36 idiomas em
+`models/config.ts:available_languages`, catálogo estático por locale,
+mais `/localizer/*` — UI de administração de idiomas/strings e tradução
+assistida por LLM): o "Aceite" desta task pede "pelo menos 2 idiomas
+configuráveis por tenant, com seleção por usuário persistida", não o
+catálogo de 36 idiomas nem a UI administrativa — portado o MECANISMO com
+2 idiomas reais (pt/en — pt porque é o idioma em que todo este port foi
+escrito desde GO-018).
+
+- **`identity.User.Language`** (novo campo, mesmo nome/semântica do
+  `User.language` do legado) — a preferência EXPLÍCITA do usuário, "" =
+  sem preferência. `SetUserLanguage` (self-service, `PATCH
+  /v1/tenants/{tenant}/actor`) — o ator só muda a PRÓPRIA preferência,
+  nunca a de outro usuário (nunca há um userID em parâmetro).
+- **`default_locale`** (tenant) — reaproveita `internal/config` (GO-027,
+  chave-valor genérico), sem schema novo. Fallback final `"pt"` quando o
+  tenant nunca configurou.
+- **Ordem de resolução do idioma efetivo, mesma do legado**
+  (`routes/utils.ts`, `setLanguage`/`applyUserLocale`): `User.Language`
+  (se setado) → cookie `lang` (BFF) → `default_locale` do tenant → `"pt"`.
+  Resolvida UMA vez no BFF (`migracao/packages/bff/src/locale.ts`,
+  `resolveLocale`), exposta no bootstrap (`GET /api/bff/bootstrap`,
+  campo `locale`) — o frontend nunca reimplementa essa cadeia.
+- **RTL** — mesma lista do legado (`ar`, `he`, `fa`, `ur`, `yi`) portada
+  em `locale.ts` (`isRTL`), mesmo que nenhum dos 2 idiomas desta entrega
+  seja RTL — não hardcoded para "sempre LTR", sem retrabalho se um
+  idioma RTL for adicionado ao catálogo do frontend depois.
+- **Frontend** (`migracao/packages/frontend/src/i18n/`) — catálogo de
+  traduções pt/en com chaves SEMÂNTICAS (nunca a própria string em
+  português como chave — evita colisão de pontuação/espaço), aplicado às
+  ~20 strings de produto real do frontend React (levantamento manual
+  completo: `App.tsx`/`EditorPage.tsx` são páginas de demonstração/dev,
+  documentado no próprio comentário de cada arquivo desde GO-018/019,
+  não são alvo de tradução). Seletor de idioma na Topbar, com troca
+  otimista local + persistência assíncrona via `PATCH /api/bff/actor/language`.
+
+**Deliberadamente fora de escopo, documentado** (decisão explícita
+exigida pelo enunciado da task): a UI de administração de idiomas/
+strings custom (`/localizer/*` do legado) e a tradução assistida por LLM
+(`saltcorn dev translate`) — nenhuma integração de LLM existe no backend
+Go hoje, seria uma capacidade nova e maior, não uma extensão de i18n; o
+catálogo desta entrega é pequeno o bastante para tradução manual direta.
+
+**Verificação de regressão deliberada** (desabilitar → confirmar falha
+real → restaurar → confirmar passe), três vezes, uma por camada:
+`identity.SetUserLanguage` não persistindo (backend Go —
+`TestSetActorLanguageHandler_PersistsAndReflectsInGetActor` falha de
+verdade); a prioridade de `resolveLocale` ignorando `actorLanguage` (BFF
+— o teste de bootstrap com preferência gravada falha de verdade); a
+interpolação de `{param}` no motor de tradução (frontend — os testes com
+parâmetro falham de verdade, mostrando o template cru). Além de um
+achado real de ISOLAMENTO DE TESTE (não do produto): o harness E2E
+compartilha o mesmo usuário/tenant entre Chromium e Firefox — a
+preferência de idioma persistida por um navegador vazava para o
+próximo, corrigido limpando a preferência antes/depois do teste
+dedicado. Detalhes completos em `docs/migracao-go/execucoes/GO-047.md`.

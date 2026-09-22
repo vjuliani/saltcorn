@@ -16,9 +16,12 @@ export interface ShellProps {
   currentUrl: string;
   title?: string;
   children: ReactNode;
+  /** GO-047 — repassados à Topbar; omitidos = seletor de idioma não aparece. */
+  locale?: string;
+  onChangeLocale?: (locale: string) => void;
 }
 
-export function Shell({ brand, sections, currentUrl, title, children }: ShellProps) {
+export function Shell({ brand, sections, currentUrl, title, children, locale, onChangeLocale }: ShellProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -28,7 +31,13 @@ export function Shell({ brand, sections, currentUrl, title, children }: ShellPro
           <Sidebar brand={brand} sections={sections} currentUrl={currentUrl} collapsed={collapsed} />
         )}
         <div id="content-wrapper" className="d-flex flex-column" style={{ minWidth: 0, overflowX: "hidden" }}>
-          <Topbar title={title} collapsed={collapsed} onToggleSidebar={() => setCollapsed((c) => !c)} />
+          <Topbar
+            title={title}
+            collapsed={collapsed}
+            onToggleSidebar={() => setCollapsed((c) => !c)}
+            locale={locale}
+            onChangeLocale={onChangeLocale}
+          />
           <div id="content">
             <div id="page-inner-content" className="container-fluid px-2 sbadmin2-theme">
               {children}

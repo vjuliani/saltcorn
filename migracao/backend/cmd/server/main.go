@@ -224,6 +224,11 @@ func main() {
 		// verificados).
 		mux.Handle("GET /v1/tenants/{tenant}/actor",
 			tenancy.Middleware(verifier, telemetry.Middleware(actorRoute, httpMetrics, getActorHandler(tracker, db))))
+		// setActorLanguage (GO-047) — mesmo raciocínio de getActor acima:
+		// preferência de idioma é self-service sobre a PRÓPRIA identidade
+		// delegada, nunca uma capacidade de domínio sujeita a corte.
+		mux.Handle("PATCH /v1/tenants/{tenant}/actor",
+			tenancy.Middleware(verifier, telemetry.Middleware(actorRoute, httpMetrics, setActorLanguageHandler(tracker, db))))
 
 		// GO-019: tabelas/campos (metadata.CreateTable/AddField, GO-011) e
 		// views (internal/views, novo) nunca tinham rota HTTP — o ciclo do

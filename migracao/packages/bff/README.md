@@ -135,3 +135,17 @@ Tokens de identidade interna não servem para abrir essa sessão. O contrato
 OpenAPI documenta a rota opcional; o BFF comum continua sem login de usuário
 final. Reiniciar o BFF requer reautenticação. Instruções completas no
 [runbook da distribuição](../../distribution/README.md).
+
+## Internacionalização (i18n) — resolução de locale (GO-047)
+
+`src/locale.ts` resolve o idioma EFETIVO com a mesma ordem de prioridade
+do legado (`routes/utils.ts`): `actor.language` (preferência explícita
+do usuário, via Go) > cookie `lang` > `default_locale` do tenant (via
+Go) > `"pt"`. `GET /api/bff/bootstrap` expõe o resultado já resolvido
+(campo `locale`) — o frontend nunca reimplementa essa cadeia. `PATCH
+/api/bff/actor/language` persiste a preferência (self-service, sempre
+sobre a PRÓPRIA sessão) e também seta o cookie `lang` (fallback para um
+fluxo futuro sem usuário logado). Detalhes completos, incluindo o
+levantamento de escopo do mecanismo do legado, em
+`migracao/backend/README.md` §"Internacionalização (i18n) da interface"
+e `docs/migracao-go/execucoes/GO-047.md`.

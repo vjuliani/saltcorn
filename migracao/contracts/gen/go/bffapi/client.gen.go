@@ -179,9 +179,15 @@ func (e ExchangeOperatorTicket200JSONResponseBodyStatus) Valid() bool {
 type Bootstrap struct {
 	Actor struct {
 		// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
-		Id     *Id  `json:"id,omitempty"`
-		RoleId *int `json:"role_id,omitempty"`
+		Id *Id `json:"id,omitempty"`
+
+		// Language GO-047 — preferência de idioma EXPLÍCITA do usuário ("" = sem preferência, ver `locale` para o idioma EFETIVO já resolvido).
+		Language *string `json:"language,omitempty"`
+		RoleId   *int    `json:"role_id,omitempty"`
 	} `json:"actor"`
+
+	// Locale GO-047 — idioma EFETIVO já resolvido pelo BFF (`actor.language` > cookie `lang` > `default_locale` do tenant > `"pt"`), sempre preenchido — o frontend nunca precisa reimplementar essa cadeia de prioridade.
+	Locale string `json:"locale"`
 
 	// Tenant Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL.
 	Tenant Tenant `json:"tenant"`
@@ -417,6 +423,12 @@ type DomainUnavailable = Error
 // SessionRequired defines model for SessionRequired.
 type SessionRequired = Error
 
+// SetActorLanguageJSONBody defines parameters for SetActorLanguage.
+type SetActorLanguageJSONBody struct {
+	// Language Código de locale curto (ex. "pt", "en") ou "" para limpar a preferência.
+	Language *string `json:"language,omitempty"`
+}
+
 // ExchangeOperatorTicketJSONBody defines parameters for ExchangeOperatorTicket.
 type ExchangeOperatorTicketJSONBody struct {
 	Ticket string `json:"ticket"`
@@ -494,6 +506,9 @@ type RenderView200JSONResponseBody struct {
 type DeleteViewRowParams struct {
 	Version string `form:"version" json:"version"`
 }
+
+// SetActorLanguageJSONRequestBody defines body for SetActorLanguage for application/json ContentType.
+type SetActorLanguageJSONRequestBody SetActorLanguageJSONBody
 
 // ExchangeOperatorTicketJSONRequestBody defines body for ExchangeOperatorTicket for application/json ContentType.
 type ExchangeOperatorTicketJSONRequestBody ExchangeOperatorTicketJSONBody
@@ -760,6 +775,20 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
+	// SetActorLanguageWithBody Define a preferência de idioma do ator autenticado (GO-047)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /api/bff/actor/language (the `SetActorLanguage` operationId).
+	SetActorLanguageWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetActorLanguage Define a preferência de idioma do ator autenticado (GO-047)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /api/bff/actor/language (the `SetActorLanguage` operationId).
+	SetActorLanguage(ctx context.Context, body SetActorLanguageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetBootstrap Bootstrap do editor — metadados e permissões de interface (ADR-0003)
 	//
 	// Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
@@ -927,6 +956,40 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/bff/views/{id}/submit (the `SubmitView` operationId).
 	SubmitView(ctx context.Context, id Id, body SubmitViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// SetActorLanguageWithBody Define a preferência de idioma do ator autenticado (GO-047)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /api/bff/actor/language (the `SetActorLanguage` operationId).
+func (c *Client) SetActorLanguageWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetActorLanguageRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetActorLanguage Define a preferência de idioma do ator autenticado (GO-047)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /api/bff/actor/language (the `SetActorLanguage` operationId).
+func (c *Client) SetActorLanguage(ctx context.Context, body SetActorLanguageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetActorLanguageRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // GetBootstrap Bootstrap do editor — metadados e permissões de interface (ADR-0003)
@@ -1315,6 +1378,46 @@ func (c *Client) SubmitView(ctx context.Context, id Id, body SubmitViewJSONReque
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewSetActorLanguageRequest calls the generic SetActorLanguage builder with application/json body
+func NewSetActorLanguageRequest(server string, body SetActorLanguageJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetActorLanguageRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewSetActorLanguageRequestWithBody constructs an http.Request for the SetActorLanguage method, with any body, and a specified content type
+func NewSetActorLanguageRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/actor/language")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewGetBootstrapRequest constructs an http.Request for the GetBootstrap method
@@ -2066,6 +2169,20 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// SetActorLanguageWithBodyWithResponse Define a preferência de idioma do ator autenticado (GO-047)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/bff/actor/language (the `SetActorLanguage` operationId).
+	SetActorLanguageWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetActorLanguageResponse, error)
+
+	// SetActorLanguageWithResponse Define a preferência de idioma do ator autenticado (GO-047)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/bff/actor/language (the `SetActorLanguage` operationId).
+	SetActorLanguageWithResponse(ctx context.Context, body SetActorLanguageJSONRequestBody, reqEditors ...RequestEditorFn) (*SetActorLanguageResponse, error)
+
 	// GetBootstrapWithResponse Bootstrap do editor — metadados e permissões de interface (ADR-0003)
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -2245,6 +2362,77 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/bff/views/{id}/submit (the `SubmitView` operationId).
 	SubmitViewWithResponse(ctx context.Context, id Id, body SubmitViewJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitViewResponse, error)
+}
+
+type SetActorLanguageResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *struct {
+		Actor struct {
+			// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+			Id       *Id     `json:"id,omitempty"`
+			Language *string `json:"language,omitempty"`
+			RoleId   *int    `json:"role_id,omitempty"`
+		} `json:"actor"`
+		Locale string `json:"locale"`
+	}
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetActorLanguageResponse) GetJSON200() *struct {
+	Actor struct {
+		// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+		Id       *Id     `json:"id,omitempty"`
+		Language *string `json:"language,omitempty"`
+		RoleId   *int    `json:"role_id,omitempty"`
+	} `json:"actor"`
+	Locale string `json:"locale"`
+} {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SetActorLanguageResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SetActorLanguageResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetBody returns the raw response body bytes
+func (r SetActorLanguageResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetActorLanguageResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetActorLanguageResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetActorLanguageResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type GetBootstrapResponse struct {
@@ -3189,6 +3377,32 @@ func (r SubmitViewResponse) ContentType() string {
 	return ""
 }
 
+// SetActorLanguageWithBodyWithResponse Define a preferência de idioma do ator autenticado (GO-047)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/bff/actor/language (the `SetActorLanguage` operationId).
+func (c *ClientWithResponses) SetActorLanguageWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetActorLanguageResponse, error) {
+	rsp, err := c.SetActorLanguageWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetActorLanguageResponse(rsp)
+}
+
+// SetActorLanguageWithResponse Define a preferência de idioma do ator autenticado (GO-047)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/bff/actor/language (the `SetActorLanguage` operationId).
+func (c *ClientWithResponses) SetActorLanguageWithResponse(ctx context.Context, body SetActorLanguageJSONRequestBody, reqEditors ...RequestEditorFn) (*SetActorLanguageResponse, error) {
+	rsp, err := c.SetActorLanguage(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetActorLanguageResponse(rsp)
+}
+
 // GetBootstrapWithResponse Bootstrap do editor — metadados e permissões de interface (ADR-0003)
 //
 // Returns a wrapper object for the known response body format(s).
@@ -3499,6 +3713,54 @@ func (c *ClientWithResponses) SubmitViewWithResponse(ctx context.Context, id Id,
 		return nil, err
 	}
 	return ParseSubmitViewResponse(rsp)
+}
+
+// ParseSetActorLanguageResponse parses an HTTP response from a SetActorLanguageWithResponse call
+func ParseSetActorLanguageResponse(rsp *http.Response) (*SetActorLanguageResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetActorLanguageResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			Actor struct {
+				// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+				Id       *Id     `json:"id,omitempty"`
+				Language *string `json:"language,omitempty"`
+				RoleId   *int    `json:"role_id,omitempty"`
+			} `json:"actor"`
+			Locale string `json:"locale"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseGetBootstrapResponse parses an HTTP response from a GetBootstrapWithResponse call

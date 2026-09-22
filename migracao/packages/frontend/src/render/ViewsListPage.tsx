@@ -23,6 +23,7 @@ import { BffClient, ViewUnsupportedError, ViewConflictError, type BffClientError
 import { ListView, type ListViewPlan } from "./ListView";
 import { ShowView, type ShowViewPlan } from "./ShowView";
 import { EditView, type EditViewPlan } from "./EditView";
+import { useT } from "../i18n/I18nContext";
 
 export interface ViewSummary {
   id: number;
@@ -55,6 +56,7 @@ function isEditPlan(plan: RenderPlan): plan is EditViewPlan {
 }
 
 export function ViewsListPage({ bffClient }: ViewsListPageProps) {
+  const t = useT();
   const [views, setViews] = useState<ViewSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewId, setPreviewId] = useState<number | null>(null);
@@ -135,10 +137,10 @@ export function ViewsListPage({ bffClient }: ViewsListPageProps) {
       await handlePreview(previewId, plan.record_id ? { record: plan.record_id } : {});
       setNavigateMessage(
         nav.type === "reload"
-          ? "Salvo — recarregando a própria view."
+          ? t("views.navigateReload")
           : nav.type === "referer"
-            ? "Salvo — voltaria para a página de onde veio."
-            : `Salvo — iria para a view "${nav.view_name}".`
+            ? t("views.navigateReferer")
+            : t("views.navigateView", { viewName: nav.view_name ?? "" })
       );
     } catch (err) {
       if (err instanceof ViewConflictError) {
@@ -153,17 +155,17 @@ export function ViewsListPage({ bffClient }: ViewsListPageProps) {
     }
   }
 
-  if (error) return <p role="alert">Erro ao listar views: {error}</p>;
-  if (views === null) return <p>Carregando views…</p>;
+  if (error) return <p role="alert">{t("views.listError", { error })}</p>;
+  if (views === null) return <p>{t("views.loading")}</p>;
 
   return (
     <div data-testid="views-list-page">
       <table className="table table-sm">
         <thead>
           <tr>
-            <th>Nome</th>
-            <th>Template</th>
-            <th>Status</th>
+            <th>{t("views.columnName")}</th>
+            <th>{t("views.columnTemplate")}</th>
+            <th>{t("views.columnStatus")}</th>
             <th></th>
           </tr>
         </thead>
@@ -174,12 +176,12 @@ export function ViewsListPage({ bffClient }: ViewsListPageProps) {
               <td>{v.template}</td>
               <td>
                 <span className={`badge ${v.min_role === 100 ? "bg-success" : "bg-secondary"}`}>
-                  {v.min_role === 100 ? "publicada" : "rascunho"}
+                  {v.min_role === 100 ? t("views.statusPublished") : t("views.statusDraft")}
                 </span>
               </td>
               <td>
                 <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => handlePreview(v.id)}>
-                  Visualizar
+                  {t("views.viewButton")}
                 </button>
               </td>
             </tr>
@@ -194,7 +196,7 @@ export function ViewsListPage({ bffClient }: ViewsListPageProps) {
               {navigateMessage}
             </p>
           )}
-          {preview.status === "loading" && <p>Carregando pré-visualização…</p>}
+          {preview.status === "loading" && <p>{t("views.previewLoading")}</p>}
           {preview.status === "ready" && isListPlan(preview.plan) && (
             <ListView
               plan={preview.plan}
@@ -208,10 +210,10 @@ export function ViewsListPage({ bffClient }: ViewsListPageProps) {
           )}
           {preview.status === "unsupported" && (
             <p role="alert" data-testid="views-unsupported">
-              Esta view usa um recurso ainda não suportado pelo novo runtime: {preview.reason}. Administre-a pelo sistema atual enquanto isso.
+              {t("views.unsupported", { reason: preview.reason })}
             </p>
           )}
-          {preview.status === "error" && <p role="alert">Erro ao pré-visualizar: {preview.message}</p>}
+          {preview.status === "error" && <p role="alert">{t("views.previewError", { message: preview.message })}</p>}
         </div>
       )}
     </div>

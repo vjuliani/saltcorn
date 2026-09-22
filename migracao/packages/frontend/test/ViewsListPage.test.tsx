@@ -7,6 +7,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ViewsListPage } from "../src/render/ViewsListPage";
 import { BffClient, ViewUnsupportedError } from "../src/bffClient";
+import { I18nProvider } from "../src/i18n/I18nContext";
 
 function makeClient() {
   return {
@@ -40,6 +41,23 @@ describe("ViewsListPage", () => {
     expect(screen.getByText("showbook")).toBeTruthy();
     expect(screen.getByText("publicada")).toBeTruthy();
     expect(screen.getByText("rascunho")).toBeTruthy();
+  });
+
+  // GO-047: mesma página, mesmos dados, só o I18nProvider muda — prova
+  // que ViewsListPage reage de verdade ao locale efetivo (não só que o
+  // motor de tradução isolado funciona, ver i18n.test.tsx).
+  it("com I18nProvider locale=\"en\", desenha os textos fixos em inglês (dados do usuário continuam intactos)", async () => {
+    client.listViews.mockResolvedValue([{ id: 1, name: "booklist", template: "List", min_role: 100 }]);
+    render(
+      <I18nProvider locale="en">
+        <ViewsListPage bffClient={client} />
+      </I18nProvider>
+    );
+
+    expect(await screen.findByText("booklist")).toBeTruthy(); // dado do usuário, nunca traduzido
+    expect(screen.getByText("published")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Preview" })).toBeTruthy();
+    expect(screen.getByText("Name")).toBeTruthy();
   });
 
   it("pré-visualiza uma view compatível, desenhando o ListView", async () => {

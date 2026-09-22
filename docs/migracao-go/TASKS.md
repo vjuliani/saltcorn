@@ -918,13 +918,13 @@ Execute a task GO-046 — Portar catálogo administrativo de instalação (metad
 
 ### GO-047 — Portar internacionalização (i18n) da interface
 
-- [ ] **Status:** TODO
+- [x] **Status:** IN_REVIEW
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Backend + Frontend
 - **Depende de:** GO-017, GO-018
 - **Branch:** `task/go-047`
-- **Escopo:** Portar internacionalização da interface (CAP-082): configuração de idiomas por tenant, seleção de idioma por usuário/cookie, mecanismo de tradução de strings da UI no frontend React + BFF. Decidir explicitamente se a tradução assistida por LLM (`saltcorn dev translate`) é portada, substituída, ou fica fora de escopo (com justificativa) — não é core, mas precisa de decisão registrada.
-- **Aceite:** A interface (frontend React + páginas servidas pelo BFF) suporta pelo menos 2 idiomas configuráveis por tenant, com seleção por usuário persistida; GO-033 (CAP-082) reclassificado de NÃO LISTADA para PASS/PARTIAL com lacuna explícita.
+- **Escopo:** Portar internacionalização da interface (CAP-082): configuração de idiomas por tenant, seleção de idioma por usuário/cookie, mecanismo de tradução de strings da UI no frontend React + BFF. Decidir explicitamente se a tradução assistida por LLM (`saltcorn dev translate`) é portada, substituída, ou fica fora de escopo (com justificativa) — não é core, mas precisa de decisão registrada. **Emendado na execução (2026-09-22, leitura real do legado):** o catálogo de ~36 idiomas + a UI de administração `/localizer` (CRUD de idiomas/strings custom) são uma superfície de produto muito maior que o aceite exige — portado o MECANISMO (resolução de idioma efetivo, seleção por usuário persistida, catálogo de traduções, RTL) com 2 idiomas reais (pt/en); tradução assistida por LLM decidida explicitamente fora de escopo (nenhuma integração de LLM existe no backend Go hoje).
+- **Aceite:** A interface (frontend React + páginas servidas pelo BFF) suporta pelo menos 2 idiomas configuráveis por tenant, com seleção por usuário persistida (confirmado ponta a ponta em navegador real: troca pelo seletor + persistência após reload); GO-033 (CAP-082) reclassificado de NÃO LISTADA para PASS PARCIAL com lacuna explícita (36 idiomas do legado, UI `/localizer`, e tradução assistida por LLM ficam de fora, documentado).
 - **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
 - **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
 - **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-047; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.

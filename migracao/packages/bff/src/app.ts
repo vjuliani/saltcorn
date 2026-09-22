@@ -9,6 +9,7 @@ import { expiredSessionCookieHeader, readSessionCookie, sessionCookieHeader, SES
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrfCookieHeader, generateCsrfToken, readCsrfCookie, verifyCsrf } from "./csrf.js";
 import { mintServiceIdentity } from "./serviceIdentity.js";
 import { computeIdempotencyKey } from "./idempotency.js";
+import { langCookieHeader, resolveLocale } from "./locale.js";
 import { BffError, csrfInvalidError, forbiddenError, impersonationNotActiveError, sessionRequiredError } from "./errors.js";
 import { getHeader, readJSONBody, sendError, sendJSON } from "./httpHelpers.js";
 import { Router } from "./router.js";
@@ -61,7 +62,33 @@ export function buildRouter(deps: AppDeps): Router {
     const { data } = await requireSession(req, sessionStore);
     const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
     const actor = await goClient.getActor(token, data.tenant);
-    sendJSON(res, 200, { actor: { id: actor.id, role_id: actor.role_id }, tenant: data.tenant });
+    const locale = resolveLocale(actor.language, getHeader(req, "cookie"), actor.default_locale);
+    sendJSON(res, 200, {
+      actor: { id: actor.id, role_id: actor.role_id, language: actor.language },
+      tenant: data.tenant,
+      locale,
+    });
+  });
+
+  // setActorLanguage (GO-047) — self-service, mesma sessão/CSRF de
+  // qualquer outra mutação (ex.: updateView). Também seta o cookie
+  // `lang` (Set-Cookie) — o fallback que resolveLocale usa quando o
+  // ator não tem uma preferência explícita gravada (ex.: um fluxo
+  // futuro sem usuário logado); com usuário logado, User.Language (via
+  // Go) já tem prioridade sobre o cookie, então o cookie nunca conflita
+  // com a preferência persistida.
+  router.patch("/api/bff/actor/language", async (req, res) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = (await readJSONBody(req)) as { language?: string };
+    const language = typeof body.language === "string" ? body.language : "";
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const actor = await goClient.setActorLanguage(token, data.tenant, language);
+    res.setHeader("Set-Cookie", langCookieHeader(language));
+    sendJSON(res, 200, {
+      actor: { id: actor.id, role_id: actor.role_id, language: actor.language },
+      locale: resolveLocale(actor.language, getHeader(req, "cookie"), actor.default_locale),
+    });
   });
 
   router.get("/api/bff/tables/:table/records", async (req, res, params) => {

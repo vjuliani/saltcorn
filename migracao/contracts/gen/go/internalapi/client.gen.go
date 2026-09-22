@@ -219,8 +219,14 @@ type APIToken struct {
 
 // Actor defines model for Actor.
 type Actor struct {
+	// DefaultLocale GO-047 — idioma padrão do TENANT (`internal/config`, chave `default_locale`), sempre preenchido (fallback `"pt"` quando o tenant nunca configurou), nunca vazio.
+	DefaultLocale string `json:"default_locale"`
+
 	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
 	Id Id `json:"id"`
+
+	// Language GO-047 — preferência de idioma EXPLÍCITA do usuário (`identity.User.Language`). "" significa "sem preferência" — nunca um idioma padrão implícito; o BFF resolve o idioma efetivo (cookie `lang` > `default_locale`) quando vazio.
+	Language string `json:"language"`
 
 	// RoleId Papel atual do ator (identity.RoleID) — nunca cacheado pelo chamador, sempre resolvido nesta consulta.
 	RoleId int `json:"role_id"`
@@ -606,6 +612,12 @@ type IdempotencyConflict = Error
 // Unauthorized defines model for Unauthorized.
 type Unauthorized = Error
 
+// SetActorLanguageJSONBody defines parameters for SetActorLanguage.
+type SetActorLanguageJSONBody struct {
+	// Language Código de locale curto (ex. "pt", "en") ou "" para limpar a preferência.
+	Language *string `json:"language,omitempty"`
+}
+
 // ListRealtimeEventsParams defines parameters for ListRealtimeEvents.
 type ListRealtimeEventsParams struct {
 	// After Cursor de retomada — o `next_after` da chamada anterior. Omitir para a primeira chamada de uma conexão nova.
@@ -701,6 +713,9 @@ type SubmitViewParams struct {
 	// IdempotencyKey Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
+
+// SetActorLanguageJSONRequestBody defines body for SetActorLanguage for application/json ContentType.
+type SetActorLanguageJSONRequestBody SetActorLanguageJSONBody
 
 // ExchangeOfflineSyncJSONRequestBody defines body for ExchangeOfflineSync for application/json ContentType.
 type ExchangeOfflineSyncJSONRequestBody = Request
@@ -1141,6 +1156,24 @@ type ClientInterface interface {
 	// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 	GetActor(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// SetActorLanguageWithBody Command: define a preferência de idioma do ator autenticado
+	//
+	// GO-047 — self-service: o ator muda a PRÓPRIA preferência de idioma (`identity.User.Language`), nunca a de outro usuário — `id` vem do `sub` do token, nunca de um parâmetro, mesma garantia de `getActor` acima. `language` vazio ou ausente LIMPA a preferência (volta ao fallback de `default_locale` do tenant).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/actor (the `SetActorLanguage` operationId).
+	SetActorLanguageWithBody(ctx context.Context, tenant Tenant, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetActorLanguage Command: define a preferência de idioma do ator autenticado
+	//
+	// GO-047 — self-service: o ator muda a PRÓPRIA preferência de idioma (`identity.User.Language`), nunca a de outro usuário — `id` vem do `sub` do token, nunca de um parâmetro, mesma garantia de `getActor` acima. `language` vazio ou ausente LIMPA a preferência (volta ao fallback de `default_locale` do tenant).
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/actor (the `SetActorLanguage` operationId).
+	SetActorLanguage(ctx context.Context, tenant Tenant, body SetActorLanguageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// EndImpersonation Command: encerra uma impersonação (sem checagem de papel)
 	//
 	// Exige `ServiceIdentity` válido para o tenant (como qualquer outra rota), mas deliberadamente SEM checagem de papel/ownership: quem chama isto é o BFF encerrando sua PRÓPRIA sessão de impersonação (o `log_id` só existe porque o BFF o guardou depois de um `startImpersonation` bem-sucedido), nunca um usuário final escolhendo um id de outra pessoa. Idempotente — encerrar um id já encerrado ou inexistente também devolve 204.
@@ -1491,6 +1524,44 @@ func (c *Client) GetReadiness(ctx context.Context, reqEditors ...RequestEditorFn
 // Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 func (c *Client) GetActor(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetActorRequest(c.Server, tenant)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetActorLanguageWithBody Command: define a preferência de idioma do ator autenticado
+//
+// GO-047 — self-service: o ator muda a PRÓPRIA preferência de idioma (`identity.User.Language`), nunca a de outro usuário — `id` vem do `sub` do token, nunca de um parâmetro, mesma garantia de `getActor` acima. `language` vazio ou ausente LIMPA a preferência (volta ao fallback de `default_locale` do tenant).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/actor (the `SetActorLanguage` operationId).
+func (c *Client) SetActorLanguageWithBody(ctx context.Context, tenant Tenant, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetActorLanguageRequestWithBody(c.Server, tenant, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetActorLanguage Command: define a preferência de idioma do ator autenticado
+//
+// GO-047 — self-service: o ator muda a PRÓPRIA preferência de idioma (`identity.User.Language`), nunca a de outro usuário — `id` vem do `sub` do token, nunca de um parâmetro, mesma garantia de `getActor` acima. `language` vazio ou ausente LIMPA a preferência (volta ao fallback de `default_locale` do tenant).
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/actor (the `SetActorLanguage` operationId).
+func (c *Client) SetActorLanguage(ctx context.Context, tenant Tenant, body SetActorLanguageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetActorLanguageRequest(c.Server, tenant, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2277,6 +2348,53 @@ func NewGetActorRequest(server string, tenant Tenant) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewSetActorLanguageRequest calls the generic SetActorLanguage builder with application/json body
+func NewSetActorLanguageRequest(server string, tenant Tenant, body SetActorLanguageJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetActorLanguageRequestWithBody(server, tenant, "application/json", bodyReader)
+}
+
+// NewSetActorLanguageRequestWithBody constructs an http.Request for the SetActorLanguage method, with any body, and a specified content type
+func NewSetActorLanguageRequestWithBody(server string, tenant Tenant, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/actor", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -3844,6 +3962,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /v1/tenants/{tenant}/actor (the `GetActor` operationId).
 	GetActorWithResponse(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*GetActorResponse, error)
 
+	// SetActorLanguageWithBodyWithResponse Command: define a preferência de idioma do ator autenticado
+	//
+	// GO-047 — self-service: o ator muda a PRÓPRIA preferência de idioma (`identity.User.Language`), nunca a de outro usuário — `id` vem do `sub` do token, nunca de um parâmetro, mesma garantia de `getActor` acima. `language` vazio ou ausente LIMPA a preferência (volta ao fallback de `default_locale` do tenant).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/actor (the `SetActorLanguage` operationId).
+	SetActorLanguageWithBodyWithResponse(ctx context.Context, tenant Tenant, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetActorLanguageResponse, error)
+
+	// SetActorLanguageWithResponse Command: define a preferência de idioma do ator autenticado
+	//
+	// GO-047 — self-service: o ator muda a PRÓPRIA preferência de idioma (`identity.User.Language`), nunca a de outro usuário — `id` vem do `sub` do token, nunca de um parâmetro, mesma garantia de `getActor` acima. `language` vazio ou ausente LIMPA a preferência (volta ao fallback de `default_locale` do tenant).
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /v1/tenants/{tenant}/actor (the `SetActorLanguage` operationId).
+	SetActorLanguageWithResponse(ctx context.Context, tenant Tenant, body SetActorLanguageJSONRequestBody, reqEditors ...RequestEditorFn) (*SetActorLanguageResponse, error)
+
 	// EndImpersonationWithResponse Command: encerra uma impersonação (sem checagem de papel)
 	//
 	// Exige `ServiceIdentity` válido para o tenant (como qualquer outra rota), mas deliberadamente SEM checagem de papel/ownership: quem chama isto é o BFF encerrando sua PRÓPRIA sessão de impersonação (o `log_id` só existe porque o BFF o guardou depois de um `startImpersonation` bem-sucedido), nunca um usuário final escolhendo um id de outra pessoa. Idempotente — encerrar um id já encerrado ou inexistente também devolve 204.
@@ -4309,6 +4445,75 @@ func (r GetActorResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetActorResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetActorLanguageResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Actor
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetActorLanguageResponse) GetJSON200() *Actor {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SetActorLanguageResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SetActorLanguageResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r SetActorLanguageResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r SetActorLanguageResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r SetActorLanguageResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetActorLanguageResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetActorLanguageResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetActorLanguageResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -6190,6 +6395,36 @@ func (c *ClientWithResponses) GetActorWithResponse(ctx context.Context, tenant T
 	return ParseGetActorResponse(rsp)
 }
 
+// SetActorLanguageWithBodyWithResponse Command: define a preferência de idioma do ator autenticado
+//
+// GO-047 — self-service: o ator muda a PRÓPRIA preferência de idioma (`identity.User.Language`), nunca a de outro usuário — `id` vem do `sub` do token, nunca de um parâmetro, mesma garantia de `getActor` acima. `language` vazio ou ausente LIMPA a preferência (volta ao fallback de `default_locale` do tenant).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/actor (the `SetActorLanguage` operationId).
+func (c *ClientWithResponses) SetActorLanguageWithBodyWithResponse(ctx context.Context, tenant Tenant, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetActorLanguageResponse, error) {
+	rsp, err := c.SetActorLanguageWithBody(ctx, tenant, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetActorLanguageResponse(rsp)
+}
+
+// SetActorLanguageWithResponse Command: define a preferência de idioma do ator autenticado
+//
+// GO-047 — self-service: o ator muda a PRÓPRIA preferência de idioma (`identity.User.Language`), nunca a de outro usuário — `id` vem do `sub` do token, nunca de um parâmetro, mesma garantia de `getActor` acima. `language` vazio ou ausente LIMPA a preferência (volta ao fallback de `default_locale` do tenant).
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /v1/tenants/{tenant}/actor (the `SetActorLanguage` operationId).
+func (c *ClientWithResponses) SetActorLanguageWithResponse(ctx context.Context, tenant Tenant, body SetActorLanguageJSONRequestBody, reqEditors ...RequestEditorFn) (*SetActorLanguageResponse, error) {
+	rsp, err := c.SetActorLanguage(ctx, tenant, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetActorLanguageResponse(rsp)
+}
+
 // EndImpersonationWithResponse Command: encerra uma impersonação (sem checagem de papel)
 //
 // Exige `ServiceIdentity` válido para o tenant (como qualquer outra rota), mas deliberadamente SEM checagem de papel/ownership: quem chama isto é o BFF encerrando sua PRÓPRIA sessão de impersonação (o `log_id` só existe porque o BFF o guardou depois de um `startImpersonation` bem-sucedido), nunca um usuário final escolhendo um id de outra pessoa. Idempotente — encerrar um id já encerrado ou inexistente também devolve 204.
@@ -6810,6 +7045,60 @@ func ParseGetActorResponse(rsp *http.Response) (*GetActorResponse, error) {
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetActorLanguageResponse parses an HTTP response from a SetActorLanguageWithResponse call
+func ParseSetActorLanguageResponse(rsp *http.Response) (*SetActorLanguageResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetActorLanguageResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Actor
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Unauthorized

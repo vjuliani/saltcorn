@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/config"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
@@ -63,6 +64,9 @@ func newVersionedFixture(t *testing.T, db *database.DB) testFixture {
 			return err
 		}
 		if err := triggers.EnsureSchema(ctx, tx); err != nil {
+			return err
+		}
+		if err := config.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
 		hash, err := identity.HashPassword("hunter2")

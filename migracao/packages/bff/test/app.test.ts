@@ -67,7 +67,89 @@ test("GET /api/bff/bootstrap com sessão válida compõe a resposta a partir do 
     const res = await fetch(`${baseUrl}/api/bff/bootstrap`, { headers: { Cookie: cookie } });
     assert.equal(res.status, 200);
     const body = (await res.json()) as any;
-    assert.deepEqual(body, { actor: { id: 42, role_id: 80 }, tenant: "acme" });
+    assert.deepEqual(body, { actor: { id: 42, role_id: 80, language: "" }, tenant: "acme", locale: "pt" });
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+// GO-047: preferência de idioma do ator — self-service via PATCH, e o
+// bootstrap seguinte reflete o valor persistido (não só a resposta do
+// próprio PATCH).
+test("PATCH /api/bff/actor/language grava a preferência e bootstrap seguinte reflete", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "42", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/actor/language`, {
+      method: "PATCH",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: csrfToken, "content-type": "application/json" },
+      body: JSON.stringify({ language: "en" }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as any;
+    assert.deepEqual(body, { actor: { id: 42, role_id: 80, language: "en" }, locale: "en" });
+
+    const bootstrapRes = await fetch(`${baseUrl}/api/bff/bootstrap`, { headers: { Cookie: cookie } });
+    const bootstrapBody = (await bootstrapRes.json()) as any;
+    assert.equal(bootstrapBody.actor.language, "en");
+    assert.equal(bootstrapBody.locale, "en");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("PATCH /api/bff/actor/language sem sessão retorna 401", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, baseUrl } = await startBff(goUrl);
+  try {
+    const res = await fetch(`${baseUrl}/api/bff/actor/language`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ language: "en" }),
+    });
+    assert.equal(res.status, 401);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("PATCH /api/bff/actor/language sem CSRF retorna 403", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "42", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/actor/language`, {
+      method: "PATCH",
+      headers: { Cookie: cookie, "content-type": "application/json" },
+      body: JSON.stringify({ language: "en" }),
+    });
+    assert.equal(res.status, 403);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+// GO-047: cookie `lang` só decide o locale quando o ator NÃO tem
+// preferência explícita — prova a ordem de prioridade (User.Language >
+// cookie > default_locale) fim a fim através do bootstrap real.
+test("GET /api/bff/bootstrap usa o cookie lang quando o ator não tem preferência explícita", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "42", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/bootstrap`, { headers: { Cookie: `${cookie}; lang=en` } });
+    const body = (await res.json()) as any;
+    assert.equal(body.actor.language, "", "ator não tem preferência explícita gravada");
+    assert.equal(body.locale, "en", "cookie decide o locale efetivo na ausência de preferência");
   } finally {
     server.close();
     await mockGo.close();

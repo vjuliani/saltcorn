@@ -21,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/config"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
@@ -93,6 +94,15 @@ func e2eSeed(args []string) error {
 		// cmd/server) — antes disso, hooks eram sempre nil e a ausência
 		// deste schema nunca era exercitada por nenhum harness de E2E/carga.
 		if err := triggers.EnsureSchema(ctx, tx); err != nil {
+			return err
+		}
+		// config.EnsureSchema (GO-047): getActorHandler agora consulta
+		// _sc_config (default_locale) em toda chamada — sem isso, o SELECT
+		// falha e defaultLocaleOrFallback mascara o erro devolvendo "pt"
+		// silenciosamente. Mesma classe de achado de GO-040/045 (schema de
+		// framework que faltava neste bootstrap de E2E, não no
+		// provisionamento real).
+		if err := config.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
 		hash, err := identity.HashPassword(*password)

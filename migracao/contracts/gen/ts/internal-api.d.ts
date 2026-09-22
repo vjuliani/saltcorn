@@ -80,7 +80,11 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Command: define a preferência de idioma do ator autenticado
+         * @description GO-047 — self-service: o ator muda a PRÓPRIA preferência de idioma (`identity.User.Language`), nunca a de outro usuário — `id` vem do `sub` do token, nunca de um parâmetro, mesma garantia de `getActor` acima. `language` vazio ou ausente LIMPA a preferência (volta ao fallback de `default_locale` do tenant).
+         */
+        patch: operations["setActorLanguage"];
         trace?: never;
     };
     "/v1/tenants/{tenant}/tables": {
@@ -550,6 +554,10 @@ export interface components {
             id: components["schemas"]["Id"];
             /** @description Papel atual do ator (identity.RoleID) — nunca cacheado pelo chamador, sempre resolvido nesta consulta. */
             role_id: number;
+            /** @description GO-047 — preferência de idioma EXPLÍCITA do usuário (`identity.User.Language`). "" significa "sem preferência" — nunca um idioma padrão implícito; o BFF resolve o idioma efetivo (cookie `lang` > `default_locale`) quando vazio. */
+            language: string;
+            /** @description GO-047 — idioma padrão do TENANT (`internal/config`, chave `default_locale`), sempre preenchido (fallback `"pt"` quando o tenant nunca configurou), nunca vazio. */
+            default_locale: string;
         };
         User: {
             id: components["schemas"]["Id"];
@@ -1038,6 +1046,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Actor"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    setActorLanguage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Código de locale curto (ex. "pt", "en") ou "" para limpar a preferência. */
+                    language?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description preferência de idioma atualizada */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Actor"];
+                };
+            };
+            /** @description corpo inválido */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             401: components["responses"]["Unauthorized"];

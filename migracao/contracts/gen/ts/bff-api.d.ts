@@ -63,6 +63,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bff/actor/language": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Define a preferência de idioma do ator autenticado (GO-047) */
+        patch: operations["setActorLanguage"];
+        trace?: never;
+    };
     "/api/bff/tables/{table}/records": {
         parameters: {
             query?: never;
@@ -238,8 +255,12 @@ export interface components {
             actor: {
                 id?: components["schemas"]["Id"];
                 role_id?: number;
+                /** @description GO-047 — preferência de idioma EXPLÍCITA do usuário ("" = sem preferência, ver `locale` para o idioma EFETIVO já resolvido). */
+                language?: string;
             };
             tenant: components["schemas"]["Tenant"];
+            /** @description GO-047 — idioma EFETIVO já resolvido pelo BFF (`actor.language` > cookie `lang` > `default_locale` do tenant > `"pt"`), sempre preenchido — o frontend nunca precisa reimplementar essa cadeia de prioridade. */
+            locale: string;
         };
         View: {
             id: components["schemas"]["Id"];
@@ -608,6 +629,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Bootstrap"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+        };
+    };
+    setActorLanguage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Código de locale curto (ex. "pt", "en") ou "" para limpar a preferência. */
+                    language?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description preferência atualizada — mesmo shape de Bootstrap.actor, mais `locale` (o idioma efetivo já recalculado) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        actor: {
+                            id?: components["schemas"]["Id"];
+                            role_id?: number;
+                            language?: string;
+                        };
+                        locale: string;
+                    };
+                };
+            };
+            /** @description corpo inválido */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             401: components["responses"]["SessionRequired"];

@@ -108,6 +108,13 @@ export class GoClient {
     return this.request<GetActorResponse>(url, { method: "GET", serviceIdentityToken });
   }
 
+  // setActorLanguage (GO-047) — self-service, sempre sobre o PRÓPRIO
+  // ator do serviceIdentityToken (nunca um userID em parâmetro).
+  async setActorLanguage(serviceIdentityToken: string, tenant: string, language: string): Promise<GetActorResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/actor`);
+    return this.request<GetActorResponse>(url, { method: "PATCH", serviceIdentityToken, body: { language } });
+  }
+
   async createTable(
     serviceIdentityToken: string,
     tenant: string,
