@@ -45,12 +45,15 @@ type ViewState = {
 // GO-018/019) é classificado como incompatível e bloqueado na publicação
 // desde GO-020. `handleCreateTable` por isso também cria um campo
 // ("titulo", texto) logo após a tabela, e a view nasce já referenciando
-// esse campo no shape suportado (`layout.besides` com uma coluna
-// `{type: "Field", field_name}` — o mesmo shape real do viewtemplate
-// List legado, não inventado).
+// esse campo no shape suportado. Corrigido em GO-039: a fonte de verdade
+// real é `configuration.columns` (lista flat que o builder legado grava
+// e que list.ts:1009 de fato lê para decidir dados), não
+// `configuration.layout.besides` (árvore de arranjo visual, nunca
+// interpretada por este runtime) — usar o formato antigo aqui bloquearia
+// "Publicar" com 422 desde a correção de GO-039.
 const TITLE_FIELD_NAME = "titulo";
 const DEFAULT_LAYOUT: LayoutSegment = {
-  layout: { besides: [{ header_label: "Título", contents: { type: "Field", field_name: TITLE_FIELD_NAME } }] },
+  columns: [{ type: "Field", field_name: TITLE_FIELD_NAME, header_label: "Título" }],
 };
 
 export function EditorPage({ bffClient }: EditorPageProps) {

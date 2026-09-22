@@ -260,15 +260,13 @@ try {
           name: "load_items_view",
           table: "load_items",
           template: "List",
+          // configuration.columns (GO-039) é a fonte de verdade real de
+          // List — não configuration.layout.besides (árvore de arranjo
+          // visual, nunca interpretada pelo runtime).
           configuration: {
-            layout: {
-              besides: [
-                {
-                  header_label: "Título",
-                  contents: { type: "Field", field_name: "titulo" },
-                },
-              ],
-            },
+            columns: [
+              { type: "Field", field_name: "titulo", header_label: "Título" },
+            ],
           },
         },
         201
