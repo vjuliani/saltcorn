@@ -781,7 +781,7 @@ Execute a task GO-039 — Portar viewtemplates Edit/Show/Feed e formulário do p
 
 ### GO-040 — Ligar automação (triggers/ações) ao caminho HTTP real
 
-- [x] **Status:** IN_REVIEW
+- [x] **Status:** DONE — integrada via PR [#47](https://github.com/vjuliani/saltcorn/pull/47) (merge `54417823caaefce73a96c95ed40d84231cc7de34`); histórico em [execucoes/GO-040.md](execucoes/GO-040.md)
 - **Fase:** F4 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-022, GO-024, GO-025, GO-029
