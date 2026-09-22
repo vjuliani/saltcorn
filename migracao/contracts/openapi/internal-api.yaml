@@ -1052,9 +1052,7 @@ paths:
                   value:
                     items:
                       - id: 1
-                        version: 1
-                        created_at: "2026-01-15T00:00:00Z"
-                        updated_at: "2026-01-15T00:00:00Z"
+                        _version: "1"
                         name: "guitars"
                     next_cursor: null
         "401":
@@ -1143,18 +1141,26 @@ paths:
       operationId: updateRecord
       summary: "Command: atualiza campos de um registro"
       description: >
-        Semântica de JSON Merge Patch (RFC 7396): campo ausente do corpo =
-        sem alteração; campo presente com valor `null` = limpar o campo.
-        Falha de versão otimista retorna 409.
+        Adicionado por GO-040 — o desenho original (GO-006) já reservava
+        esta rota, mas nunca definia como o cliente transmitiria a versão
+        esperada (nem `_version` no corpo, nem `If-Match`), apesar do 409
+        de conflito já documentado; corrigido aqui. `_version` (de uma
+        leitura anterior, ex.: `getRecord`/`listRecords`) é OBRIGATÓRIO —
+        mesma convenção de `_version` em `ViewUpdateInput`/
+        `ViewSubmitInput`. Campos ausentes do corpo permanecem inalterados
+        (nunca um PUT que sobrescreve o registro inteiro); mesmo controle
+        de concorrência otimista de qualquer outra escrita — 409 se o
+        registro mudou desde a leitura. Idempotente por Idempotency-Key
+        (retry com a mesma chave e o mesmo corpo reaproveita o resultado,
+        nunca reaplica a escrita duas vezes).
       parameters:
         - $ref: "./common.yaml#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
-          application/merge-patch+json:
+          application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: "#/components/schemas/RecordUpdateInput"
       responses:
         "503":
           description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
@@ -1168,10 +1174,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Record"
+        "400":
+          description: corpo inválido, Idempotency-Key ausente, ou _version ausente
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "401":
           $ref: "./common.yaml#/components/responses/Unauthorized"
         "403":
           $ref: "./common.yaml#/components/responses/Forbidden"
+        "404":
+          description: registro não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "409":
           description: conflito de versão otimista ou de idempotência
           content:
@@ -1181,8 +1199,20 @@ paths:
     delete:
       operationId: deleteRecord
       summary: "Command: remove um registro"
+      description: >
+        Adicionado por GO-040 — mesma correção de `_version` de
+        `updateRecord` acima. `?version=` é obrigatório (o `_version` de
+        uma leitura anterior). Idempotente por natureza (não por
+        Idempotency-Key, mesma convenção de `deleteViewRow` desde GO-039):
+        remover um registro já removido devolve 404, um estado final
+        consistente, não um efeito duplicado — por isso esta rota não
+        exige o cabeçalho.
       parameters:
-        - $ref: "./common.yaml#/components/parameters/IdempotencyKey"
+        - name: version
+          in: query
+          required: true
+          schema:
+            type: string
       responses:
         "503":
           description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
@@ -1192,12 +1222,28 @@ paths:
                 $ref: "./common.yaml#/components/schemas/Error"
         "204":
           description: removido
+        "400":
+          description: "?version= ausente"
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
         "401":
           $ref: "./common.yaml#/components/responses/Unauthorized"
         "403":
           $ref: "./common.yaml#/components/responses/Forbidden"
         "404":
-          description: já não existia (delete é idempotente)
+          description: registro não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "409":
+          description: conflito de versão otimista
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
 
 components:
   securitySchemes:
@@ -1562,17 +1608,36 @@ components:
         Este contrato não pode enumerar campos fixos — validação de schema
         acontece no backend, não aqui.
 
+    RecordUpdateInput:
+      type: object
+      required: [_version]
+      description: >
+        Adicionado por GO-040. `_version` é obrigatório mesmo quando só um
+        campo está sendo alterado. Campos ausentes do corpo (além de
+        `_version`) permanecem inalterados — nunca uma sobrescrita
+        completa do registro.
+      properties:
+        _version:
+          type: string
+      additionalProperties: true
+
     Record:
       type: object
-      required: [id, version, created_at]
+      required: [id, _version]
+      description: >
+        Corrigido em GO-040: o desenho original (GO-006) declarava
+        `version` (integer) e `created_at`/`updated_at`, nenhum dos três
+        jamais implementado — `internal/metadata` (GO-011) não grava
+        colunas de auditoria em tabelas dinâmicas, e a versão otimista
+        real (`internal/records`, GO-012/013) é `_version` (string,
+        derivada de `xmin` no Postgres), o mesmo campo que `View`/
+        `ViewUpdateInput` já usam. `listRecords`/`createRecord` (GO-017)
+        sempre devolveram este shape real — o schema é quem estava
+        desatualizado, não o comportamento.
       properties:
         id:
           $ref: "./common.yaml#/components/schemas/Id"
-        version:
-          type: integer
+        _version:
+          type: string
           description: Versão otimista do registro (ADR-0001) — usada para detectar escrita concorrente.
-        created_at:
-          $ref: "./common.yaml#/components/schemas/DateTime"
-        updated_at:
-          $ref: "./common.yaml#/components/schemas/DateTime"
       additionalProperties: true

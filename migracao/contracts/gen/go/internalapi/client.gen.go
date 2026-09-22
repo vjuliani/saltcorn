@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/oapi-codegen/runtime"
 )
@@ -227,9 +226,6 @@ type Actor struct {
 	RoleId int `json:"role_id"`
 }
 
-// DateTime Sempre UTC explícito (sufixo Z), nunca hora local implícita. Mitiga a classe de bug encontrada em GO-002 (2 falsos positivos de teste causados pelo timezone do host não ser UTC) — ver docs/migracao-go/baseline/GO-002-baseline.md §2.
-type DateTime = time.Time
-
 // Error defines model for Error.
 type Error struct {
 	Error struct {
@@ -315,24 +311,24 @@ type RealtimeEvent struct {
 // RealtimeEventAudience Informativo — o BFF não precisa decidir roteamento por audience, a filtragem por destinatário já aconteceu no backend (ver `listRealtimeEvents`).
 type RealtimeEventAudience string
 
-// Record defines model for Record.
+// Record Corrigido em GO-040: o desenho original (GO-006) declarava `version` (integer) e `created_at`/`updated_at`, nenhum dos três jamais implementado — `internal/metadata` (GO-011) não grava colunas de auditoria em tabelas dinâmicas, e a versão otimista real (`internal/records`, GO-012/013) é `_version` (string, derivada de `xmin` no Postgres), o mesmo campo que `View`/ `ViewUpdateInput` já usam. `listRecords`/`createRecord` (GO-017) sempre devolveram este shape real — o schema é quem estava desatualizado, não o comportamento.
 type Record struct {
-	// CreatedAt Sempre UTC explícito (sufixo Z), nunca hora local implícita. Mitiga a classe de bug encontrada em GO-002 (2 falsos positivos de teste causados pelo timezone do host não ser UTC) — ver docs/migracao-go/baseline/GO-002-baseline.md §2.
-	CreatedAt DateTime `json:"created_at"`
+	// UnderscoreVersion Versão otimista do registro (ADR-0001) — usada para detectar escrita concorrente.
+	UnderscoreVersion string `json:"_version"`
 
 	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
-	Id Id `json:"id"`
-
-	// UpdatedAt Sempre UTC explícito (sufixo Z), nunca hora local implícita. Mitiga a classe de bug encontrada em GO-002 (2 falsos positivos de teste causados pelo timezone do host não ser UTC) — ver docs/migracao-go/baseline/GO-002-baseline.md §2.
-	UpdatedAt *DateTime `json:"updated_at,omitempty"`
-
-	// Version Versão otimista do registro (ADR-0001) — usada para detectar escrita concorrente.
-	Version              int                    `json:"version"`
+	Id                   Id                     `json:"id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
 // RecordInput Campos do registro conforme o schema dinâmico da tabela (GO-011). Este contrato não pode enumerar campos fixos — validação de schema acontece no backend, não aqui.
 type RecordInput map[string]interface{}
+
+// RecordUpdateInput Adicionado por GO-040. `_version` é obrigatório mesmo quando só um campo está sendo alterado. Campos ausentes do corpo (além de `_version`) permanecem inalterados — nunca uma sobrescrita completa do registro.
+type RecordUpdateInput struct {
+	UnderscoreVersion    string                 `json:"_version"`
+	AdditionalProperties map[string]interface{} `json:"-"`
+}
 
 // Request defines model for Request.
 type Request struct {
@@ -621,12 +617,8 @@ type CreateRecordParams struct {
 
 // DeleteRecordParams defines parameters for DeleteRecord.
 type DeleteRecordParams struct {
-	// IdempotencyKey Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).
-	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+	Version string `form:"version" json:"version"`
 }
-
-// UpdateRecordApplicationMergePatchPlusJSONBody defines parameters for UpdateRecord.
-type UpdateRecordApplicationMergePatchPlusJSONBody map[string]interface{}
 
 // UpdateRecordParams defines parameters for UpdateRecord.
 type UpdateRecordParams struct {
@@ -702,8 +694,8 @@ type UpdateTablePermissionsJSONRequestBody UpdateTablePermissionsJSONBody
 // CreateRecordJSONRequestBody defines body for CreateRecord for application/json ContentType.
 type CreateRecordJSONRequestBody = RecordInput
 
-// UpdateRecordApplicationMergePatchPlusJSONRequestBody defines body for UpdateRecord for application/merge-patch+json ContentType.
-type UpdateRecordApplicationMergePatchPlusJSONRequestBody UpdateRecordApplicationMergePatchPlusJSONBody
+// UpdateRecordJSONRequestBody defines body for UpdateRecord for application/json ContentType.
+type UpdateRecordJSONRequestBody = RecordUpdateInput
 
 // UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
 type UpdateUserJSONRequestBody UpdateUserJSONBody
@@ -745,12 +737,12 @@ func (a *Record) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	if raw, found := object["created_at"]; found {
-		err = json.Unmarshal(raw, &a.CreatedAt)
+	if raw, found := object["_version"]; found {
+		err = json.Unmarshal(raw, &a.UnderscoreVersion)
 		if err != nil {
-			return fmt.Errorf("error reading 'created_at': %w", err)
+			return fmt.Errorf("error reading '_version': %w", err)
 		}
-		delete(object, "created_at")
+		delete(object, "_version")
 	}
 
 	if raw, found := object["id"]; found {
@@ -759,22 +751,6 @@ func (a *Record) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'id': %w", err)
 		}
 		delete(object, "id")
-	}
-
-	if raw, found := object["updated_at"]; found {
-		err = json.Unmarshal(raw, &a.UpdatedAt)
-		if err != nil {
-			return fmt.Errorf("error reading 'updated_at': %w", err)
-		}
-		delete(object, "updated_at")
-	}
-
-	if raw, found := object["version"]; found {
-		err = json.Unmarshal(raw, &a.Version)
-		if err != nil {
-			return fmt.Errorf("error reading 'version': %w", err)
-		}
-		delete(object, "version")
 	}
 
 	if len(object) != 0 {
@@ -796,9 +772,9 @@ func (a Record) MarshalJSON() ([]byte, error) {
 	var err error
 	object := make(map[string]json.RawMessage)
 
-	object["created_at"], err = json.Marshal(a.CreatedAt)
+	object["_version"], err = json.Marshal(a.UnderscoreVersion)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'created_at': %w", err)
+		return nil, fmt.Errorf("error marshaling '_version': %w", err)
 	}
 
 	object["id"], err = json.Marshal(a.Id)
@@ -806,16 +782,70 @@ func (a Record) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'id': %w", err)
 	}
 
-	if a.UpdatedAt != nil {
-		object["updated_at"], err = json.Marshal(a.UpdatedAt)
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
 		if err != nil {
-			return nil, fmt.Errorf("error marshaling 'updated_at': %w", err)
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
 		}
 	}
+	return json.Marshal(object)
+}
 
-	object["version"], err = json.Marshal(a.Version)
+// Getter for additional properties for RecordUpdateInput. Returns the specified
+// element and whether it was found
+func (a RecordUpdateInput) Get(fieldName string) (value interface{}, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Setter for additional properties for RecordUpdateInput
+func (a *RecordUpdateInput) Set(fieldName string, value interface{}) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]interface{})
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+// Override default JSON handling for RecordUpdateInput to handle AdditionalProperties
+func (a *RecordUpdateInput) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
 	if err != nil {
-		return nil, fmt.Errorf("error marshaling 'version': %w", err)
+		return err
+	}
+
+	if raw, found := object["_version"]; found {
+		err = json.Unmarshal(raw, &a.UnderscoreVersion)
+		if err != nil {
+			return fmt.Errorf("error reading '_version': %w", err)
+		}
+		delete(object, "_version")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]interface{})
+		for fieldName, fieldBuf := range object {
+			var fieldVal interface{}
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+// Override default JSON handling for RecordUpdateInput to handle AdditionalProperties
+func (a RecordUpdateInput) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["_version"], err = json.Marshal(a.UnderscoreVersion)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling '_version': %w", err)
 	}
 
 	for fieldName, field := range a.AdditionalProperties {
@@ -1198,6 +1228,8 @@ type ClientInterface interface {
 
 	// DeleteRecord Command: remove um registro
 	//
+	// Adicionado por GO-040 — mesma correção de `_version` de `updateRecord` acima. `?version=` é obrigatório (o `_version` de uma leitura anterior). Idempotente por natureza (não por Idempotency-Key, mesma convenção de `deleteViewRow` desde GO-039): remover um registro já removido devolve 404, um estado final consistente, não um efeito duplicado — por isso esta rota não exige o cabeçalho.
+	//
 	// Corresponds with DELETE /v1/tenants/{tenant}/tables/{table}/records/{id} (the `DeleteRecord` operationId).
 	DeleteRecord(ctx context.Context, tenant Tenant, table string, id Id, params *DeleteRecordParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -1208,21 +1240,21 @@ type ClientInterface interface {
 
 	// UpdateRecordWithBody Command: atualiza campos de um registro
 	//
-	// Semântica de JSON Merge Patch (RFC 7396): campo ausente do corpo = sem alteração; campo presente com valor `null` = limpar o campo. Falha de versão otimista retorna 409.
+	// Adicionado por GO-040 — o desenho original (GO-006) já reservava esta rota, mas nunca definia como o cliente transmitiria a versão esperada (nem `_version` no corpo, nem `If-Match`), apesar do 409 de conflito já documentado; corrigido aqui. `_version` (de uma leitura anterior, ex.: `getRecord`/`listRecords`) é OBRIGATÓRIO — mesma convenção de `_version` em `ViewUpdateInput`/ `ViewSubmitInput`. Campos ausentes do corpo permanecem inalterados (nunca um PUT que sobrescreve o registro inteiro); mesmo controle de concorrência otimista de qualquer outra escrita — 409 se o registro mudou desde a leitura. Idempotente por Idempotency-Key (retry com a mesma chave e o mesmo corpo reaproveita o resultado, nunca reaplica a escrita duas vezes).
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 	UpdateRecordWithBody(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// UpdateRecordWithApplicationMergePatchPlusJSONBody Command: atualiza campos de um registro
+	// UpdateRecord Command: atualiza campos de um registro
 	//
-	// Semântica de JSON Merge Patch (RFC 7396): campo ausente do corpo = sem alteração; campo presente com valor `null` = limpar o campo. Falha de versão otimista retorna 409.
+	// Adicionado por GO-040 — o desenho original (GO-006) já reservava esta rota, mas nunca definia como o cliente transmitiria a versão esperada (nem `_version` no corpo, nem `If-Match`), apesar do 409 de conflito já documentado; corrigido aqui. `_version` (de uma leitura anterior, ex.: `getRecord`/`listRecords`) é OBRIGATÓRIO — mesma convenção de `_version` em `ViewUpdateInput`/ `ViewSubmitInput`. Campos ausentes do corpo permanecem inalterados (nunca um PUT que sobrescreve o registro inteiro); mesmo controle de concorrência otimista de qualquer outra escrita — 409 se o registro mudou desde a leitura. Idempotente por Idempotency-Key (retry com a mesma chave e o mesmo corpo reaproveita o resultado, nunca reaplica a escrita duas vezes).
 	//
-	// Takes a body of the `application/merge-patch+json` content type.
+	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
-	UpdateRecordWithApplicationMergePatchPlusJSONBody(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	UpdateRecord(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListUsers Query: lista usuários do tenant (admin)
 	//
@@ -1661,6 +1693,8 @@ func (c *Client) CreateRecord(ctx context.Context, tenant Tenant, table string, 
 
 // DeleteRecord Command: remove um registro
 //
+// Adicionado por GO-040 — mesma correção de `_version` de `updateRecord` acima. `?version=` é obrigatório (o `_version` de uma leitura anterior). Idempotente por natureza (não por Idempotency-Key, mesma convenção de `deleteViewRow` desde GO-039): remover um registro já removido devolve 404, um estado final consistente, não um efeito duplicado — por isso esta rota não exige o cabeçalho.
+//
 // Corresponds with DELETE /v1/tenants/{tenant}/tables/{table}/records/{id} (the `DeleteRecord` operationId).
 func (c *Client) DeleteRecord(ctx context.Context, tenant Tenant, table string, id Id, params *DeleteRecordParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteRecordRequest(c.Server, tenant, table, id, params)
@@ -1691,7 +1725,7 @@ func (c *Client) GetRecord(ctx context.Context, tenant Tenant, table string, id 
 
 // UpdateRecordWithBody Command: atualiza campos de um registro
 //
-// Semântica de JSON Merge Patch (RFC 7396): campo ausente do corpo = sem alteração; campo presente com valor `null` = limpar o campo. Falha de versão otimista retorna 409.
+// Adicionado por GO-040 — o desenho original (GO-006) já reservava esta rota, mas nunca definia como o cliente transmitiria a versão esperada (nem `_version` no corpo, nem `If-Match`), apesar do 409 de conflito já documentado; corrigido aqui. `_version` (de uma leitura anterior, ex.: `getRecord`/`listRecords`) é OBRIGATÓRIO — mesma convenção de `_version` em `ViewUpdateInput`/ `ViewSubmitInput`. Campos ausentes do corpo permanecem inalterados (nunca um PUT que sobrescreve o registro inteiro); mesmo controle de concorrência otimista de qualquer outra escrita — 409 se o registro mudou desde a leitura. Idempotente por Idempotency-Key (retry com a mesma chave e o mesmo corpo reaproveita o resultado, nunca reaplica a escrita duas vezes).
 //
 // Takes any type of body and a specified content type.
 //
@@ -1708,15 +1742,15 @@ func (c *Client) UpdateRecordWithBody(ctx context.Context, tenant Tenant, table 
 	return c.Client.Do(req)
 }
 
-// UpdateRecordWithApplicationMergePatchPlusJSONBody Command: atualiza campos de um registro
+// UpdateRecord Command: atualiza campos de um registro
 //
-// Semântica de JSON Merge Patch (RFC 7396): campo ausente do corpo = sem alteração; campo presente com valor `null` = limpar o campo. Falha de versão otimista retorna 409.
+// Adicionado por GO-040 — o desenho original (GO-006) já reservava esta rota, mas nunca definia como o cliente transmitiria a versão esperada (nem `_version` no corpo, nem `If-Match`), apesar do 409 de conflito já documentado; corrigido aqui. `_version` (de uma leitura anterior, ex.: `getRecord`/`listRecords`) é OBRIGATÓRIO — mesma convenção de `_version` em `ViewUpdateInput`/ `ViewSubmitInput`. Campos ausentes do corpo permanecem inalterados (nunca um PUT que sobrescreve o registro inteiro); mesmo controle de concorrência otimista de qualquer outra escrita — 409 se o registro mudou desde a leitura. Idempotente por Idempotency-Key (retry com a mesma chave e o mesmo corpo reaproveita o resultado, nunca reaplica a escrita duas vezes).
 //
-// Takes a body of the `application/merge-patch+json` content type.
+// Takes a body of the `application/json` content type.
 //
 // Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
-func (c *Client) UpdateRecordWithApplicationMergePatchPlusJSONBody(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewUpdateRecordRequestWithApplicationMergePatchPlusJSONBody(c.Server, tenant, table, id, params, body)
+func (c *Client) UpdateRecord(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateRecordRequest(c.Server, tenant, table, id, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2651,22 +2685,32 @@ func NewDeleteRecordRequest(server string, tenant Tenant, table string, id Id, p
 		return nil, err
 	}
 
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "version", params.Version, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
 	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
-	}
-
-	if params != nil {
-
-		var headerParam0 string
-
-		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
-		if err != nil {
-			return nil, err
-		}
-
-		req.Header.Set("Idempotency-Key", headerParam0)
-
 	}
 
 	return req, nil
@@ -2720,15 +2764,15 @@ func NewGetRecordRequest(server string, tenant Tenant, table string, id Id) (*ht
 	return req, nil
 }
 
-// NewUpdateRecordRequestWithApplicationMergePatchPlusJSONBody calls the generic UpdateRecord builder with application/merge-patch+json body
-func NewUpdateRecordRequestWithApplicationMergePatchPlusJSONBody(server string, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody) (*http.Request, error) {
+// NewUpdateRecordRequest calls the generic UpdateRecord builder with application/json body
+func NewUpdateRecordRequest(server string, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewUpdateRecordRequestWithBody(server, tenant, table, id, params, "application/merge-patch+json", bodyReader)
+	return NewUpdateRecordRequestWithBody(server, tenant, table, id, params, "application/json", bodyReader)
 }
 
 // NewUpdateRecordRequestWithBody constructs an http.Request for the UpdateRecord method, with any body, and a specified content type
@@ -3704,6 +3748,8 @@ type ClientWithResponsesInterface interface {
 
 	// DeleteRecordWithResponse Command: remove um registro
 	//
+	// Adicionado por GO-040 — mesma correção de `_version` de `updateRecord` acima. `?version=` é obrigatório (o `_version` de uma leitura anterior). Idempotente por natureza (não por Idempotency-Key, mesma convenção de `deleteViewRow` desde GO-039): remover um registro já removido devolve 404, um estado final consistente, não um efeito duplicado — por isso esta rota não exige o cabeçalho.
+	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with DELETE /v1/tenants/{tenant}/tables/{table}/records/{id} (the `DeleteRecord` operationId).
@@ -3718,21 +3764,21 @@ type ClientWithResponsesInterface interface {
 
 	// UpdateRecordWithBodyWithResponse Command: atualiza campos de um registro
 	//
-	// Semântica de JSON Merge Patch (RFC 7396): campo ausente do corpo = sem alteração; campo presente com valor `null` = limpar o campo. Falha de versão otimista retorna 409.
+	// Adicionado por GO-040 — o desenho original (GO-006) já reservava esta rota, mas nunca definia como o cliente transmitiria a versão esperada (nem `_version` no corpo, nem `If-Match`), apesar do 409 de conflito já documentado; corrigido aqui. `_version` (de uma leitura anterior, ex.: `getRecord`/`listRecords`) é OBRIGATÓRIO — mesma convenção de `_version` em `ViewUpdateInput`/ `ViewSubmitInput`. Campos ausentes do corpo permanecem inalterados (nunca um PUT que sobrescreve o registro inteiro); mesmo controle de concorrência otimista de qualquer outra escrita — 409 se o registro mudou desde a leitura. Idempotente por Idempotency-Key (retry com a mesma chave e o mesmo corpo reaproveita o resultado, nunca reaplica a escrita duas vezes).
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 	UpdateRecordWithBodyWithResponse(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateRecordResponse, error)
 
-	// UpdateRecordWithApplicationMergePatchPlusJSONBodyWithResponse Command: atualiza campos de um registro
+	// UpdateRecordWithResponse Command: atualiza campos de um registro
 	//
-	// Semântica de JSON Merge Patch (RFC 7396): campo ausente do corpo = sem alteração; campo presente com valor `null` = limpar o campo. Falha de versão otimista retorna 409.
+	// Adicionado por GO-040 — o desenho original (GO-006) já reservava esta rota, mas nunca definia como o cliente transmitiria a versão esperada (nem `_version` no corpo, nem `If-Match`), apesar do 409 de conflito já documentado; corrigido aqui. `_version` (de uma leitura anterior, ex.: `getRecord`/`listRecords`) é OBRIGATÓRIO — mesma convenção de `_version` em `ViewUpdateInput`/ `ViewSubmitInput`. Campos ausentes do corpo permanecem inalterados (nunca um PUT que sobrescreve o registro inteiro); mesmo controle de concorrência otimista de qualquer outra escrita — 409 se o registro mudou desde a leitura. Idempotente por Idempotency-Key (retry com a mesma chave e o mesmo corpo reaproveita o resultado, nunca reaplica a escrita duas vezes).
 	//
-	// Takes a body of the `application/merge-patch+json` content type, and returns a wrapper object for the known response body format(s).
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
-	UpdateRecordWithApplicationMergePatchPlusJSONBodyWithResponse(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateRecordResponse, error)
+	UpdateRecordWithResponse(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateRecordResponse, error)
 
 	// ListUsersWithResponse Query: lista usuários do tenant (admin)
 	//
@@ -4574,12 +4620,23 @@ func (r CreateRecordResponse) ContentType() string {
 type DeleteRecordResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *Unauthorized
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
 	// JSON503 the response for an HTTP 503 `application/json` response
 	JSON503 *Error
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r DeleteRecordResponse) GetJSON400() *Error {
+	return r.JSON400
 }
 
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
@@ -4590,6 +4647,16 @@ func (r DeleteRecordResponse) GetJSON401() *Unauthorized {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r DeleteRecordResponse) GetJSON403() *Forbidden {
 	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DeleteRecordResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r DeleteRecordResponse) GetJSON409() *Error {
+	return r.JSON409
 }
 
 // GetJSON503 returns the response for an HTTP 503 `application/json` response
@@ -4700,10 +4767,14 @@ type UpdateRecordResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *Record
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *Unauthorized
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
 	// JSON409 the response for an HTTP 409 `application/json` response
 	JSON409 *Error
 	// JSON503 the response for an HTTP 503 `application/json` response
@@ -4715,6 +4786,11 @@ func (r UpdateRecordResponse) GetJSON200() *Record {
 	return r.JSON200
 }
 
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r UpdateRecordResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
 func (r UpdateRecordResponse) GetJSON401() *Unauthorized {
 	return r.JSON401
@@ -4723,6 +4799,11 @@ func (r UpdateRecordResponse) GetJSON401() *Unauthorized {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r UpdateRecordResponse) GetJSON403() *Forbidden {
 	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r UpdateRecordResponse) GetJSON404() *Error {
+	return r.JSON404
 }
 
 // GetJSON409 returns the response for an HTTP 409 `application/json` response
@@ -5901,6 +5982,8 @@ func (c *ClientWithResponses) CreateRecordWithResponse(ctx context.Context, tena
 
 // DeleteRecordWithResponse Command: remove um registro
 //
+// Adicionado por GO-040 — mesma correção de `_version` de `updateRecord` acima. `?version=` é obrigatório (o `_version` de uma leitura anterior). Idempotente por natureza (não por Idempotency-Key, mesma convenção de `deleteViewRow` desde GO-039): remover um registro já removido devolve 404, um estado final consistente, não um efeito duplicado — por isso esta rota não exige o cabeçalho.
+//
 // Returns a wrapper object for the known response body format(s).
 //
 // Corresponds with DELETE /v1/tenants/{tenant}/tables/{table}/records/{id} (the `DeleteRecord` operationId).
@@ -5927,7 +6010,7 @@ func (c *ClientWithResponses) GetRecordWithResponse(ctx context.Context, tenant 
 
 // UpdateRecordWithBodyWithResponse Command: atualiza campos de um registro
 //
-// Semântica de JSON Merge Patch (RFC 7396): campo ausente do corpo = sem alteração; campo presente com valor `null` = limpar o campo. Falha de versão otimista retorna 409.
+// Adicionado por GO-040 — o desenho original (GO-006) já reservava esta rota, mas nunca definia como o cliente transmitiria a versão esperada (nem `_version` no corpo, nem `If-Match`), apesar do 409 de conflito já documentado; corrigido aqui. `_version` (de uma leitura anterior, ex.: `getRecord`/`listRecords`) é OBRIGATÓRIO — mesma convenção de `_version` em `ViewUpdateInput`/ `ViewSubmitInput`. Campos ausentes do corpo permanecem inalterados (nunca um PUT que sobrescreve o registro inteiro); mesmo controle de concorrência otimista de qualquer outra escrita — 409 se o registro mudou desde a leitura. Idempotente por Idempotency-Key (retry com a mesma chave e o mesmo corpo reaproveita o resultado, nunca reaplica a escrita duas vezes).
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -5940,15 +6023,15 @@ func (c *ClientWithResponses) UpdateRecordWithBodyWithResponse(ctx context.Conte
 	return ParseUpdateRecordResponse(rsp)
 }
 
-// UpdateRecordWithApplicationMergePatchPlusJSONBodyWithResponse Command: atualiza campos de um registro
+// UpdateRecordWithResponse Command: atualiza campos de um registro
 //
-// Semântica de JSON Merge Patch (RFC 7396): campo ausente do corpo = sem alteração; campo presente com valor `null` = limpar o campo. Falha de versão otimista retorna 409.
+// Adicionado por GO-040 — o desenho original (GO-006) já reservava esta rota, mas nunca definia como o cliente transmitiria a versão esperada (nem `_version` no corpo, nem `If-Match`), apesar do 409 de conflito já documentado; corrigido aqui. `_version` (de uma leitura anterior, ex.: `getRecord`/`listRecords`) é OBRIGATÓRIO — mesma convenção de `_version` em `ViewUpdateInput`/ `ViewSubmitInput`. Campos ausentes do corpo permanecem inalterados (nunca um PUT que sobrescreve o registro inteiro); mesmo controle de concorrência otimista de qualquer outra escrita — 409 se o registro mudou desde a leitura. Idempotente por Idempotency-Key (retry com a mesma chave e o mesmo corpo reaproveita o resultado, nunca reaplica a escrita duas vezes).
 //
-// Takes a body of the `application/merge-patch+json` content type, and returns a wrapper object for the known response body format(s).
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
-func (c *ClientWithResponses) UpdateRecordWithApplicationMergePatchPlusJSONBodyWithResponse(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordApplicationMergePatchPlusJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateRecordResponse, error) {
-	rsp, err := c.UpdateRecordWithApplicationMergePatchPlusJSONBody(ctx, tenant, table, id, params, body, reqEditors...)
+func (c *ClientWithResponses) UpdateRecordWithResponse(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateRecordResponse, error) {
+	rsp, err := c.UpdateRecord(ctx, tenant, table, id, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -6738,6 +6821,13 @@ func ParseDeleteRecordResponse(rsp *http.Response) (*DeleteRecordResponse, error
 	case rsp.StatusCode == 204:
 		break // No content-type
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -6752,8 +6842,19 @@ func ParseDeleteRecordResponse(rsp *http.Response) (*DeleteRecordResponse, error
 		}
 		response.JSON403 = &dest
 
-	case rsp.StatusCode == 404:
-		break // No content-type
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Error
@@ -6842,6 +6943,13 @@ func ParseUpdateRecordResponse(rsp *http.Response) (*UpdateRecordResponse, error
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest Unauthorized
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -6855,6 +6963,13 @@ func ParseUpdateRecordResponse(rsp *http.Response) (*UpdateRecordResponse, error
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
 		var dest Error

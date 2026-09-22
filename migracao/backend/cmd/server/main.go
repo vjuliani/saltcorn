@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/expression"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
@@ -31,6 +32,8 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/telemetry"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/pluginhost"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 )
 
 // recordsCapability identifica, para o registro de ownership (GO-009), a
@@ -143,6 +146,33 @@ func main() {
 			}
 		}
 
+		// Dispatcher de triggers/ações (GO-040) — PRIMEIRO ponto em que
+		// internal/triggers.Dispatcher (mecanismo desde GO-024) e
+		// internal/expression.Evaluator (fachada desde GO-023) são ligados a
+		// uma requisição HTTP real; até aqui só existiam em teste. O
+		// cliente do host de plugins (GO-022) é sempre construído — a
+		// inicialização do processo Node é preguiçosa (só sobe no primeiro
+		// Eval real), então HostScript vazio nunca custa nada na subida, só
+		// falha de forma explícita se algum only_if/run_js_code realmente
+		// tentar avaliar sem host configurado (nunca um pânico por
+		// Expression nil dentro de shouldFire). run_js_code fica registrado
+		// no Dispatcher só quando PluginHostScript está configurado —
+		// caso contrário, disparar essa ação nativa devolve ErrUnknownAction
+		// explícito (mesmo espírito de FilesRootDir/SMTPHost vazios), em vez
+		// de tentar subir um host que não existe.
+		pluginClient := pluginhost.NewClient(pluginhost.ClientOptions{
+			NodeBin:    cfg.PluginHostNodeBin,
+			HostScript: cfg.PluginHostScript,
+		})
+		defer pluginClient.Close()
+		evaluator := &expression.Evaluator{Client: pluginClient, Guard: guard}
+		dispatcher := &triggers.Dispatcher{Expression: evaluator, Actions: triggers.BuiltinActions()}
+		if cfg.PluginHostScript != "" {
+			dispatcher.RunJSCode = triggers.NewRunJSCode(evaluator)
+		} else {
+			logger.Warn("SALTCORN_GO_PLUGINHOST_SCRIPT não configurada — ação nativa run_js_code indisponível (ErrUnknownAction ao disparar)")
+		}
+
 		// telemetry.Middleware envolve tenancy.Middleware e
 		// cutover.RequireOwnership (não o contrário) para que o tenant/ator
 		// já verificado esteja disponível ao logar a conclusão da
@@ -153,7 +183,9 @@ func main() {
 		// de internal-api.yaml que bff-api.yaml de fato consome
 		// (listRecords/createRecord/getActor) — ver nota de escopo em
 		// docs/migracao-go/execucoes/GO-017.md sobre por que get/update/
-		// delete por ID não são wireados aqui ainda.
+		// delete por ID não eram wireados aqui ainda. GO-040 liga
+		// update/delete (getRecord por ID continua fora — bff-api.yaml
+		// ainda não o expõe a nenhum consumidor React).
 		mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records",
 			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, recordsCapability, listRecordsHandler(tracker, db)))))
@@ -162,7 +194,18 @@ func main() {
 				cutover.RequireOwnership(guard, recordsCapability, syncExchangeHandler(tracker, db)))))
 		mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/records",
 			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
-				cutover.RequireOwnership(guard, recordsCapability, createRecordHandler(tracker, db)))))
+				cutover.RequireOwnership(guard, recordsCapability, createRecordHandler(tracker, db, dispatcher)))))
+		// updateRecord/deleteRecord (GO-040) — a rota já existia no
+		// contrato desde GO-006 (ver nota de escopo acima), nunca tinha
+		// handler; ligar aqui também é o ponto em que triggers/ações
+		// (Dispatcher.HooksFor) passam a disparar de uma escrita HTTP
+		// real (ver GO-040 abaixo).
+		mux.Handle("PATCH /v1/tenants/{tenant}/tables/{table}/records/{id}",
+			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, recordsCapability, updateRecordHandler(tracker, db, dispatcher)))))
+		mux.Handle("DELETE /v1/tenants/{tenant}/tables/{table}/records/{id}",
+			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, recordsCapability, deleteRecordHandler(tracker, db, dispatcher)))))
 
 		// getActor não passa por cutover.RequireOwnership: resolução de
 		// identidade não é uma capacidade de domínio sujeita a corte

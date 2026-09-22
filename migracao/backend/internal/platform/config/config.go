@@ -58,6 +58,16 @@ type Config struct {
 	// (internal/files, GO-026) — vazio significa "sem armazenamento de
 	// arquivo configurado nesta instância".
 	FilesRootDir string
+	// PluginHostScript é o caminho do host.js compilado
+	// (migracao/packages/pluginhost, GO-022) — vazio significa "sem host
+	// de plugins configurado nesta instância": a ação nativa "run_js_code"
+	// (GO-040) fica indisponível (ErrUnknownAction ao disparar), nunca um
+	// crash na subida, mesmo espírito de FilesRootDir/SMTPHost vazios.
+	PluginHostScript string
+	// PluginHostNodeBin é o binário Node usado para subir o host —
+	// "node" por padrão (mesmo do PATH), sobrescrevível para apontar um
+	// binário específico.
+	PluginHostNodeBin string
 }
 
 const (
@@ -74,12 +84,15 @@ const (
 	envSMTPPassword          = "SALTCORN_GO_SMTP_PASSWORD"
 	envSMTPFrom              = "SALTCORN_GO_SMTP_FROM"
 	envFilesRootDir          = "SALTCORN_GO_FILES_ROOT_DIR"
+	envPluginHostScript      = "SALTCORN_GO_PLUGINHOST_SCRIPT"
+	envPluginHostNodeBin     = "SALTCORN_GO_PLUGINHOST_NODE_BIN"
 
-	defaultHTTPAddr        = ":8090"
-	defaultShutdownTimeout = 15 * time.Second
-	defaultEnvironment     = "development"
-	defaultLogLevel        = slog.LevelInfo
-	defaultSMTPPort        = 587
+	defaultHTTPAddr          = ":8090"
+	defaultShutdownTimeout   = 15 * time.Second
+	defaultEnvironment       = "development"
+	defaultLogLevel          = slog.LevelInfo
+	defaultSMTPPort          = 587
+	defaultPluginHostNodeBin = "node"
 )
 
 // Load lê a configuração do ambiente, aplicando padrões razoáveis quando uma
@@ -99,6 +112,8 @@ func Load() (Config, error) {
 		SMTPPassword:          getEnv(envSMTPPassword, ""),
 		SMTPFrom:              getEnv(envSMTPFrom, ""),
 		FilesRootDir:          getEnv(envFilesRootDir, ""),
+		PluginHostScript:      getEnv(envPluginHostScript, ""),
+		PluginHostNodeBin:     getEnv(envPluginHostNodeBin, defaultPluginHostNodeBin),
 	}
 
 	if v, ok := os.LookupEnv(envShutdownTimeout); ok && v != "" {
