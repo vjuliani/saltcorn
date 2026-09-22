@@ -819,7 +819,7 @@ Execute a task GO-041 — Completar adapter SQLite (identidade, views, worker e 
 
 ### GO-042 — Validar substituição de plugins de terceiro do piloto ponta a ponta
 
-- [x] **Status:** IN_REVIEW
+- [x] **Status:** DONE — integrada via PR [#48](https://github.com/vjuliani/saltcorn/pull/48) (merge `44f9aa19310`); histórico em [execucoes/GO-042.md](execucoes/GO-042.md)
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Backend + Frontend + QA
 - **Depende de:** GO-018, GO-020, GO-029, GO-039
