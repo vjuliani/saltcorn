@@ -736,5 +736,17 @@ confirmados via HTTP real); hooks de `updateRecordHandler` (mesmo padrão,
 via PATCH real); e o reconhecimento do prefixo `"trigger:"` em
 `triggerOutboxHandler` no worker (invertendo a condição, o evento cai no
 fallback de log em vez de executar `send_email` de verdade — confirmado via
-`outbox.ProcessPending` real). Detalhes completos em
+`outbox.ProcessPending` real).
+
+**Achado real de CI, corrigido**: `cmd/cli/e2eseed.go` (comando `cli
+e2e-seed`, usado pelos harnesses de E2E/carga para provisionar um tenant
+descartável, GO-021) nunca chamava `triggers.EnsureSchema` — irrelevante
+enquanto hooks eram sempre `nil`, mas quebrou a criação de registro real
+(`relation "_sc_triggers" does not exist"`) assim que esta task ligou
+`Dispatcher.HooksFor` de verdade. O caminho de provisionamento de produção
+(`internal/installation/migrate.go`) já incluía `triggers.EnsureSchema`
+desde GO-024; só o atalho de bootstrap de E2E, anterior a GO-024, ficou
+para trás. Corrigido, revalidado de ponta a ponta (não só `go test`): `cli
+e2e-seed` → `cmd/server` real → HTTP create real com token de identidade
+delegada assinado. Detalhes completos em
 `docs/migracao-go/execucoes/GO-040.md`.

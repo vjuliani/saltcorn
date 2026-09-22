@@ -27,6 +27,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 )
 
@@ -85,6 +86,13 @@ func e2eSeed(args []string) error {
 			return err
 		}
 		if err := views.EnsureSchema(ctx, tx); err != nil {
+			return err
+		}
+		// triggers.EnsureSchema (GO-040): todo write real de registro agora
+		// consulta _sc_triggers de verdade (Dispatcher.HooksFor, wireado em
+		// cmd/server) — antes disso, hooks eram sempre nil e a ausência
+		// deste schema nunca era exercitada por nenhum harness de E2E/carga.
+		if err := triggers.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
 		hash, err := identity.HashPassword(*password)
