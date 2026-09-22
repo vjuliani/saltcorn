@@ -918,7 +918,7 @@ Execute a task GO-046 — Portar catálogo administrativo de instalação (metad
 
 ### GO-047 — Portar internacionalização (i18n) da interface
 
-- [x] **Status:** IN_REVIEW
+- [x] **Status:** DONE — integrada via PR [#50](https://github.com/vjuliani/saltcorn/pull/50) (merge `55b89deed55`); histórico em [execucoes/GO-047.md](execucoes/GO-047.md)
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Backend + Frontend
 - **Depende de:** GO-017, GO-018
