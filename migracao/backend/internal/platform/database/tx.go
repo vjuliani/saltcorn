@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -100,7 +101,19 @@ func (r pgxRows) Columns() ([]string, error) {
 }
 func (r pgxRows) Values() ([]any, error) { return r.rows.Values() }
 
-// CollectMaps lê e fecha rows, preservando os valores do driver.
+// CollectMaps lê e fecha rows, preservando os valores do driver — com UMA
+// normalização deliberada: todo `time.Time` (colunas `timestamptz`, ex.
+// FieldDate) é convertido para UTC antes de sair deste pacote (GO-042,
+// achado real de execução ponta a ponta contra Postgres real). pgx
+// decodifica `timestamptz` para `time.Time` no fuso LOCAL do PROCESSO
+// cliente (`time.Local`, nunca UTC), não da sessão Postgres — um valor
+// gravado como meia-noite UTC (`coerceJSONValue`, internal/records)
+// voltava, num processo rodando num fuso negativo, como 21h do dia
+// ANTERIOR: o "dia" de um campo de data mudava dependendo só de em que
+// fuso o servidor Go estava rodando, nunca do valor gravado. `.UTC()`
+// aqui não perde precisão nem muda o instante — só normaliza a
+// REPRESENTAÇÃO para o único fuso que `coerceJSONValue` também usa na
+// escrita, fechando o ciclo.
 func CollectMaps(rows Rows) ([]map[string]any, error) {
 	defer rows.Close()
 	names, err := rows.Columns()
@@ -115,7 +128,11 @@ func CollectMaps(rows Rows) ([]map[string]any, error) {
 		}
 		row := make(map[string]any, len(names))
 		for i, name := range names {
-			row[name] = values[i]
+			if t, ok := values[i].(time.Time); ok {
+				row[name] = t.UTC()
+			} else {
+				row[name] = values[i]
+			}
 		}
 		result = append(result, row)
 	}

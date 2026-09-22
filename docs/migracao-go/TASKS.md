@@ -819,7 +819,7 @@ Execute a task GO-041 — Completar adapter SQLite (identidade, views, worker e 
 
 ### GO-042 — Validar substituição de plugins de terceiro do piloto ponta a ponta
 
-- [ ] **Status:** TODO
+- [x] **Status:** IN_REVIEW
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Backend + Frontend + QA
 - **Depende de:** GO-018, GO-020, GO-029, GO-039

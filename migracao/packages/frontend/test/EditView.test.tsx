@@ -98,6 +98,44 @@ describe("EditView", () => {
     expect(onSubmit).toHaveBeenCalledWith({ title: "x" });
   });
 
+  it("desenha um <input type=\"date\"> nativo para campo date, populado com AAAA-MM-DD a partir do RFC3339 do Go (GO-042, substitui flatpickr)", () => {
+    render(
+      <EditView
+        plan={{
+          view_id: 1,
+          table: "processed",
+          record_id: 7,
+          fields: [
+            { field_name: "date_processed", label: "Data", field_type: "date", fieldview: "flatpickr", required: false, value: "2024-01-15T00:00:00Z" },
+          ],
+          action_name: "Save",
+        }}
+      />
+    );
+    const input = screen.getByLabelText("Data") as HTMLInputElement;
+    expect(input.type).toEqual("date");
+    expect(input.value).toEqual("2024-01-15");
+  });
+
+  it("submete um campo date como RFC3339 completo (GO-042 — o Go só aceita RFC3339, nunca AAAA-MM-DD isolado)", () => {
+    const onSubmit = vi.fn();
+    render(
+      <EditView
+        plan={{
+          view_id: 1,
+          table: "processed",
+          record_id: 0,
+          fields: [{ field_name: "date_processed", label: "Data", field_type: "date", fieldview: "flatpickr", required: false, value: null }],
+          action_name: "Save",
+        }}
+        onSubmit={onSubmit}
+      />
+    );
+    fireEvent.change(screen.getByLabelText("Data"), { target: { value: "2024-03-20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    expect(onSubmit).toHaveBeenCalledWith({ date_processed: "2024-03-20T00:00:00Z" });
+  });
+
   it("rotula o botão como SubmitWithAjax mapeia para 'Salvar' também", () => {
     render(
       <EditView
