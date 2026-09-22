@@ -210,6 +210,12 @@ func CreateRecordTx(ctx context.Context, tx database.Tx, actorRole identity.Role
 		return nil, classifyPgError(err)
 	}
 
+	if table.Versioned {
+		if err := insertHistoryRow(ctx, tx, table, fieldsByName, record, nil); err != nil {
+			return nil, fmt.Errorf("records: gravar histórico: %w", err)
+		}
+	}
+
 	if err := hooks.afterInsert(ctx, tx, table, record); err != nil {
 		return nil, err
 	}
@@ -223,6 +229,17 @@ func CreateRecordTx(ctx context.Context, tx database.Tx, actorRole identity.Role
 // definido" do critério de aceite de GO-013, nunca uma sobrescrita
 // silenciosa. Se id não existir, retorna ErrRecordNotFound.
 func UpdateRecordTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableName string, id int, expectedVersion string, values map[string]any, hooks *TxHooks) (map[string]any, error) {
+	return updateRecordTx(ctx, tx, actorRole, tableName, id, expectedVersion, values, hooks, nil)
+}
+
+// updateRecordTx é o corpo real de UpdateRecordTx, com um parâmetro extra
+// interno (restoreOfVersion) que só RestoreRowVersionTx (GO-045,
+// history.go) usa — grava, no snapshot de histórico desta escrita, QUAL
+// versão anterior está sendo restaurada (`_restore_of_version`, mesmo
+// campo do legado). UpdateRecordTx (a API pública, usada por
+// cmd/server/triggers) sempre passa nil: um update comum nunca é a
+// restauração de uma versão.
+func updateRecordTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableName string, id int, expectedVersion string, values map[string]any, hooks *TxHooks, restoreOfVersion *int) (map[string]any, error) {
 	table, fieldsByName, err := resolveTableForWrite(ctx, tx, actorRole, tableName)
 	if err != nil {
 		return nil, err
@@ -267,6 +284,12 @@ func UpdateRecordTx(ctx context.Context, tx database.Tx, actorRole identity.Role
 			return nil, conflictOrNotFound(ctx, tx, table.Name, id)
 		}
 		return nil, classifyPgError(err)
+	}
+
+	if table.Versioned {
+		if err := insertHistoryRow(ctx, tx, table, fieldsByName, record, restoreOfVersion); err != nil {
+			return nil, fmt.Errorf("records: gravar histórico: %w", err)
+		}
 	}
 
 	if err := hooks.afterUpdate(ctx, tx, table, record); err != nil {

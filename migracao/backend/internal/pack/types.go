@@ -94,6 +94,19 @@ type LibraryPack struct {
 	Layout map[string]any
 }
 
+// TagPack é uma tag e as entidades associadas a ela (GO-045,
+// `tag_pack()` do legado) — sempre por NOME, mesma convenção de todo o
+// resto do Pack. Divergência deliberada e documentada (internal/tags):
+// só Tables/Views, nunca Pages (nunca portadas) nem Triggers
+// (`internal/triggers.Trigger` não tem campo Name, então uma referência
+// não seria portável entre tenants/instalações — ver comentário de
+// internal/tags/tags.go).
+type TagPack struct {
+	Name   string
+	Tables []string
+	Views  []string
+}
+
 // PluginDependency é uma dependência de plugin declarada pelo Pack —
 // Version é uma string livre (mesma convenção do legado, sem semver
 // estruturado). Como não existe inventário real de plugins de terceiro
@@ -115,4 +128,5 @@ type Pack struct {
 	Library           []LibraryPack
 	Config            map[string]any
 	Plugins           []PluginDependency
+	Tags              []TagPack
 }

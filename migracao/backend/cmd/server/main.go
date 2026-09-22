@@ -206,6 +206,16 @@ func main() {
 		mux.Handle("DELETE /v1/tenants/{tenant}/tables/{table}/records/{id}",
 			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, recordsCapability, deleteRecordHandler(tracker, db, dispatcher)))))
+		// getRecordHistory/restoreRecordVersion (GO-045) — versionamento
+		// de linha, só relevante para tabelas versioned=true (ver
+		// createTableHandler); mesma capacidade de ownership de qualquer
+		// outra rota de registro.
+		mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records/{id}/history",
+			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, recordsCapability, getRecordHistoryHandler(tracker, db)))))
+		mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/records/{id}/restore",
+			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, recordsCapability, restoreRecordVersionHandler(tracker, db)))))
 
 		// getActor não passa por cutover.RequireOwnership: resolução de
 		// identidade não é uma capacidade de domínio sujeita a corte

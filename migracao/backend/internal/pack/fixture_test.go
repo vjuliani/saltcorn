@@ -20,6 +20,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/scheduler"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/tags"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 )
@@ -97,6 +98,9 @@ func newTenant(t *testing.T, db *database.DB, suffix string) tenancy.Tenant {
 			return err
 		}
 		if err := library.EnsureSchema(ctx, tx); err != nil {
+			return err
+		}
+		if err := tags.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
 		return config.EnsureSchema(ctx, tx)

@@ -31,6 +31,7 @@ type createTableRequest struct {
 	Name         string `json:"name"`
 	MinRoleRead  *int   `json:"min_role_read"`
 	MinRoleWrite *int   `json:"min_role_write"`
+	Versioned    *bool  `json:"versioned"`
 }
 
 type tableResponse struct {
@@ -38,10 +39,11 @@ type tableResponse struct {
 	Name         string `json:"name"`
 	MinRoleRead  int    `json:"min_role_read"`
 	MinRoleWrite int    `json:"min_role_write"`
+	Versioned    bool   `json:"versioned"`
 }
 
 func tableToResponse(t metadata.Table) tableResponse {
-	return tableResponse{ID: t.ID, Name: t.Name, MinRoleRead: int(t.MinRoleRead), MinRoleWrite: int(t.MinRoleWrite)}
+	return tableResponse{ID: t.ID, Name: t.Name, MinRoleRead: int(t.MinRoleRead), MinRoleWrite: int(t.MinRoleWrite), Versioned: t.Versioned}
 }
 
 // createTableHandler implementa POST /v1/tenants/{tenant}/tables.
@@ -87,6 +89,9 @@ func createTableHandler(tracker *shutdown.Tracker, db *database.DB) http.Handler
 			}
 			if req.MinRoleWrite != nil {
 				opts.MinRoleWrite = identity.RoleID(*req.MinRoleWrite)
+			}
+			if req.Versioned != nil {
+				opts.Versioned = *req.Versioned
 			}
 			table, err := metadata.CreateTable(ctx, database.AsTx(tx), role, req.Name, opts)
 			if err != nil {

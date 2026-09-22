@@ -321,6 +321,19 @@ type Record struct {
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
 
+// RecordHistoryVersion GO-045 — um snapshot de `<table>__history`. `version` é `_history_version` (posição na linha do tempo do registro), nunca confundir com `_version`/xmin de Record (controle de concorrência otimista, um conceito distinto que o snapshot nem carrega).
+type RecordHistoryVersion struct {
+	// Record Os campos de dados do registro naquele instante (nunca inclui id/_version — id já está no path, _version não existe no histórico).
+	Record map[string]interface{} `json:"record"`
+
+	// RestoreOfVersion Presente só quando este snapshot é o resultado de um restoreRecordVersion — a versão que foi restaurada.
+	RestoreOfVersion *int `json:"restore_of_version,omitempty"`
+
+	// Time RFC3339 — quando este snapshot foi gravado.
+	Time    string `json:"time"`
+	Version int    `json:"version"`
+}
+
 // RecordInput Campos do registro conforme o schema dinâmico da tabela (GO-011). Este contrato não pode enumerar campos fixos — validação de schema acontece no backend, não aqui.
 type RecordInput map[string]interface{}
 
@@ -399,6 +412,7 @@ type Table struct {
 	MinRoleRead  int    `json:"min_role_read"`
 	MinRoleWrite int    `json:"min_role_write"`
 	Name         string `json:"name"`
+	Versioned    bool   `json:"versioned"`
 }
 
 // TableInput defines model for TableInput.
@@ -406,6 +420,9 @@ type TableInput struct {
 	MinRoleRead  *int   `json:"min_role_read,omitempty"`
 	MinRoleWrite *int   `json:"min_role_write,omitempty"`
 	Name         string `json:"name"`
+
+	// Versioned GO-045 — se true, toda escrita (insert/update) grava um snapshot em `<name>__history`, consultável via `GET .../records/{id}/history` e restaurável via `POST .../records/{id}/restore`. Omitido/false: tabela sem histórico, mesmo padrão de hoje.
+	Versioned *bool `json:"versioned,omitempty"`
 }
 
 // Tenant Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL.
@@ -626,6 +643,12 @@ type UpdateRecordParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// RestoreRecordVersionJSONBody defines parameters for RestoreRecordVersion.
+type RestoreRecordVersionJSONBody struct {
+	// Version _history_version do snapshot a restaurar (ver getRecordHistory).
+	Version int `json:"version"`
+}
+
 // UpdateUserJSONBody defines parameters for UpdateUser.
 type UpdateUserJSONBody struct {
 	RoleId int `json:"role_id"`
@@ -696,6 +719,9 @@ type CreateRecordJSONRequestBody = RecordInput
 
 // UpdateRecordJSONRequestBody defines body for UpdateRecord for application/json ContentType.
 type UpdateRecordJSONRequestBody = RecordUpdateInput
+
+// RestoreRecordVersionJSONRequestBody defines body for RestoreRecordVersion for application/json ContentType.
+type RestoreRecordVersionJSONRequestBody RestoreRecordVersionJSONBody
 
 // UpdateUserJSONRequestBody defines body for UpdateUser for application/json ContentType.
 type UpdateUserJSONRequestBody UpdateUserJSONBody
@@ -1256,6 +1282,31 @@ type ClientInterface interface {
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 	UpdateRecord(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetRecordHistory Query: lista os snapshots de versionamento de um registro
+	//
+	// GO-045 (`models/table.ts`, flag `versioned`) — só disponível para tabelas `versioned=true` (ver TableInput/Table); 409 caso contrário (nunca uma lista vazia ambígua entre "sem versões ainda" e "tabela nem tem histórico"). Ordem mais recente primeiro.
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/tables/{table}/records/{id}/history (the `GetRecordHistory` operationId).
+	GetRecordHistory(ctx context.Context, tenant Tenant, table string, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RestoreRecordVersionWithBody Command: restaura um registro para um snapshot anterior
+	//
+	// GO-045 — restaurar é sempre ADITIVO: cria um NOVO snapshot no histórico (marcado `restore_of_version`, apontando para a versão restaurada), nunca apaga nem sobrescreve um snapshot existente. Mesmo controle de concorrência otimista de qualquer escrita — a versão ATUAL do registro (não a do histórico) é lida no momento da restauração; um 409 aqui significa que o registro mudou entre a leitura do histórico e esta chamada, não um conflito de snapshots.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/records/{id}/restore (the `RestoreRecordVersion` operationId).
+	RestoreRecordVersionWithBody(ctx context.Context, tenant Tenant, table string, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RestoreRecordVersion Command: restaura um registro para um snapshot anterior
+	//
+	// GO-045 — restaurar é sempre ADITIVO: cria um NOVO snapshot no histórico (marcado `restore_of_version`, apontando para a versão restaurada), nunca apaga nem sobrescreve um snapshot existente. Mesmo controle de concorrência otimista de qualquer escrita — a versão ATUAL do registro (não a do histórico) é lida no momento da restauração; um 409 aqui significa que o registro mudou entre a leitura do histórico e esta chamada, não um conflito de snapshots.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/records/{id}/restore (the `RestoreRecordVersion` operationId).
+	RestoreRecordVersion(ctx context.Context, tenant Tenant, table string, id Id, body RestoreRecordVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListUsers Query: lista usuários do tenant (admin)
 	//
 	// Adicionado por GO-044 — a administração de usuários do legado (`auth/admin.ts`) que faltava expor. Só um ator admin pode listar (`identity.ListUsers`); um ator sem papel suficiente recebe 403.
@@ -1751,6 +1802,61 @@ func (c *Client) UpdateRecordWithBody(ctx context.Context, tenant Tenant, table 
 // Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 func (c *Client) UpdateRecord(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateRecordRequest(c.Server, tenant, table, id, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetRecordHistory Query: lista os snapshots de versionamento de um registro
+//
+// GO-045 (`models/table.ts`, flag `versioned`) — só disponível para tabelas `versioned=true` (ver TableInput/Table); 409 caso contrário (nunca uma lista vazia ambígua entre "sem versões ainda" e "tabela nem tem histórico"). Ordem mais recente primeiro.
+//
+// Corresponds with GET /v1/tenants/{tenant}/tables/{table}/records/{id}/history (the `GetRecordHistory` operationId).
+func (c *Client) GetRecordHistory(ctx context.Context, tenant Tenant, table string, id Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRecordHistoryRequest(c.Server, tenant, table, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RestoreRecordVersionWithBody Command: restaura um registro para um snapshot anterior
+//
+// GO-045 — restaurar é sempre ADITIVO: cria um NOVO snapshot no histórico (marcado `restore_of_version`, apontando para a versão restaurada), nunca apaga nem sobrescreve um snapshot existente. Mesmo controle de concorrência otimista de qualquer escrita — a versão ATUAL do registro (não a do histórico) é lida no momento da restauração; um 409 aqui significa que o registro mudou entre a leitura do histórico e esta chamada, não um conflito de snapshots.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/records/{id}/restore (the `RestoreRecordVersion` operationId).
+func (c *Client) RestoreRecordVersionWithBody(ctx context.Context, tenant Tenant, table string, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRestoreRecordVersionRequestWithBody(c.Server, tenant, table, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RestoreRecordVersion Command: restaura um registro para um snapshot anterior
+//
+// GO-045 — restaurar é sempre ADITIVO: cria um NOVO snapshot no histórico (marcado `restore_of_version`, apontando para a versão restaurada), nunca apaga nem sobrescreve um snapshot existente. Mesmo controle de concorrência otimista de qualquer escrita — a versão ATUAL do registro (não a do histórico) é lida no momento da restauração; um 409 aqui significa que o registro mudou entre a leitura do histórico e esta chamada, não um conflito de snapshots.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/records/{id}/restore (the `RestoreRecordVersion` operationId).
+func (c *Client) RestoreRecordVersion(ctx context.Context, tenant Tenant, table string, id Id, body RestoreRecordVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRestoreRecordVersionRequest(c.Server, tenant, table, id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2838,6 +2944,115 @@ func NewUpdateRecordRequestWithBody(server string, tenant Tenant, table string, 
 	return req, nil
 }
 
+// NewGetRecordHistoryRequest constructs an http.Request for the GetRecordHistory method
+func NewGetRecordHistoryRequest(server string, tenant Tenant, table string, id Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "table", table, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/tables/%s/records/%s/history", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRestoreRecordVersionRequest calls the generic RestoreRecordVersion builder with application/json body
+func NewRestoreRecordVersionRequest(server string, tenant Tenant, table string, id Id, body RestoreRecordVersionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRestoreRecordVersionRequestWithBody(server, tenant, table, id, "application/json", bodyReader)
+}
+
+// NewRestoreRecordVersionRequestWithBody constructs an http.Request for the RestoreRecordVersion method, with any body, and a specified content type
+func NewRestoreRecordVersionRequestWithBody(server string, tenant Tenant, table string, id Id, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "table", table, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/tables/%s/records/%s/restore", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListUsersRequest constructs an http.Request for the ListUsers method
 func NewListUsersRequest(server string, tenant Tenant) (*http.Request, error) {
 	var err error
@@ -3779,6 +3994,33 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/tables/{table}/records/{id} (the `UpdateRecord` operationId).
 	UpdateRecordWithResponse(ctx context.Context, tenant Tenant, table string, id Id, params *UpdateRecordParams, body UpdateRecordJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateRecordResponse, error)
+
+	// GetRecordHistoryWithResponse Query: lista os snapshots de versionamento de um registro
+	//
+	// GO-045 (`models/table.ts`, flag `versioned`) — só disponível para tabelas `versioned=true` (ver TableInput/Table); 409 caso contrário (nunca uma lista vazia ambígua entre "sem versões ainda" e "tabela nem tem histórico"). Ordem mais recente primeiro.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/tables/{table}/records/{id}/history (the `GetRecordHistory` operationId).
+	GetRecordHistoryWithResponse(ctx context.Context, tenant Tenant, table string, id Id, reqEditors ...RequestEditorFn) (*GetRecordHistoryResponse, error)
+
+	// RestoreRecordVersionWithBodyWithResponse Command: restaura um registro para um snapshot anterior
+	//
+	// GO-045 — restaurar é sempre ADITIVO: cria um NOVO snapshot no histórico (marcado `restore_of_version`, apontando para a versão restaurada), nunca apaga nem sobrescreve um snapshot existente. Mesmo controle de concorrência otimista de qualquer escrita — a versão ATUAL do registro (não a do histórico) é lida no momento da restauração; um 409 aqui significa que o registro mudou entre a leitura do histórico e esta chamada, não um conflito de snapshots.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/records/{id}/restore (the `RestoreRecordVersion` operationId).
+	RestoreRecordVersionWithBodyWithResponse(ctx context.Context, tenant Tenant, table string, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RestoreRecordVersionResponse, error)
+
+	// RestoreRecordVersionWithResponse Command: restaura um registro para um snapshot anterior
+	//
+	// GO-045 — restaurar é sempre ADITIVO: cria um NOVO snapshot no histórico (marcado `restore_of_version`, apontando para a versão restaurada), nunca apaga nem sobrescreve um snapshot existente. Mesmo controle de concorrência otimista de qualquer escrita — a versão ATUAL do registro (não a do histórico) é lida no momento da restauração; um 409 aqui significa que o registro mudou entre a leitura do histórico e esta chamada, não um conflito de snapshots.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/records/{id}/restore (the `RestoreRecordVersion` operationId).
+	RestoreRecordVersionWithResponse(ctx context.Context, tenant Tenant, table string, id Id, body RestoreRecordVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*RestoreRecordVersionResponse, error)
 
 	// ListUsersWithResponse Query: lista usuários do tenant (admin)
 	//
@@ -4839,6 +5081,169 @@ func (r UpdateRecordResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateRecordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetRecordHistoryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *struct {
+		Versions []RecordHistoryVersion `json:"versions"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetRecordHistoryResponse) GetJSON200() *struct {
+	Versions []RecordHistoryVersion `json:"versions"`
+} {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetRecordHistoryResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetRecordHistoryResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetRecordHistoryResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r GetRecordHistoryResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r GetRecordHistoryResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r GetRecordHistoryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetRecordHistoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetRecordHistoryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetRecordHistoryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RestoreRecordVersionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Record
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Forbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RestoreRecordVersionResponse) GetJSON200() *Record {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RestoreRecordVersionResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RestoreRecordVersionResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RestoreRecordVersionResponse) GetJSON403() *Forbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RestoreRecordVersionResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r RestoreRecordVersionResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r RestoreRecordVersionResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r RestoreRecordVersionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RestoreRecordVersionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RestoreRecordVersionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RestoreRecordVersionResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -6038,6 +6443,51 @@ func (c *ClientWithResponses) UpdateRecordWithResponse(ctx context.Context, tena
 	return ParseUpdateRecordResponse(rsp)
 }
 
+// GetRecordHistoryWithResponse Query: lista os snapshots de versionamento de um registro
+//
+// GO-045 (`models/table.ts`, flag `versioned`) — só disponível para tabelas `versioned=true` (ver TableInput/Table); 409 caso contrário (nunca uma lista vazia ambígua entre "sem versões ainda" e "tabela nem tem histórico"). Ordem mais recente primeiro.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/tenants/{tenant}/tables/{table}/records/{id}/history (the `GetRecordHistory` operationId).
+func (c *ClientWithResponses) GetRecordHistoryWithResponse(ctx context.Context, tenant Tenant, table string, id Id, reqEditors ...RequestEditorFn) (*GetRecordHistoryResponse, error) {
+	rsp, err := c.GetRecordHistory(ctx, tenant, table, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetRecordHistoryResponse(rsp)
+}
+
+// RestoreRecordVersionWithBodyWithResponse Command: restaura um registro para um snapshot anterior
+//
+// GO-045 — restaurar é sempre ADITIVO: cria um NOVO snapshot no histórico (marcado `restore_of_version`, apontando para a versão restaurada), nunca apaga nem sobrescreve um snapshot existente. Mesmo controle de concorrência otimista de qualquer escrita — a versão ATUAL do registro (não a do histórico) é lida no momento da restauração; um 409 aqui significa que o registro mudou entre a leitura do histórico e esta chamada, não um conflito de snapshots.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/records/{id}/restore (the `RestoreRecordVersion` operationId).
+func (c *ClientWithResponses) RestoreRecordVersionWithBodyWithResponse(ctx context.Context, tenant Tenant, table string, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RestoreRecordVersionResponse, error) {
+	rsp, err := c.RestoreRecordVersionWithBody(ctx, tenant, table, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRestoreRecordVersionResponse(rsp)
+}
+
+// RestoreRecordVersionWithResponse Command: restaura um registro para um snapshot anterior
+//
+// GO-045 — restaurar é sempre ADITIVO: cria um NOVO snapshot no histórico (marcado `restore_of_version`, apontando para a versão restaurada), nunca apaga nem sobrescreve um snapshot existente. Mesmo controle de concorrência otimista de qualquer escrita — a versão ATUAL do registro (não a do histórico) é lida no momento da restauração; um 409 aqui significa que o registro mudou entre a leitura do histórico e esta chamada, não um conflito de snapshots.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/tables/{table}/records/{id}/restore (the `RestoreRecordVersion` operationId).
+func (c *ClientWithResponses) RestoreRecordVersionWithResponse(ctx context.Context, tenant Tenant, table string, id Id, body RestoreRecordVersionJSONRequestBody, reqEditors ...RequestEditorFn) (*RestoreRecordVersionResponse, error) {
+	rsp, err := c.RestoreRecordVersion(ctx, tenant, table, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRestoreRecordVersionResponse(rsp)
+}
+
 // ListUsersWithResponse Query: lista usuários do tenant (admin)
 //
 // Adicionado por GO-044 — a administração de usuários do legado (`auth/admin.ts`) que faltava expor. Só um ator admin pode listar (`identity.ListUsers`); um ator sem papel suficiente recebe 403.
@@ -6931,6 +7381,137 @@ func ParseUpdateRecordResponse(rsp *http.Response) (*UpdateRecordResponse, error
 	}
 
 	response := &UpdateRecordResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Record
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetRecordHistoryResponse parses an HTTP response from a GetRecordHistoryWithResponse call
+func ParseGetRecordHistoryResponse(rsp *http.Response) (*GetRecordHistoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetRecordHistoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest struct {
+			Versions []RecordHistoryVersion `json:"versions"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Forbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRestoreRecordVersionResponse parses an HTTP response from a RestoreRecordVersionWithResponse call
+func ParseRestoreRecordVersionResponse(rsp *http.Response) (*RestoreRecordVersionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RestoreRecordVersionResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}

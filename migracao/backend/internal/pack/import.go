@@ -12,6 +12,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/scheduler"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/tags"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 )
@@ -106,5 +107,54 @@ func Import(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, p Pack, a
 		}
 	}
 
+	if len(p.Tags) > 0 {
+		if err := importTagPacks(ctx, tx, actorRole, p.Tags); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// importTagPacks cria/reaproveita cada TagPack (CreateTag é idempotente
+// por nome, AddEntry idempotente pela mesma combinação) e resolve
+// Tables/Views por NOME para o ID que AddEntry exige — SEMPRE depois que
+// p.Tables/p.Views já foram aplicados acima (uma tag nunca referencia uma
+// entidade que este MESMO Import ainda vai criar depois dela).
+func importTagPacks(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tagPacks []TagPack) error {
+	allViews, err := views.ListViews(ctx, tx, actorRole, 0)
+	if err != nil {
+		return fmt.Errorf("pack: listar views para resolver tags: %w", err)
+	}
+	viewIDByName := make(map[string]int, len(allViews))
+	for _, v := range allViews {
+		viewIDByName[v.Name] = v.ID
+	}
+
+	for _, tp := range tagPacks {
+		tag, err := tags.CreateTag(ctx, tx, actorRole, tp.Name)
+		if err != nil {
+			return fmt.Errorf("pack: criar tag %q: %w", tp.Name, err)
+		}
+		for _, tableName := range tp.Tables {
+			table, err := metadata.GetTable(ctx, database.AsTx(tx), tableName)
+			if err != nil {
+				return fmt.Errorf("pack: tag %q referencia tabela desconhecida %q: %w", tp.Name, tableName, err)
+			}
+			tableID := table.ID
+			if _, err := tags.AddEntry(ctx, tx, actorRole, tag.ID, tags.TagEntryRef{TableID: &tableID}); err != nil {
+				return fmt.Errorf("pack: associar tag %q à tabela %q: %w", tp.Name, tableName, err)
+			}
+		}
+		for _, viewName := range tp.Views {
+			viewID, ok := viewIDByName[viewName]
+			if !ok {
+				return fmt.Errorf("pack: tag %q referencia view desconhecida %q", tp.Name, viewName)
+			}
+			if _, err := tags.AddEntry(ctx, tx, actorRole, tag.ID, tags.TagEntryRef{ViewID: &viewID}); err != nil {
+				return fmt.Errorf("pack: associar tag %q à view %q: %w", tp.Name, viewName, err)
+			}
+		}
+	}
 	return nil
 }

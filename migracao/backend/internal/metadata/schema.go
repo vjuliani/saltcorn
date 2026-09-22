@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS _sc_tables (
 	name text NOT NULL UNIQUE,
 	min_role_read int NOT NULL DEFAULT 100,
 	min_role_write int NOT NULL DEFAULT 1,
+	versioned boolean NOT NULL DEFAULT false,
 	created_at %s
 )`, idColumnDDL(d), timestampDefaultDDL(d))
 }

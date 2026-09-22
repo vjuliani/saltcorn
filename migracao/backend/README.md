@@ -810,3 +810,88 @@ rejeitaria o valor com `ErrTypeMismatch`); e a normalização `.UTC()` em
 determinístico independente de onde o CI realmente roda — reproduz
 exatamente o mesmo bug encontrado no E2E: `Location()` no fuso local, dia
 deslocado). Detalhes completos em `docs/migracao-go/execucoes/GO-042.md`.
+
+## Versionamento de linha e sistema de tags (GO-045)
+
+Duas capacidades distintas, ambas "NÃO LISTADA ANTERIORMENTE" na matriz
+de capacidades (GO-001) antes desta task — nenhum catálogo Go existia
+para nenhuma das duas.
+
+**Versionamento de linha** (`models/table.ts`, flag `versioned`) —
+`internal/metadata.Table.Versioned`: se true, `CreateTable` já cria
+`<nome>__history` (uma coluna por campo, sem NOT NULL/UNIQUE — um
+snapshot é um registro ponto-no-tempo, nunca sujeito às mesmas
+constraints da tabela viva); `AddField`/`DropTable` mantêm a tabela de
+histórico sincronizada; `SetTableVersioned` habilita/desabilita depois da
+criação (desabilitar DESCARTA o histórico, mesmo comportamento do
+legado). `internal/records` grava um snapshot COMPLETO
+(`insertHistoryRow`, `_history_version` sempre `COALESCE(MAX(...),0)+1`
+numa subquery — mesma técnica de `next_version_by_id` do legado, sem
+race condition) a cada `CreateRecordTx`/`UpdateRecordTx` bem-sucedido.
+
+**Achado real de leitura do legado**: `Table.deleteRows` NUNCA chama
+`insert_history_row` — só insert/update gravam histórico; uma linha
+deletada simplesmente some da tabela principal, seu último snapshot
+continua sendo o do último insert/update. O texto do aceite original
+desta task ("grava histórico a cada update/DELETE") presumia o
+contrário, sem ter confirmado contra o código real — corrigido aqui para
+seguir o comportamento VERDADEIRO do legado, não a paráfrase do aceite.
+
+`GetHistoryTx`/`RestoreRowVersionTx` (leitura/restauração, expostas via
+`GET .../records/{id}/history` e `POST .../records/{id}/restore`) —
+restaurar é sempre ADITIVO: `RestoreRowVersionTx` delega ao MESMO
+`updateRecordTx` de qualquer UPDATE real (validação, controle de
+concorrência otimista, hooks de trigger), só que com um parâmetro interno
+extra (`restoreOfVersion`) que grava, no NOVO snapshot resultante,
+`_restore_of_version` apontando para a versão restaurada — nunca
+sobrescreve nem apaga um snapshot existente.
+
+**Sistema de tags** (`models/tag.ts`/`tag_entry.ts`, novo pacote
+`internal/tags`) — CRUD de tag (idempotente por nome) e associação a
+UMA entidade por vez (`TagEntryRef`, XOR entre `TableID`/`ViewID`,
+`ErrInvalidEntry` se ambos ou nenhum). **Divergência deliberada e
+documentada**: só Table/View, nunca Page (páginas nunca foram portadas
+para Go) nem Trigger (`internal/triggers.Trigger`, GO-024, nunca modelou
+um campo `Name` — toda referência de Pack é por NOME, nunca por ID
+interno; sem nome, uma tag de trigger não seria portável entre
+tenants/instalações, quebrando essa invariante). **Achado real,
+corrigido**: uma `UNIQUE (tag_id, table_id, view_id)` composta NUNCA
+detecta conflito quando uma das duas colunas é NULL (regra SQL padrão —
+NULL não é igual a NULL), exatamente o caso comum aqui (`TagEntryRef`
+sempre tem uma das duas nil) — `AddEntry` deixou de ser idempotente na
+prática (duplicava a cada chamada repetida), pego pelo teste desta task.
+Corrigido com dois ÍNDICES ÚNICOS PARCIAIS (`WHERE table_id IS NOT NULL`
+/ `WHERE view_id IS NOT NULL`), cada um só enxergando as linhas onde a
+coluna correspondente é preenchida.
+
+**Integração com `internal/pack`** (GO-027) — `Pack.Tags []TagPack`
+(sempre por nome, round-trip Export→Import→Export sem perda, mesmo
+critério de todas as demais categorias). `pack.ExportFilteredByTag` (o
+segundo critério de aceite desta task — "tags usadas para filtrar um
+export") calcula o FECHAMENTO TRANSITIVO de tabelas referenciadas por
+FieldKey: uma tag só marcando a tabela "books" (que referencia "authors")
+produz um Pack incluindo `authors` também — sem isso, o próprio Import do
+Pack filtrado falharia com "tabela desconhecida". Triggers/
+ScheduledTriggers/Library/Config nunca entram num export filtrado por tag
+(propriedades globais da aplicação, não de uma tabela/view específica).
+
+**Deliberadamente fora de escopo, documentado**: exposição HTTP/CLI/UI de
+tags (mesmo estágio que `internal/pack.Export`/`Import` em si, que também
+nunca foram expostos em nenhuma task anterior); undo/redo explícito de
+versionamento (navegação por cadeia de `_restore_of_version` — a
+restauração pontual já está implementada e testada, só o atalho de
+navegação fica de fora); mudar `versioned` de uma tabela que já tem dados
+mantém o comportamento do legado (descarta o histórico ao desabilitar),
+nunca uma migração retroativa.
+
+**Verificação de regressão deliberada** (desabilitar → confirmar falha
+real → restaurar → confirmar passe), quatro vezes: `insertHistoryRow` em
+`CreateRecordTx` (sem ela, uma tabela versionada não grava histórico
+algum); `_restore_of_version` em `RestoreRowVersionTx` (sem ele, um
+snapshot restaurado não fica marcado como restauração); os dois índices
+únicos parciais de `_sc_tag_entries` (sem eles, volta o bug de
+`AddEntry` duplicando associações); e o fechamento transitivo de
+`ExportFilteredByTag` (sem ele, o Pack filtrado tem um FieldKey
+apontando para uma tabela ausente, e o próprio Import do pack filtrado
+falha — confirmado end-to-end, não só a lista de tabelas). Detalhes
+completos em `docs/migracao-go/execucoes/GO-045.md`.

@@ -1245,6 +1245,143 @@ paths:
               schema:
                 $ref: "./common.yaml#/components/schemas/Error"
 
+  /v1/tenants/{tenant}/tables/{table}/records/{id}/history:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: table
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    get:
+      operationId: getRecordHistory
+      summary: "Query: lista os snapshots de versionamento de um registro"
+      description: >
+        GO-045 (`models/table.ts`, flag `versioned`) — só disponível para
+        tabelas `versioned=true` (ver TableInput/Table); 409 caso
+        contrário (nunca uma lista vazia ambígua entre "sem versões ainda"
+        e "tabela nem tem histórico"). Ordem mais recente primeiro.
+      responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "200":
+          description: snapshots do registro, mais recente primeiro
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [versions]
+                properties:
+                  versions:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RecordHistoryVersion"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+        "404":
+          description: tabela desconhecida
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "409":
+          description: tabela não é versionada
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+
+  /v1/tenants/{tenant}/tables/{table}/records/{id}/restore:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: table
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    post:
+      operationId: restoreRecordVersion
+      summary: "Command: restaura um registro para um snapshot anterior"
+      description: >
+        GO-045 — restaurar é sempre ADITIVO: cria um NOVO snapshot no
+        histórico (marcado `restore_of_version`, apontando para a versão
+        restaurada), nunca apaga nem sobrescreve um snapshot existente.
+        Mesmo controle de concorrência otimista de qualquer escrita — a
+        versão ATUAL do registro (não a do histórico) é lida no momento da
+        restauração; um 409 aqui significa que o registro mudou entre a
+        leitura do histórico e esta chamada, não um conflito de
+        snapshots.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version:
+                  type: integer
+                  description: "_history_version do snapshot a restaurar (ver getRecordHistory)."
+      responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "200":
+          description: registro restaurado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Record"
+        "400":
+          description: corpo inválido ou version ausente
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          $ref: "./common.yaml#/components/responses/Forbidden"
+        "404":
+          description: tabela, registro ou snapshot não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "409":
+          description: tabela não é versionada, ou conflito de versão otimista no registro atual
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+
 components:
   securitySchemes:
     ServiceIdentity:
@@ -1303,10 +1440,18 @@ components:
           type: integer
         min_role_write:
           type: integer
+        versioned:
+          type: boolean
+          description: >
+            GO-045 — se true, toda escrita (insert/update) grava um
+            snapshot em `<name>__history`, consultável via `GET
+            .../records/{id}/history` e restaurável via `POST
+            .../records/{id}/restore`. Omitido/false: tabela sem
+            histórico, mesmo padrão de hoje.
 
     Table:
       type: object
-      required: [id, name, min_role_read, min_role_write]
+      required: [id, name, min_role_read, min_role_write, versioned]
       properties:
         id:
           $ref: "./common.yaml#/components/schemas/Id"
@@ -1316,6 +1461,8 @@ components:
           type: integer
         min_role_write:
           type: integer
+        versioned:
+          type: boolean
 
     FieldInput:
       type: object
@@ -1641,3 +1788,25 @@ components:
           type: string
           description: Versão otimista do registro (ADR-0001) — usada para detectar escrita concorrente.
       additionalProperties: true
+
+    RecordHistoryVersion:
+      type: object
+      required: [version, time, record]
+      description: >
+        GO-045 — um snapshot de `<table>__history`. `version` é
+        `_history_version` (posição na linha do tempo do registro), nunca
+        confundir com `_version`/xmin de Record (controle de concorrência
+        otimista, um conceito distinto que o snapshot nem carrega).
+      properties:
+        version:
+          type: integer
+        time:
+          type: string
+          description: RFC3339 — quando este snapshot foi gravado.
+        restore_of_version:
+          type: integer
+          description: Presente só quando este snapshot é o resultado de um restoreRecordVersion — a versão que foi restaurada.
+        record:
+          type: object
+          description: Os campos de dados do registro naquele instante (nunca inclui id/_version — id já está no path, _version não existe no histórico).
+          additionalProperties: true

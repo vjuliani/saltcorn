@@ -17,6 +17,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -444,6 +445,136 @@ func deleteRecordHandler(tracker *shutdown.Tracker, db *database.DB, dispatcher 
 	}
 }
 
+// recordHistoryVersionResponse é uma linha de RecordHistoryVersion
+// (internal-api.yaml, GO-045).
+type recordHistoryVersionResponse struct {
+	Version          int            `json:"version"`
+	Time             string         `json:"time"`
+	RestoreOfVersion *int           `json:"restore_of_version,omitempty"`
+	Record           map[string]any `json:"record"`
+}
+
+// getRecordHistoryHandler implementa GET .../records/{id}/history
+// (getRecordHistory de internal-api.yaml, GO-045) — lista os snapshots de
+// versionamento de um registro, mais recente primeiro.
+func getRecordHistoryHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		end, err := tracker.Begin()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer end()
+
+		tenant, _ := tenancy.TenantFromContext(r.Context())
+		table := r.PathValue("table")
+		id, convErr := strconv.Atoi(r.PathValue("id"))
+		if convErr != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_id", "id inválido")
+			return
+		}
+		if db == nil {
+			writeAPIError(w, http.StatusBadGateway, "database_unavailable", "banco não configurado nesta instância")
+			return
+		}
+
+		var resp []recordHistoryVersionResponse
+		err = db.WithTenant(r.Context(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+			role, ok := resolveActorRole(ctx, tx, r, w)
+			if !ok {
+				return errHandled
+			}
+			versions, err := records.GetHistory(ctx, tx, role, table, id)
+			if err != nil {
+				return err
+			}
+			resp = make([]recordHistoryVersionResponse, 0, len(versions))
+			for _, v := range versions {
+				item := recordHistoryVersionResponse{Version: v.Version, RestoreOfVersion: v.RestoreOfVersion, Record: v.Record}
+				if t, ok := v.Time.(time.Time); ok {
+					item.Time = t.UTC().Format(time.RFC3339)
+				}
+				resp = append(resp, item)
+			}
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, errHandled) {
+				return
+			}
+			writeRecordsError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"versions": resp})
+	}
+}
+
+// restoreRecordVersionRequest é o corpo de POST .../records/{id}/restore.
+type restoreRecordVersionRequest struct {
+	Version *int `json:"version"`
+}
+
+// restoreRecordVersionHandler implementa POST .../records/{id}/restore
+// (restoreRecordVersion de internal-api.yaml, GO-045) — restaura o
+// registro para um snapshot anterior; sempre ADITIVO (grava um NOVO
+// snapshot marcado restore_of_version, nunca apaga histórico).
+func restoreRecordVersionHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		end, err := tracker.Begin()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		defer end()
+
+		tenant, _ := tenancy.TenantFromContext(r.Context())
+		table := r.PathValue("table")
+		id, convErr := strconv.Atoi(r.PathValue("id"))
+		if convErr != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_id", "id inválido")
+			return
+		}
+		if db == nil {
+			writeAPIError(w, http.StatusBadGateway, "database_unavailable", "banco não configurado nesta instância")
+			return
+		}
+
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<16))
+		if err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_body", "não foi possível ler o corpo da requisição")
+			return
+		}
+		var req restoreRecordVersionRequest
+		if err := json.Unmarshal(body, &req); err != nil {
+			writeAPIError(w, http.StatusBadRequest, "invalid_json", "corpo da requisição não é um JSON válido")
+			return
+		}
+		if req.Version == nil {
+			writeAPIError(w, http.StatusBadRequest, "version_required", "version é obrigatório")
+			return
+		}
+
+		var restored map[string]any
+		err = db.WithTenant(r.Context(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+			role, ok := resolveActorRole(ctx, tx, r, w)
+			if !ok {
+				return errHandled
+			}
+			var err error
+			restored, err = records.RestoreRowVersion(ctx, tx, role, table, id, *req.Version, nil)
+			return err
+		})
+		if err != nil {
+			if errors.Is(err, errHandled) {
+				return
+			}
+			writeRecordsError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, restored)
+	}
+}
+
 // writeRecordsError classifica os erros sentinela de internal/records para
 // o formato de resposta do contrato — nunca a mensagem crua do erro Go.
 // ErrUnknownTable/ErrUnknownField (404) e os erros de validação de
@@ -459,6 +590,8 @@ func writeRecordsError(w http.ResponseWriter, err error) {
 		writeAPIError(w, http.StatusNotFound, "not_found", "recurso não encontrado")
 	case errors.Is(err, records.ErrVersionConflict):
 		writeAPIError(w, http.StatusConflict, "version_conflict", "o registro foi modificado por outra transação — releia e tente novamente")
+	case errors.Is(err, records.ErrTableNotVersioned):
+		writeAPIError(w, http.StatusConflict, "table_not_versioned", "tabela não é versionada (versioned=false)")
 	case errors.Is(err, records.ErrTypeMismatch),
 		errors.Is(err, records.ErrRequiredField),
 		errors.Is(err, records.ErrNoFields):
