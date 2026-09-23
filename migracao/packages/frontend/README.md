@@ -152,6 +152,60 @@ em nível de módulo. Ver `docs/migracao-go/execucoes/GO-048.md` para a
 evidência completa (regressão deliberada: reintroduzir `[]` faz a
 mesma suíte travar de novo).
 
+## View aninhada, Feed e upload de arquivo (GO-051)
+
+`EditView.tsx` ganhou três capacidades novas, todas no mesmo componente:
+
+- **Fieldview `upload`** — um `<input type="file">` que chama
+  `onUploadFile(file)` IMEDIATAMENTE ao escolher o arquivo (antes de
+  "Salvar"), desabilitando o input até a resposta chegar
+  (`uploadingFields` state); o id devolvido vira o valor do campo, e
+  `coerceForSubmit` trata `field_type: "file"` como numérico (mesmo
+  tratamento de `key`/`integer`). Quando o registro já tem um arquivo
+  (`value` não nulo), um link para o arquivo atual é mostrado via
+  `fileDownloadUrl` (prop, montada pelo `ViewsListPage` a partir de
+  `bffClient.fileDownloadUrl`).
+- **Grupos de view aninhada** — `plan.nested[]` (presente só quando o
+  backend resolveu ao menos uma view embutida, ver
+  `migracao/backend/README.md` §"View aninhada..." (GO-051)) desenha um
+  `<fieldset>` por grupo, uma sub-`<EditView>` recursiva por linha
+  filha EXISTENTE. **Bug real de HTML encontrado e corrigido antes de
+  rodar qualquer teste** (não uma decisão de design descoberta depois):
+  a primeira versão compunha essas sub-`<EditView>`s DENTRO do `<form>`
+  da view pai — HTML inválido, um `<form>` nunca pode conter outro.
+  Corrigido reestruturando o componente: o `<form>` pai fecha logo
+  após o botão "Salvar", e o grupo de views aninhadas vive como IRMÃO
+  dele, dentro de um `<div data-testid="edit-view-container">`
+  envolvente — cada linha filha submete pelo seu PRÓPRIO `<form>`,
+  nunca o do pai. Teste dedicado (`"nunca desenha <form> aninhado"`)
+  conta `<form>` no DOM renderizado e afirma que nenhum contém outro.
+- **`FeedView.tsx`** (novo) — um card por linha via `ShowView`
+  (reaproveitado, o mesmo mecanismo de uma view Show standalone) mais
+  um botão "Criar" (só quando `view_to_create_id` está presente) que o
+  `ViewsListPage` conecta ao MESMO `handlePreview` que qualquer botão
+  "Visualizar" já usa — trocar a pré-visualização para a view de
+  criação, nenhum roteador novo.
+
+**Achado real de NAVEGAÇÃO, não um bug do produto** (lacuna
+pré-existente de GO-039 que o E2E desta task tornou visível):
+`ViewsListPage.handlePreview` nunca passa `?record=` ao abrir uma view
+Edit pelo botão "Visualizar" — não existe hoje, nesta página de
+demonstração, uma forma de abrir o formulário Edit de um registro JÁ
+EXISTENTE (sem roteador client-side, GO-021). Como o grupo de view
+aninhada só aparece quando o registro pai já existe, a prova E2E desse
+mecanismo específico usa `page.request` diretamente contra `GET
+.../render?record=` (o mesmo endpoint que a UI chamaria se tivesse essa
+navegação) em vez de fabricar uma navegação que a UI ainda não oferece
+— documentado no cabeçalho de `migracao/e2e/tests/
+nested-feed-upload.spec.ts`.
+
+**Verificação de regressão deliberada**: reintroduzir o `<form>`
+aninhado (mover o grupo de views aninhadas para dentro do `<form>` pai)
+faz o teste dedicado falhar de verdade — `container.querySelectorAll
+("form")` encontra um `<form>` dentro de outro. Restaurado, os 14
+testes de `EditView.test.tsx` voltam a passar. Detalhes completos em
+`docs/migracao-go/execucoes/GO-051.md`.
+
 ## Limitações desta entrega (deliberadas, não fabricadas)
 
 - **Topbar mínima**: a versão de `packages/saltcorn-sbadmin2/index.js` usada neste repositório não monta uma topbar completa (busca/dropdown de usuário) — só o botão de colapsar a sidebar. `Topbar.tsx` porta exatamente o que existe hoje, não uma topbar de SB Admin 2 genérica inventada sem essa referência real.

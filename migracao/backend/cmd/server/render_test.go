@@ -179,11 +179,12 @@ func TestRenderListHandler_DeniedBeforePublish(t *testing.T) {
 }
 
 // TestRenderListHandler_UnsupportedViewReturns422 prova que uma view fora
-// do subconjunto suportado (aqui: template "Feed", GO-051) nunca chega a
-// um HTML/DTO parcial — 422 com o motivo específico, mesmo para o admin.
-// Desde GO-039, "Show" passou a ser suportado (tem seu próprio teste de
-// render bem-sucedido) — este teste usa "Feed", que continua fora de
-// escopo (ver docs/migracao-go/execucoes/GO-039.md).
+// do subconjunto suportado (aqui: um template nunca implementado neste
+// runtime) nunca chega a um HTML/DTO parcial — 422 com o motivo
+// específico, mesmo para o admin. Desde GO-039/GO-051, "Show"/"Edit"/
+// "Feed" passaram a ser suportados (cada um com seu próprio teste de
+// render bem-sucedido/negativo específico) — este teste usa "Page", que
+// nenhuma tarefa desta migração implementou.
 func TestRenderListHandler_UnsupportedViewReturns422(t *testing.T) {
 	db := testDB(t)
 	fx := newEditorFixture(t, db)
@@ -196,10 +197,10 @@ func TestRenderListHandler_UnsupportedViewReturns422(t *testing.T) {
 	var view views.View
 	if err := db.WithTenant(context.Background(), fx.tenant, func(ctx context.Context, tx pgx.Tx) error {
 		var err error
-		view, err = views.CreateView(ctx, tx, identity.RoleAdmin, "guitarfeed", tableID, "Feed", map[string]any{}, views.ViewOptions{})
+		view, err = views.CreateView(ctx, tx, identity.RoleAdmin, "guitarpage", tableID, "Page", map[string]any{}, views.ViewOptions{})
 		return err
 	}); err != nil {
-		t.Fatalf("criar view Feed: %v", err)
+		t.Fatalf("criar view Page: %v", err)
 	}
 
 	renderH := buildEditorHandler(t, verifier, fx.guard, viewsCapability, renderViewHandler(fx.tracker, db))

@@ -174,4 +174,43 @@ describe("ViewsListPage", () => {
     await waitFor(() => expect(client.submitView).toHaveBeenCalledWith(3, { record_id: undefined, _version: undefined, values: { title: "Neuromancer" } }));
     expect(await screen.findByTestId("views-navigate-message")).toBeTruthy();
   });
+
+  // GO-051: Feed — dispatch (isFeedPlan) e o botão "Criar" trocando a
+  // pré-visualização para a view_to_create_id, reaproveitando o MESMO
+  // handlePreview de qualquer botão "Visualizar" — nenhum roteador novo.
+  it("renderiza uma view Feed como FeedView, e o botão Criar troca a pré-visualização para view_to_create_id", async () => {
+    client.listViews.mockResolvedValue([{ id: 4, name: "guitarfeed", template: "Feed", min_role: 100 }]);
+    client.renderView.mockImplementation((id: number) => {
+      if (id === 4) {
+        return Promise.resolve({
+          view_id: 4,
+          table: "guitars",
+          cards: [
+            {
+              record_id: 1,
+              show: { view_id: 5, table: "guitars", record_id: 1, columns: [{ field_name: "name", header_label: "Nome" }], values: { name: "Strat" } },
+            },
+          ],
+          view_to_create_id: 6,
+          view_to_create_name: "create_guitar",
+        });
+      }
+      return Promise.resolve({
+        view_id: 6,
+        table: "guitars",
+        record_id: 0,
+        fields: [{ field_name: "name", label: "name", field_type: "text", fieldview: "edit", required: true, value: null }],
+        action_name: "Save",
+      });
+    });
+    render(<ViewsListPage bffClient={client} />);
+
+    fireEvent.click(await screen.findByText("Visualizar"));
+    expect(await screen.findByTestId("feed-view")).toBeTruthy();
+    expect(screen.getByText("Strat")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("feed-create-button"));
+    await waitFor(() => expect(client.renderView).toHaveBeenCalledWith(6, {}));
+    expect(await screen.findByTestId("edit-view")).toBeTruthy();
+  });
 });

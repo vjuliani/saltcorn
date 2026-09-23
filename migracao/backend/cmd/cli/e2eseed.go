@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/config"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/files"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
@@ -114,6 +115,12 @@ func e2eSeed(args []string) error {
 		if err := workflow.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
+		// files.EnsureSchema (GO-051): uploadFileHandler/downloadFileHandler
+		// e metadata.AddField de um campo FieldFile consultam/referenciam
+		// _sc_files — mesma classe de achado de GO-040/045/047/048.
+		if err := files.EnsureSchema(ctx, tx); err != nil {
+			return err
+		}
 		hash, err := identity.HashPassword(*password)
 		if err != nil {
 			return err
@@ -133,7 +140,7 @@ func e2eSeed(args []string) error {
 		if err := cutover.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
-		for _, capability := range []string{"tables.records", "tables.schema", "tables.views", "workflows"} {
+		for _, capability := range []string{"tables.records", "tables.schema", "tables.views", "workflows", "files"} {
 			if err := cutover.SetOwner(ctx, tx, tenant, capability, cutover.OwnerGo); err != nil {
 				return err
 			}

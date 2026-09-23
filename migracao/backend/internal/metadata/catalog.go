@@ -371,6 +371,15 @@ func AddField(ctx context.Context, tx database.Tx, actorRole identity.RoleID, ta
 	case def.Type == FieldKey:
 		ddl = fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s REFERENCES %s(id)",
 			quotedTable, quotedField, columnType, pgx.Identifier{refTableName}.Sanitize())
+	case def.Type == FieldFile:
+		// _sc_files (internal/files, GO-026) é o alvo FIXO — nunca
+		// escolhido por def.References (ver comentário de FieldFile em
+		// fieldtype.go). Exige que files.EnsureSchema já tenha criado a
+		// tabela neste tenant; um AddField de um campo de arquivo ANTES
+		// disso falha explicitamente aqui (erro de SQL "relation does
+		// not exist"), nunca silenciosamente cria uma coluna solta sem a
+		// integridade referencial.
+		ddl = fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s REFERENCES _sc_files(id)", quotedTable, quotedField, columnType)
 	default:
 		ddl = fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", quotedTable, quotedField, columnType)
 	}

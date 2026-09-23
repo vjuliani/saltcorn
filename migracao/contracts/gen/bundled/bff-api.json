@@ -795,7 +795,7 @@
       ],
       "get": {
         "operationId": "renderView",
-        "summary": "Renderiza uma view List, Show ou Edit (GO-020, estendido em GO-039)",
+        "summary": "Renderiza uma view List, Show, Edit ou Feed (GO-020, estendido em GO-039/GO-051)",
         "description": "Devolve o DTO de internal-api.yaml, sem reinterpretar nada — o shape exato depende do template da view. `record` é obrigatório para Show (400 sem ele), opcional para Edit (ausente = registro novo), ignorado por List.\n",
         "security": [
           {
@@ -841,6 +841,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/ViewEditPlan"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ViewFeedPlan"
                     }
                   ]
                 }
@@ -1592,6 +1595,119 @@
           }
         }
       }
+    },
+    "/api/bff/files": {
+      "post": {
+        "operationId": "uploadFile",
+        "summary": "Envia um arquivo (multipart/form-data) (GO-051)",
+        "description": "Repassa o multipart ao Go real, sem reinterpretar — o BFF só transporta a identidade delegada (mesmo padrão de todas as outras mutações). Upload PRIMEIRO (devolve um id), submissão do Edit DEPOIS (`updateView`-like `submit`, usando esse id como valor do campo).\n",
+        "security": [
+          {
+            "SessionCookie": [],
+            "CsrfToken": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "arquivo salvo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/File"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "corpo multipart inválido, maior que o limite permitido, ou campo \"file\" ausente",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/SessionRequired"
+          },
+          "403": {
+            "$ref": "#/components/responses/CsrfInvalid"
+          },
+          "502": {
+            "$ref": "#/components/responses/DomainUnavailable"
+          }
+        }
+      }
+    },
+    "/api/bff/files/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Id"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "downloadFile",
+        "summary": "Baixa os bytes de um arquivo (GO-051)",
+        "security": [
+          {
+            "SessionCookie": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "bytes do arquivo",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/SessionRequired"
+          },
+          "404": {
+            "description": "arquivo não encontrado, ou ator sem acesso (deliberadamente indistinguíveis)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "$ref": "#/components/responses/DomainUnavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2090,6 +2206,40 @@
           }
         }
       },
+      "ViewNestedEditPlan": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "view_name",
+          "child_table",
+          "fk_field",
+          "parent_id",
+          "rows"
+        ],
+        "properties": {
+          "view_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "view_name": {
+            "type": "string"
+          },
+          "child_table": {
+            "type": "string"
+          },
+          "fk_field": {
+            "type": "string"
+          },
+          "parent_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewEditPlan"
+            }
+          }
+        }
+      },
       "ViewEditPlan": {
         "type": "object",
         "required": [
@@ -2120,6 +2270,88 @@
           },
           "action_name": {
             "type": "string"
+          },
+          "nested": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewNestedEditPlan"
+            }
+          }
+        }
+      },
+      "ViewFeedCard": {
+        "type": "object",
+        "required": [
+          "record_id",
+          "show"
+        ],
+        "properties": {
+          "record_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "show": {
+            "$ref": "#/components/schemas/ViewShowPlan"
+          }
+        }
+      },
+      "ViewFeedPlan": {
+        "type": "object",
+        "required": [
+          "view_id",
+          "table",
+          "cards"
+        ],
+        "properties": {
+          "view_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "table": {
+            "type": "string"
+          },
+          "cards": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewFeedCard"
+            }
+          },
+          "view_to_create_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "view_to_create_name": {
+            "type": "string"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "File": {
+        "type": "object",
+        "required": [
+          "id",
+          "filename",
+          "mime_super",
+          "mime_sub",
+          "size_bytes"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "mime_super": {
+            "type": "string"
+          },
+          "mime_sub": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer"
           }
         }
       },

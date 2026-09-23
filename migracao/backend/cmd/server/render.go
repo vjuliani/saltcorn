@@ -98,6 +98,15 @@ type editFieldResponse struct {
 	Options   []editFieldOptionResponse `json:"options,omitempty"`
 }
 
+type renderNestedEditResponse struct {
+	ViewID     int                  `json:"view_id"`
+	ViewName   string               `json:"view_name"`
+	ChildTable string               `json:"child_table"`
+	FKField    string               `json:"fk_field"`
+	ParentID   int                  `json:"parent_id"`
+	Rows       []renderEditResponse `json:"rows"`
+}
+
 type renderEditResponse struct {
 	ViewID     int                 `json:"view_id"`
 	Table      string              `json:"table"`
@@ -105,6 +114,10 @@ type renderEditResponse struct {
 	Version    string              `json:"_version,omitempty"`
 	Fields     []editFieldResponse `json:"fields"`
 	ActionName string              `json:"action_name"`
+	// Nested (GO-051) são as views Edit embutidas via nó de layout
+	// `type: "view"` — ausente/vazio quando esta view não embute nenhuma
+	// outra, ou quando RecordID == 0 (ver views.resolveNestedEditPlans).
+	Nested []renderNestedEditResponse `json:"nested,omitempty"`
 }
 
 func editPlanToResponse(plan *views.EditPlan) renderEditResponse {
@@ -119,9 +132,46 @@ func editPlanToResponse(plan *views.EditPlan) renderEditResponse {
 			Required: f.Required, Config: f.FieldConfig, Value: f.Value, Options: options,
 		})
 	}
+	nested := make([]renderNestedEditResponse, 0, len(plan.Nested))
+	for _, n := range plan.Nested {
+		rows := make([]renderEditResponse, 0, len(n.Rows))
+		for _, row := range n.Rows {
+			rowCopy := row
+			rows = append(rows, editPlanToResponse(&rowCopy))
+		}
+		nested = append(nested, renderNestedEditResponse{
+			ViewID: n.ViewID, ViewName: n.ViewName, ChildTable: n.ChildTable, FKField: n.FKField, ParentID: n.ParentID, Rows: rows,
+		})
+	}
 	return renderEditResponse{
 		ViewID: plan.ViewID, Table: plan.Table, RecordID: plan.RecordID, Version: plan.Version,
-		Fields: fields, ActionName: plan.ActionName,
+		Fields: fields, ActionName: plan.ActionName, Nested: nested,
+	}
+}
+
+type renderFeedCardResponse struct {
+	RecordID int                `json:"record_id"`
+	Show     renderShowResponse `json:"show"`
+}
+
+type renderFeedResponse struct {
+	ViewID           int                      `json:"view_id"`
+	Table            string                   `json:"table"`
+	Cards            []renderFeedCardResponse `json:"cards"`
+	ViewToCreateID   int                      `json:"view_to_create_id,omitempty"`
+	ViewToCreateName string                   `json:"view_to_create_name,omitempty"`
+	NextCursor       *string                  `json:"next_cursor"`
+}
+
+func feedPlanToResponse(plan *views.FeedPlan) renderFeedResponse {
+	cards := make([]renderFeedCardResponse, 0, len(plan.Cards))
+	for _, c := range plan.Cards {
+		showCopy := c.Show
+		cards = append(cards, renderFeedCardResponse{RecordID: c.RecordID, Show: showPlanToResponse(&showCopy)})
+	}
+	return renderFeedResponse{
+		ViewID: plan.ViewID, Table: plan.Table, Cards: cards,
+		ViewToCreateID: plan.ViewToCreateID, ViewToCreateName: plan.ViewToCreateName,
 	}
 }
 
@@ -213,6 +263,27 @@ func renderViewHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerF
 					return err
 				}
 				resp = editPlanToResponse(plan)
+			case "Feed":
+				limit := recordsListDefaultLimit
+				if raw := r.URL.Query().Get("limit"); raw != "" {
+					if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+						limit = n
+					}
+				}
+				if limit > recordsListMaxLimit {
+					limit = recordsListMaxLimit
+				}
+				offset := decodeCursor(r.URL.Query().Get("cursor"))
+				plan, hasMore, err := views.CompileFeedPlan(ctx, tx, role, id, limit, offset)
+				if err != nil {
+					return err
+				}
+				feedResp := feedPlanToResponse(plan)
+				if hasMore {
+					next := offset + limit
+					nextCursorFor = &next
+				}
+				resp = feedResp
 			default:
 				return &views.UnsupportedLayoutError{Reason: "template não suportado neste runtime"}
 			}
@@ -229,6 +300,11 @@ func renderViewHandler(tracker *shutdown.Tracker, db *database.DB) http.HandlerF
 			next := encodeCursor(*nextCursorFor)
 			listResp.NextCursor = &next
 			resp = listResp
+		}
+		if feedResp, ok := resp.(renderFeedResponse); ok && nextCursorFor != nil {
+			next := encodeCursor(*nextCursorFor)
+			feedResp.NextCursor = &next
+			resp = feedResp
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}

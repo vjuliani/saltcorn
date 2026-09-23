@@ -118,6 +118,28 @@ func GetView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, id int) 
 	return v, nil
 }
 
+// GetViewByName busca uma view pelo NOME — necessário para resolver uma
+// referência textual a outra view (GO-051: o nó de layout `type: "view"`
+// de uma view aninhada, e os campos `show_view`/`view_to_create` do
+// viewtemplate Feed guardam o NOME da view referenciada, nunca o id).
+// Mesma checagem de MinRole de GetView — uma view aninhada/embutida não
+// publicada permanece invisível a um ator sem papel suficiente, mesmo
+// que a view PAI seja visível.
+func GetViewByName(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name string) (View, error) {
+	row := tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM _sc_views WHERE name = $1`, viewColumns), name)
+	v, err := scanView(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return View{}, ErrViewNotFound
+		}
+		return View{}, err
+	}
+	if !identity.CanRead(actorRole, v.MinRole) {
+		return View{}, ErrNotAuthorized
+	}
+	return v, nil
+}
+
 // ListViews lista views cujo table_id bate com tableID (0 = todas),
 // filtrando pelas que o ator pode ler — nunca revela a existência de uma
 // view não publicada a um ator sem papel suficiente (mesmo espírito do

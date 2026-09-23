@@ -166,3 +166,29 @@ visual nunca cria dois runs, confirmado por teste dedicado em
 suporta um catálogo restrito de ações (`set_context`/`count_rows`), em
 `migracao/backend/README.md` §"Editor visual de Workflow (GO-048)" e
 `docs/migracao-go/execucoes/GO-048.md`.
+
+## Upload/download de arquivo (GO-051)
+
+`src/multipart.ts` (novo) — parser multipart mínimo escrito à mão,
+mesma disciplina de "dependências mínimas, deliberadamente" já aplicada
+a `session.ts`/`csrf.ts`: extrai UM campo de arquivo esperado (`file`)
+de um corpo `multipart/form-data` por busca de delimitador em `Buffer`
+puro (`Buffer.indexOf`), nunca um parser multipart genérico de
+propósito geral. Usado igualmente pela rota real (`app.ts`) e pelo
+mock do teste (`test/mockGoServer.ts`) — o MESMO parser, não uma
+reimplementação paralela. `POST /api/bff/files` lê o corpo cru
+(`readRawBody`, teto de 20 MiB) e repassa a `goClient.uploadFile` via
+`rawBody: FormData` (um novo modo de `request<T>` que evita o
+`JSON.stringify`/Content-Type forçado do caminho normal); `GET
+/api/bff/files/:id` baixa do Go e transmite os bytes de volta com o
+Content-Type original. `httpHelpers.readRawBody` reaproveita o mesmo
+teto de tamanho documentado para o resto do BFF (mesmo espírito de
+`editFieldOptionsLimit` do lado Go).
+
+**Verificação de regressão deliberada**: quebrar o delimitador do
+parser (`--${boundary}` → `${boundary}`, um desalinhamento de byte que
+desloca onde cada parte começa) faz o teste de ciclo completo
+upload→download falhar comparando bytes DIFERENTES dos enviados — não
+um erro de parsing, um dado silenciosamente errado, a pior classe de
+falha para um parser binário. Restaurado, os 39 testes voltam a passar.
+Detalhes completos em `docs/migracao-go/execucoes/GO-051.md`.
