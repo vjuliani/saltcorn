@@ -42,7 +42,7 @@ func TestSendEmailAction_EnqueuesEmailWithInterpolatedFields(t *testing.T) {
 
 	d := &Dispatcher{Expression: evaluator, Actions: BuiltinActions()}
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "Olá mundo"}, d.HooksFor(tenant, nil))
+		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "Olá mundo"}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err
 	}); err != nil {
 		t.Fatalf("CreateRecord: %v", err)
@@ -82,7 +82,7 @@ func TestWebhookAction_EnqueuesPostWithRowAsBody(t *testing.T) {
 
 	d := &Dispatcher{Expression: evaluator, Actions: BuiltinActions()}
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "Webhook post"}, d.HooksFor(tenant, nil))
+		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "Webhook post"}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err
 	}); err != nil {
 		t.Fatalf("CreateRecord: %v", err)
@@ -119,7 +119,7 @@ func TestSendEmailAction_MissingTo_ReturnsErrorWithoutEnqueuing(t *testing.T) {
 
 	d := &Dispatcher{Expression: evaluator, Actions: BuiltinActions()}
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "sem destinatário"}, d.HooksFor(tenant, nil))
+		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "sem destinatário"}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err
 	})
 	if !errors.Is(err, ErrActionConfigInvalid) {
@@ -140,7 +140,7 @@ func TestWebhookAction_MissingURL_ReturnsErrorWithoutEnqueuing(t *testing.T) {
 
 	d := &Dispatcher{Expression: evaluator, Actions: BuiltinActions()}
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "sem url"}, d.HooksFor(tenant, nil))
+		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "sem url"}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err
 	})
 	if !errors.Is(err, ErrActionConfigInvalid) {
@@ -177,7 +177,7 @@ func TestSendEmailAction_TwoTriggersSameRowDifferentConfig_BothEnqueue(t *testin
 
 	d := &Dispatcher{Expression: evaluator, Actions: BuiltinActions()}
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "dois destinatários"}, d.HooksFor(tenant, nil))
+		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "dois destinatários"}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err
 	}); err != nil {
 		t.Fatalf("CreateRecord: %v", err)

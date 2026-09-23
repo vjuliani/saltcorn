@@ -74,12 +74,20 @@ func Export(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, plugins [
 	}
 	var triggerPacks []TriggerPack
 	for _, tr := range triggerList {
-		table, err := metadata.GetTableByID(ctx, database.AsTx(tx), tr.TableID)
-		if err != nil {
-			return Pack{}, fmt.Errorf("pack: resolver tabela do trigger: %w", err)
+		// TableID == 0 (GO-052) é um trigger de EVENTO NOMEADO — sem
+		// tabela para resolver, TableName fica "" por construção (mesmo
+		// sinal que Import usa para decidir qual dos dois caminhos de
+		// CreateTrigger seguir).
+		var tableName string
+		if tr.TableID != 0 {
+			table, err := metadata.GetTableByID(ctx, database.AsTx(tx), tr.TableID)
+			if err != nil {
+				return Pack{}, fmt.Errorf("pack: resolver tabela do trigger: %w", err)
+			}
+			tableName = table.Name
 		}
 		triggerPacks = append(triggerPacks, TriggerPack{
-			TableName: table.Name, When: tr.When, Action: tr.Action, OnlyIf: tr.OnlyIf, AfterCommit: tr.AfterCommit,
+			TableName: tableName, When: tr.When, Action: tr.Action, OnlyIf: tr.OnlyIf, AfterCommit: tr.AfterCommit,
 			Configuration: tr.Configuration,
 		})
 	}

@@ -886,3 +886,95 @@ test("GET /api/bff/files/:id inexistente retorna 404", async () => {
     await mockGo.close();
   }
 });
+
+// GO-052: evento nomeado (Trigger.emitEvent do legado) — a autorização
+// por nome/idempotência já tem cobertura mais profunda do lado Go
+// (cmd/server/events_test.go, internal/triggers/emitevent_test.go); aqui
+// só a fronteira BFF (CSRF/sessão/idempotência calculada aqui).
+test("POST /api/bff/events/:eventname emite um evento nomeado e devolve fired", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "42", "acme");
+    const headers = { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken };
+    const res = await fetch(`${baseUrl}/api/bff/events/ReceiveMobileShareData`, {
+      method: "POST", headers, body: JSON.stringify({ payload: { files: [{ location: "/tmp/a.png" }] } }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { fired: number };
+    assert.equal(body.fired, 1);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/events/:eventname sem CSRF é rejeitado (403 csrf_invalid)", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "42", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/events/ReceiveMobileShareData`, {
+      method: "POST", headers: { Cookie: cookie, "Content-Type": "application/json" }, body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 403);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/events/:eventname sem sessão retorna 401", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, baseUrl } = await startBff(goUrl);
+  try {
+    const res = await fetch(`${baseUrl}/api/bff/events/ReceiveMobileShareData`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 401);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/events/:eventname nome não autorizado propaga o 403 do Go (event_not_allowed)", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "42", "acme");
+    const headers = { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken };
+    const res = await fetch(`${baseUrl}/api/bff/events/SemPermissao`, { method: "POST", headers, body: JSON.stringify({}) });
+    assert.equal(res.status, 403);
+    const body = (await res.json()) as { error: { code: string } };
+    assert.equal(body.error.code, "event_not_allowed");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/events/:eventname duas vezes com o mesmo corpo não dispara duas vezes (idempotência do BFF)", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "42", "acme");
+    const headers = { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken };
+    const body = JSON.stringify({ payload: { files: [{ location: "/tmp/a.png" }] } });
+    const first = await fetch(`${baseUrl}/api/bff/events/ReceiveMobileShareData`, { method: "POST", headers, body });
+    const second = await fetch(`${baseUrl}/api/bff/events/ReceiveMobileShareData`, { method: "POST", headers, body });
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    const firstBody = (await first.json()) as { fired: number };
+    const secondBody = (await second.json()) as { fired: number };
+    assert.deepEqual(firstBody, secondBody, "a segunda chamada com o mesmo corpo deveria devolver o MESMO resultado, nunca disparar de novo");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});

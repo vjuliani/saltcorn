@@ -60,6 +60,8 @@ type UpdateWorkflowStepResponse =
   InternalPaths["/v1/tenants/{tenant}/workflows/{id}/steps/{stepId}"]["patch"]["responses"]["200"]["content"]["application/json"];
 type RunWorkflowResponse =
   InternalPaths["/v1/tenants/{tenant}/workflows/{id}/run"]["post"]["responses"]["200"]["content"]["application/json"];
+type EmitEventResponse =
+  InternalPaths["/v1/tenants/{tenant}/events/{eventname}"]["post"]["responses"]["200"]["content"]["application/json"];
 
 export interface GoClientOptions {
   readonly baseUrl: string;
@@ -430,6 +432,25 @@ export class GoClient {
   ): Promise<RunWorkflowResponse> {
     const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/workflows/${id}/run`);
     return this.request<RunWorkflowResponse>(url, {
+      method: "POST",
+      serviceIdentityToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: input,
+    });
+  }
+
+  // emitEvent (GO-052) — o mecanismo por trás de Trigger.emitEvent do
+  // legado. Idempotency-Key protege contra um retry de rede disparando os
+  // triggers duas vezes (mesmo espírito de runWorkflow acima).
+  async emitEvent(
+    serviceIdentityToken: string,
+    idempotencyKey: string,
+    tenant: string,
+    eventName: string,
+    input: { payload?: Record<string, unknown> }
+  ): Promise<EmitEventResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/events/${encodeURIComponent(eventName)}`);
+    return this.request<EmitEventResponse>(url, {
       method: "POST",
       serviceIdentityToken,
       headers: { "Idempotency-Key": idempotencyKey },

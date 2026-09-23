@@ -14,6 +14,7 @@ cd "$SCRIPT_DIR"
 BACKEND_DIR="$SCRIPT_DIR/../backend"
 BFF_DIR="$SCRIPT_DIR/../packages/bff"
 FRONTEND_DIR="$SCRIPT_DIR/../packages/frontend"
+PLUGINHOST_DIR="$SCRIPT_DIR/../packages/pluginhost"
 
 E2E_TENANT="${SALTCORN_E2E_TENANT:-e2e_web}"
 GO_PORT="${SALTCORN_E2E_GO_PORT:-8091}"
@@ -77,6 +78,9 @@ SEED_JSON=$(cd "$BACKEND_DIR" && go run ./cmd/cli e2e-seed --dsn "$SALTCORN_GO_T
 echo "    $SEED_JSON"
 ADMIN_USER_ID=$(node -e "console.log(JSON.parse(process.argv[1]).admin_user_id)" "$SEED_JSON")
 
+echo "==> Compilando host de plugins (GO-052 — necessário para run_js_code/Table.insertRow real via receive_share_trigger)..."
+(cd "$PLUGINHOST_DIR" && npm run build --silent)
+
 echo "==> Compilando backend Go..."
 (cd "$BACKEND_DIR" && go build -o "$GO_BIN" ./cmd/server)
 
@@ -85,6 +89,7 @@ SALTCORN_GO_HTTP_ADDR=":$GO_PORT" \
   SALTCORN_GO_DATABASE_URL="$SALTCORN_GO_TEST_DATABASE_URL" \
   SALTCORN_GO_SERVICE_IDENTITY_SECRET="$SERVICE_IDENTITY_SECRET" \
   SALTCORN_GO_FILES_ROOT_DIR="$FILES_ROOT_DIR" \
+  SALTCORN_GO_PLUGINHOST_SCRIPT="$PLUGINHOST_DIR/dist/src/host.js" \
   setsid "$GO_BIN" &
 GO_PID=$!
 wait_for_port "$GO_PORT"

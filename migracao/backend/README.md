@@ -1138,3 +1138,88 @@ quebrar o delimitador do parser multipart (`--${boundary}` →
 `${boundary}`, o teste de upload/download passa a comparar bytes
 diferentes dos enviados); frontend — reintroduzir o `<form>` aninhado
 (o teste dedicado que conta `<form>` irmãos falha de verdade).
+
+## Evento nomeado (`emitEvent`) e capacidade de escrita no host (GO-052)
+
+Carve-out do preflight de GO-040: as duas lacunas que aquela task deixou
+explicitamente registradas para esta.
+
+- **Evento nomeado** (`internal/triggers.Dispatcher.EmitEvent`,
+  `TriggersForEvent`) — o mecanismo Go por trás de
+  `Trigger.emitEvent`/`POST /api/emit-event` do legado. `_sc_triggers.
+  table_id` deixou de ser `NOT NULL`: um trigger de evento nomeado
+  (`TableID == 0`, nunca ligado a uma tabela) convive no MESMO catálogo
+  que um trigger de registro (`TableID != 0`), com validação cruzada em
+  `CreateTrigger` — cada `WhenTrigger` só é válido para UM dos dois
+  formatos (os 4 nomes reservados de registro exigem tabela; qualquer
+  outro nome exige ausência dela), evitando um trigger "morto" que
+  nenhuma das duas consultas de despacho jamais encontraria.
+  `cmd/server/events.go` (`POST .../events/{eventname}`) porta o modelo
+  de autorização do legado com uma simplificação real e documentada:
+  `"ReceiveMobileShareData"` sempre permitido para um ator autenticado;
+  qualquer outro nome exige a configuração `mobile_emit_allowed_events`
+  (`internal/config`). A distinção do legado entre usuário autenticado e
+  PÚBLICO não autenticado (`mobile_emit_public_events`) não tem
+  equivalente nesta arquitetura — `tenancy.Middleware` sempre exige uma
+  identidade delegada verificada antes de qualquer handler rodar; não
+  existe um caminho de chamador verdadeiramente anônimo para exercitar
+  essa segunda configuração.
+- **Capacidade de escrita no host** (`pluginhost.CapDBWrite`,
+  `internal/triggers.NewRunJSCode`) — a lacuna que GO-022 (nota de
+  escopo 5) e GO-040 (carve-out) deixaram explícita: "escrita a partir de
+  expressão/plugin... precisa de decisão própria de idempotência". A
+  decisão: escrita é concedida SÓ à ação `run_js_code` (nunca a
+  `only_if`/campos calculados, que continuam sem nenhuma capacidade
+  declarada), e sua idempotência não é um mecanismo NOVO dentro do host —
+  é herdada do chamador HTTP, que já envolve a emissão inteira num
+  `Idempotency-Key`/`outbox.Do` (mesmo padrão de `submitView`/
+  `runWorkflow`): um retry nunca dispara os triggers uma segunda vez,
+  mesmo que o código JS do trigger escreva várias linhas dentro de um
+  laço (o comportamento esperado de `receive_share_trigger`, uma linha
+  por arquivo compartilhado).
+- **`Table.findOne({name}).insertRow(values)`** (`host.ts`, pacote
+  `pluginhost`) — o código REAL de `receive_share_trigger` funciona ponta
+  a ponta. Achado do preflight: `Table.findOne` do legado é SÍNCRONO
+  (resolve contra um cache em-memória), só `.insertRow` faz I/O de
+  verdade — por isso `findOne` nunca precisa de RPC nem de capacidade
+  concedida, só `insertRow` (que chama `db.write`). Escopo deliberadamente
+  NARROW: só `insertRow`, a única operação que o pack piloto usa —
+  `updateRow`/`deleteRows`/`getRows` continuam indisponíveis, e
+  `File`/`View` continuam totalmente bloqueados.
+- **`actorRole` propagado sem elevação** — a escrita via `db.write` usa o
+  MESMO papel de quem originou o disparo do trigger, nunca `RoleAdmin`
+  nem um papel "do sistema". Isso exigiu estender a assinatura de
+  `Dispatcher.RunOne`/`HooksFor`/`RunJSCodeFunc` (e, para o caminho
+  AfterCommit, o próprio payload do outbox — `enqueueAfterCommit` agora
+  grava `actor_role`, decodificado pelo worker com fallback para
+  `RolePublic`, o papel MENOS privilegiado, nunca o mais, se um evento
+  antigo pré-GO-052 não tiver o campo).
+
+**Achado real de bootstrap E2E, não coberto por nenhuma HTTP existente**:
+não existe (nem nesta task, nem em nenhuma anterior) uma rota HTTP para
+ADMINISTRAR triggers — só para DISPARÁ-los. Um harness de E2E dirigido
+pelo navegador não tem como criar esse fixture sozinho; `cli e2e-seed`
+(mesmo mecanismo já usado para o usuário admin/ownership, uma ação
+necessariamente anterior a qualquer requisição autenticada) agora também
+semeia diretamente, via Go, uma tabela `e2e_seed_photos` e um trigger
+`when_trigger="ReceiveMobileShareData"` que replica EXATAMENTE o código
+do `receive_share_trigger` real do pack piloto guitars — o teste E2E
+dispara esse trigger de verdade via HTTP. Achado adicional: nenhum
+harness de E2E anterior jamais exercitou `run_js_code`/o host de plugins
+de verdade — `migracao/e2e/run.sh` nunca definia
+`SALTCORN_GO_PLUGINHOST_SCRIPT` nem `cli e2e-seed` concedia ownership de
+`plugins.expr`; confirmado por evidência de falha genuína (sem a
+correção, `run_js_code` devolve `ErrUnknownAction`; sem `plugins.expr`
+OwnerGo, `expression.ErrLegacyOwner`) antes de corrigir os dois.
+
+**Verificação de regressão deliberada** (uma por camada — Go/pluginhost
+TS/BFF; esta task não tocou o frontend, sem UI própria para emitir um
+evento, mesmo espírito de nested-feed-upload.spec.ts): Go — trocar o
+`actorRole` real por `identity.RoleAdmin` fixo no callback de escrita (o
+teste dedicado de não-elevação falha de verdade); pluginhost (TS) —
+`tableHandle.insertRow` repassando uma lista de capacidades FIXA
+(`["db.write"]`) em vez da lista REAL da chamada (o teste "sem `db.write`
+concedida" passa a escrever mesmo assim); BFF — remover `requireCsrf` da
+rota `/api/bff/events/:eventname` (o teste de CSRF ausente recebe 200 em
+vez de 403). Detalhes completos em
+`docs/migracao-go/execucoes/GO-052.md`.

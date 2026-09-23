@@ -1931,6 +1931,73 @@ paths:
               schema:
                 $ref: "./common.yaml#/components/schemas/Error"
 
+  /v1/tenants/{tenant}/events/{eventname}:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+      - name: eventname
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: emitEvent
+      summary: "Command: emite um evento nomeado, disparando os triggers correspondentes"
+      description: >
+        GO-052 — o mecanismo Go por trás de `Trigger.emitEvent`/`POST
+        /api/emit-event` do legado: dispara, síncrono e dentro da mesma
+        transação idempotente, todos os triggers cujo `when_trigger` bate
+        exatamente com `eventname` (sem tabela associada — ver
+        `internal/triggers.TriggersForEvent`). Autorização por nome de
+        evento: `"ReceiveMobileShareData"` é sempre permitido para
+        qualquer ator autenticado (mesma exceção do legado); qualquer
+        outro nome exige a configuração `mobile_emit_allowed_events`
+        (array de strings) já conter o nome. Idempotente por
+        Idempotency-Key: um retry da MESMA chamada nunca dispara os
+        triggers uma segunda vez — mesma garantia (mais forte que o
+        legado, que despacha fire-and-forget em memória) já documentada
+        em `enqueueAfterCommit`.
+      parameters:
+        - $ref: "./common.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmitEventInput"
+      responses:
+        "503":
+          description: Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "200":
+          description: evento despachado (mesmo quando nenhum trigger corresponde — fired=0 nunca é erro)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmitEventResult"
+        "400":
+          description: corpo inválido, ou Idempotency-Key ausente
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "401":
+          $ref: "./common.yaml#/components/responses/Unauthorized"
+        "403":
+          description: este ator não tem permissão para emitir este nome de evento (fora de "ReceiveMobileShareData"/mobile_emit_allowed_events)
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "409":
+          $ref: "./common.yaml#/components/responses/IdempotencyConflict"
+
 components:
   securitySchemes:
     ServiceIdentity:
@@ -2243,6 +2310,28 @@ components:
           type: object
           additionalProperties: true
           description: Contexto inicial do run — default {} quando ausente.
+
+    EmitEventInput:
+      type: object
+      properties:
+        payload:
+          type: object
+          additionalProperties: true
+          description: >
+            O dado do evento em si (ex.: `{"files": [...]}` para
+            "ReceiveMobileShareData") — exposto como `row` para
+            `only_if`/a ação do trigger, mesmo contrato de um registro
+            comum. Default {} quando ausente. Deliberadamente sem
+            `channel` (o filtro secundário/pub-sub do legado) — nenhum
+            uso real desta entrega precisa dele.
+
+    EmitEventResult:
+      type: object
+      required: [fired]
+      properties:
+        fired:
+          type: integer
+          description: Quantos triggers corresponderam a eventname e dispararam (0 nunca é erro — só significa que nenhum trigger está registrado para este nome ainda).
 
     WorkflowRun:
       type: object

@@ -254,6 +254,18 @@ type Actor struct {
 	RoleId int `json:"role_id"`
 }
 
+// EmitEventInput defines model for EmitEventInput.
+type EmitEventInput struct {
+	// Payload O dado do evento em si (ex.: `{"files": [...]}` para "ReceiveMobileShareData") — exposto como `row` para `only_if`/a ação do trigger, mesmo contrato de um registro comum. Default {} quando ausente. Deliberadamente sem `channel` (o filtro secundário/pub-sub do legado) — nenhum uso real desta entrega precisa dele.
+	Payload *map[string]interface{} `json:"payload,omitempty"`
+}
+
+// EmitEventResult defines model for EmitEventResult.
+type EmitEventResult struct {
+	// Fired Quantos triggers corresponderam a eventname e dispararam (0 nunca é erro — só significa que nenhum trigger está registrado para este nome ainda).
+	Fired int `json:"fired"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	Error struct {
@@ -801,6 +813,12 @@ type SetActorLanguageJSONBody struct {
 	Language *string `json:"language,omitempty"`
 }
 
+// EmitEventParams defines parameters for EmitEvent.
+type EmitEventParams struct {
+	// IdempotencyKey Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // UploadFileMultipartBody defines parameters for UploadFile.
 type UploadFileMultipartBody struct {
 	File openapi_types.File `json:"file"`
@@ -934,6 +952,9 @@ type UpdateWorkflowStepParams struct {
 
 // SetActorLanguageJSONRequestBody defines body for SetActorLanguage for application/json ContentType.
 type SetActorLanguageJSONRequestBody SetActorLanguageJSONBody
+
+// EmitEventJSONRequestBody defines body for EmitEvent for application/json ContentType.
+type EmitEventJSONRequestBody = EmitEventInput
 
 // UploadFileMultipartRequestBody defines body for UploadFile for multipart/form-data ContentType.
 type UploadFileMultipartRequestBody UploadFileMultipartBody
@@ -1435,6 +1456,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with PATCH /v1/tenants/{tenant}/actor (the `SetActorLanguage` operationId).
 	SetActorLanguage(ctx context.Context, tenant Tenant, body SetActorLanguageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EmitEventWithBody Command: emite um evento nomeado, disparando os triggers correspondentes
+	//
+	// GO-052 — o mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado: dispara, síncrono e dentro da mesma transação idempotente, todos os triggers cujo `when_trigger` bate exatamente com `eventname` (sem tabela associada — ver `internal/triggers.TriggersForEvent`). Autorização por nome de evento: `"ReceiveMobileShareData"` é sempre permitido para qualquer ator autenticado (mesma exceção do legado); qualquer outro nome exige a configuração `mobile_emit_allowed_events` (array de strings) já conter o nome. Idempotente por Idempotency-Key: um retry da MESMA chamada nunca dispara os triggers uma segunda vez — mesma garantia (mais forte que o legado, que despacha fire-and-forget em memória) já documentada em `enqueueAfterCommit`.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/events/{eventname} (the `EmitEvent` operationId).
+	EmitEventWithBody(ctx context.Context, tenant Tenant, eventname string, params *EmitEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EmitEvent Command: emite um evento nomeado, disparando os triggers correspondentes
+	//
+	// GO-052 — o mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado: dispara, síncrono e dentro da mesma transação idempotente, todos os triggers cujo `when_trigger` bate exatamente com `eventname` (sem tabela associada — ver `internal/triggers.TriggersForEvent`). Autorização por nome de evento: `"ReceiveMobileShareData"` é sempre permitido para qualquer ator autenticado (mesma exceção do legado); qualquer outro nome exige a configuração `mobile_emit_allowed_events` (array de strings) já conter o nome. Idempotente por Idempotency-Key: um retry da MESMA chamada nunca dispara os triggers uma segunda vez — mesma garantia (mais forte que o legado, que despacha fire-and-forget em memória) já documentada em `enqueueAfterCommit`.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/events/{eventname} (the `EmitEvent` operationId).
+	EmitEvent(ctx context.Context, tenant Tenant, eventname string, params *EmitEventParams, body EmitEventJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UploadFileWithBody Command: envia um arquivo (multipart/form-data)
 	//
@@ -1958,6 +1997,44 @@ func (c *Client) SetActorLanguageWithBody(ctx context.Context, tenant Tenant, co
 // Corresponds with PATCH /v1/tenants/{tenant}/actor (the `SetActorLanguage` operationId).
 func (c *Client) SetActorLanguage(ctx context.Context, tenant Tenant, body SetActorLanguageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetActorLanguageRequest(c.Server, tenant, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EmitEventWithBody Command: emite um evento nomeado, disparando os triggers correspondentes
+//
+// GO-052 — o mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado: dispara, síncrono e dentro da mesma transação idempotente, todos os triggers cujo `when_trigger` bate exatamente com `eventname` (sem tabela associada — ver `internal/triggers.TriggersForEvent`). Autorização por nome de evento: `"ReceiveMobileShareData"` é sempre permitido para qualquer ator autenticado (mesma exceção do legado); qualquer outro nome exige a configuração `mobile_emit_allowed_events` (array de strings) já conter o nome. Idempotente por Idempotency-Key: um retry da MESMA chamada nunca dispara os triggers uma segunda vez — mesma garantia (mais forte que o legado, que despacha fire-and-forget em memória) já documentada em `enqueueAfterCommit`.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/events/{eventname} (the `EmitEvent` operationId).
+func (c *Client) EmitEventWithBody(ctx context.Context, tenant Tenant, eventname string, params *EmitEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEmitEventRequestWithBody(c.Server, tenant, eventname, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EmitEvent Command: emite um evento nomeado, disparando os triggers correspondentes
+//
+// GO-052 — o mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado: dispara, síncrono e dentro da mesma transação idempotente, todos os triggers cujo `when_trigger` bate exatamente com `eventname` (sem tabela associada — ver `internal/triggers.TriggersForEvent`). Autorização por nome de evento: `"ReceiveMobileShareData"` é sempre permitido para qualquer ator autenticado (mesma exceção do legado); qualquer outro nome exige a configuração `mobile_emit_allowed_events` (array de strings) já conter o nome. Idempotente por Idempotency-Key: um retry da MESMA chamada nunca dispara os triggers uma segunda vez — mesma garantia (mais forte que o legado, que despacha fire-and-forget em memória) já documentada em `enqueueAfterCommit`.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/events/{eventname} (the `EmitEvent` operationId).
+func (c *Client) EmitEvent(ctx context.Context, tenant Tenant, eventname string, params *EmitEventParams, body EmitEventJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEmitEventRequest(c.Server, tenant, eventname, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3085,6 +3162,73 @@ func NewSetActorLanguageRequestWithBody(server string, tenant Tenant, contentTyp
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewEmitEventRequest calls the generic EmitEvent builder with application/json body
+func NewEmitEventRequest(server string, tenant Tenant, eventname string, params *EmitEventParams, body EmitEventJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEmitEventRequestWithBody(server, tenant, eventname, params, "application/json", bodyReader)
+}
+
+// NewEmitEventRequestWithBody constructs an http.Request for the EmitEvent method, with any body, and a specified content type
+func NewEmitEventRequestWithBody(server string, tenant Tenant, eventname string, params *EmitEventParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "eventname", eventname, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/events/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
+	}
 
 	return req, nil
 }
@@ -5246,6 +5390,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PATCH /v1/tenants/{tenant}/actor (the `SetActorLanguage` operationId).
 	SetActorLanguageWithResponse(ctx context.Context, tenant Tenant, body SetActorLanguageJSONRequestBody, reqEditors ...RequestEditorFn) (*SetActorLanguageResponse, error)
 
+	// EmitEventWithBodyWithResponse Command: emite um evento nomeado, disparando os triggers correspondentes
+	//
+	// GO-052 — o mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado: dispara, síncrono e dentro da mesma transação idempotente, todos os triggers cujo `when_trigger` bate exatamente com `eventname` (sem tabela associada — ver `internal/triggers.TriggersForEvent`). Autorização por nome de evento: `"ReceiveMobileShareData"` é sempre permitido para qualquer ator autenticado (mesma exceção do legado); qualquer outro nome exige a configuração `mobile_emit_allowed_events` (array de strings) já conter o nome. Idempotente por Idempotency-Key: um retry da MESMA chamada nunca dispara os triggers uma segunda vez — mesma garantia (mais forte que o legado, que despacha fire-and-forget em memória) já documentada em `enqueueAfterCommit`.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/events/{eventname} (the `EmitEvent` operationId).
+	EmitEventWithBodyWithResponse(ctx context.Context, tenant Tenant, eventname string, params *EmitEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EmitEventResponse, error)
+
+	// EmitEventWithResponse Command: emite um evento nomeado, disparando os triggers correspondentes
+	//
+	// GO-052 — o mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado: dispara, síncrono e dentro da mesma transação idempotente, todos os triggers cujo `when_trigger` bate exatamente com `eventname` (sem tabela associada — ver `internal/triggers.TriggersForEvent`). Autorização por nome de evento: `"ReceiveMobileShareData"` é sempre permitido para qualquer ator autenticado (mesma exceção do legado); qualquer outro nome exige a configuração `mobile_emit_allowed_events` (array de strings) já conter o nome. Idempotente por Idempotency-Key: um retry da MESMA chamada nunca dispara os triggers uma segunda vez — mesma garantia (mais forte que o legado, que despacha fire-and-forget em memória) já documentada em `enqueueAfterCommit`.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/events/{eventname} (the `EmitEvent` operationId).
+	EmitEventWithResponse(ctx context.Context, tenant Tenant, eventname string, params *EmitEventParams, body EmitEventJSONRequestBody, reqEditors ...RequestEditorFn) (*EmitEventResponse, error)
+
 	// UploadFileWithBodyWithResponse Command: envia um arquivo (multipart/form-data)
 	//
 	// Adicionado por GO-051 — o consumidor HTTP que internal/files (GO-026) não tinha (decisão de escopo explícita daquela tarefa). Necessário para a fieldview "upload" do Edit (`metadata.FieldFile`, GO-051) funcionar de ponta a ponta: o fluxo é upload PRIMEIRO (devolve um id de arquivo), submissão do formulário Edit DEPOIS (`submitView`, usando esse id como valor do campo) — não um upload multipart embutido em `submitView`, que continua só JSON. Qualquer ator autenticado pode enviar; o arquivo nasce com leitura restrita a admin (a autorização de ONDE um id de arquivo pode ser usado é decidida pelas regras normais de escrita da tabela/view que o referencia, não aqui).
@@ -5924,6 +6086,82 @@ func (r SetActorLanguageResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetActorLanguageResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type EmitEventResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EmitEventResult
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Unauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *IdempotencyConflict
+	// JSON503 the response for an HTTP 503 `application/json` response
+	JSON503 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r EmitEventResponse) GetJSON200() *EmitEventResult {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r EmitEventResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r EmitEventResponse) GetJSON401() *Unauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r EmitEventResponse) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r EmitEventResponse) GetJSON409() *IdempotencyConflict {
+	return r.JSON409
+}
+
+// GetJSON503 returns the response for an HTTP 503 `application/json` response
+func (r EmitEventResponse) GetJSON503() *Error {
+	return r.JSON503
+}
+
+// GetBody returns the raw response body bytes
+func (r EmitEventResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r EmitEventResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EmitEventResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r EmitEventResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -8594,6 +8832,36 @@ func (c *ClientWithResponses) SetActorLanguageWithResponse(ctx context.Context, 
 	return ParseSetActorLanguageResponse(rsp)
 }
 
+// EmitEventWithBodyWithResponse Command: emite um evento nomeado, disparando os triggers correspondentes
+//
+// GO-052 — o mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado: dispara, síncrono e dentro da mesma transação idempotente, todos os triggers cujo `when_trigger` bate exatamente com `eventname` (sem tabela associada — ver `internal/triggers.TriggersForEvent`). Autorização por nome de evento: `"ReceiveMobileShareData"` é sempre permitido para qualquer ator autenticado (mesma exceção do legado); qualquer outro nome exige a configuração `mobile_emit_allowed_events` (array de strings) já conter o nome. Idempotente por Idempotency-Key: um retry da MESMA chamada nunca dispara os triggers uma segunda vez — mesma garantia (mais forte que o legado, que despacha fire-and-forget em memória) já documentada em `enqueueAfterCommit`.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/events/{eventname} (the `EmitEvent` operationId).
+func (c *ClientWithResponses) EmitEventWithBodyWithResponse(ctx context.Context, tenant Tenant, eventname string, params *EmitEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EmitEventResponse, error) {
+	rsp, err := c.EmitEventWithBody(ctx, tenant, eventname, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEmitEventResponse(rsp)
+}
+
+// EmitEventWithResponse Command: emite um evento nomeado, disparando os triggers correspondentes
+//
+// GO-052 — o mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado: dispara, síncrono e dentro da mesma transação idempotente, todos os triggers cujo `when_trigger` bate exatamente com `eventname` (sem tabela associada — ver `internal/triggers.TriggersForEvent`). Autorização por nome de evento: `"ReceiveMobileShareData"` é sempre permitido para qualquer ator autenticado (mesma exceção do legado); qualquer outro nome exige a configuração `mobile_emit_allowed_events` (array de strings) já conter o nome. Idempotente por Idempotency-Key: um retry da MESMA chamada nunca dispara os triggers uma segunda vez — mesma garantia (mais forte que o legado, que despacha fire-and-forget em memória) já documentada em `enqueueAfterCommit`.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/events/{eventname} (the `EmitEvent` operationId).
+func (c *ClientWithResponses) EmitEventWithResponse(ctx context.Context, tenant Tenant, eventname string, params *EmitEventParams, body EmitEventJSONRequestBody, reqEditors ...RequestEditorFn) (*EmitEventResponse, error) {
+	rsp, err := c.EmitEvent(ctx, tenant, eventname, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEmitEventResponse(rsp)
+}
+
 // UploadFileWithBodyWithResponse Command: envia um arquivo (multipart/form-data)
 //
 // Adicionado por GO-051 — o consumidor HTTP que internal/files (GO-026) não tinha (decisão de escopo explícita daquela tarefa). Necessário para a fieldview "upload" do Edit (`metadata.FieldFile`, GO-051) funcionar de ponta a ponta: o fluxo é upload PRIMEIRO (devolve um id de arquivo), submissão do formulário Edit DEPOIS (`submitView`, usando esse id como valor do campo) — não um upload multipart embutido em `submitView`, que continua só JSON. Qualquer ator autenticado pode enviar; o arquivo nasce com leitura restrita a admin (a autorização de ONDE um id de arquivo pode ser usado é decidida pelas regras normais de escrita da tabela/view que o referencia, não aqui).
@@ -9522,6 +9790,67 @@ func ParseSetActorLanguageResponse(rsp *http.Response) (*SetActorLanguageRespons
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEmitEventResponse parses an HTTP response from a EmitEventWithResponse call
+func ParseEmitEventResponse(rsp *http.Response) (*EmitEventResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EmitEventResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EmitEventResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Unauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest IdempotencyConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Error

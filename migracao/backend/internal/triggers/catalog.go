@@ -7,11 +7,19 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// WhenTrigger é o evento que dispara um Trigger — subconjunto prioritário
-// do `when_trigger` do legado (models/trigger.ts): os quatro eventos
-// diretamente ligados aos comandos de registro de GO-013. Schedule/Cron/
-// API call/Login/etc. do legado ficam fora de escopo (GO-025 cobre
-// agendamento; os demais não têm um comando Go equivalente ainda).
+// WhenTrigger é o evento que dispara um Trigger — os quatro eventos
+// diretamente ligados aos comandos de registro de GO-013
+// (WhenValidate/Insert/Update/Delete, sempre com TableID != 0), mais
+// (GO-052) um NOME DE EVENTO livre para um trigger de evento nomeado
+// (sempre com TableID == 0) — o subconjunto prioritário de `when_trigger`
+// do legado (models/trigger.ts), que é uma coluna texto livre sem enum no
+// banco; a UI do legado só restringe a CRIAÇÃO a uma lista fixa
+// (Trigger.when_options), nunca a validação em si. Schedule/Cron/API
+// call/Login/PageLoad como EMISSÕES AUTOMÁTICAS do próprio servidor (o
+// servidor chamando EmitEvent sozinho em cada login/carregamento de
+// página) continuam fora de escopo (GO-025 cobre agendamento via rotas
+// próprias; os demais não têm um ponto de emissão automática no servidor
+// Go ainda) — só o MECANISMO genérico de emissão via HTTP é portado aqui.
 type WhenTrigger string
 
 const (
@@ -27,7 +35,13 @@ const (
 	WhenDelete WhenTrigger = "Delete"
 )
 
-func (w WhenTrigger) valid() bool {
+// tableBoundWhens são os únicos valores válidos quando TableID != 0 —
+// nunca um nome de evento arbitrário disfarçado de evento de registro
+// (evitaria, por exemplo, um trigger com TableID setado e
+// When="ReceiveMobileShareData", que TriggersFor nunca encontraria e
+// EmitEvent também nunca encontraria — um trigger morto, silenciosamente
+// nunca disparado).
+func (w WhenTrigger) tableBound() bool {
 	switch w {
 	case WhenValidate, WhenInsert, WhenUpdate, WhenDelete:
 		return true
@@ -36,12 +50,31 @@ func (w WhenTrigger) valid() bool {
 	}
 }
 
+// valid(tableID) — a validação de CreateTrigger depende de TableID:
+// TableID != 0 exige um dos 4 valores ligados a registro; TableID == 0
+// (evento nomeado, GO-052) exige um nome NÃO VAZIO que não seja um dos 4
+// reservados (mesma razão do comentário de tableBound — um nome
+// reservado com TableID == 0 também nunca seria encontrado por nenhuma
+// das duas consultas de despacho).
+func (w WhenTrigger) valid(tableID int) bool {
+	if tableID != 0 {
+		return w.tableBound()
+	}
+	return w != "" && !w.tableBound()
+}
+
 // Trigger é uma entrada do catálogo _sc_triggers — o equivalente reduzido
 // do Trigger do legado (models/trigger.ts) para o subconjunto desta
-// tarefa: sem `channel`/`min_role`/tipos de evento fora dos 4 acima, sem
-// inventário de ações de terceiro (ADR-0005, ver Dispatcher.Actions).
+// tarefa: sem `channel`/`min_role`/tipos de evento fora dos cobertos
+// acima, sem inventário de ações de terceiro (ADR-0005, ver
+// Dispatcher.Actions).
 type Trigger struct {
-	ID      int
+	ID int
+	// TableID == 0 (GO-052) significa "trigger de evento nomeado" — sem
+	// tabela, encontrado por TriggersForEvent, nunca por TriggersFor
+	// (que exige um id de tabela real, sempre != 0 para uma tabela
+	// existente — mesma convenção de "zero value Go = ausente" já usada
+	// em record_id==0 para "registro novo").
 	TableID int
 	When    WhenTrigger
 	Action  string
@@ -64,9 +97,21 @@ type Trigger struct {
 // Action está registrada em nenhum Dispatcher.Actions — essa checagem só
 // faz sentido no momento do disparo (um Dispatcher pode registrar ações
 // diferentes em contextos diferentes, ex.: testes vs. produção).
+//
+// GO-052: um trigger de evento nomeado (TableID == 0) nunca é
+// AfterCommit — esse mecanismo enfileira via `outbox.Do` com uma chave
+// derivada de `record["id"]` (ver Dispatcher.enqueueAfterCommit), um
+// conceito que só faz sentido para um trigger amarrado à escrita de UM
+// registro. Rejeitado explicitamente aqui, na criação, em vez de uma
+// divergência silenciosa dentro de EmitEvent (que sempre despacha
+// evento nomeado de forma síncrona, ignorando AfterCommit se ele
+// escapasse desta checagem).
 func CreateTrigger(ctx context.Context, tx pgx.Tx, t Trigger) (Trigger, error) {
-	if !t.When.valid() {
+	if !t.When.valid(t.TableID) {
 		return Trigger{}, ErrInvalidWhenTrigger
+	}
+	if t.TableID == 0 && t.AfterCommit {
+		return Trigger{}, ErrAfterCommitRequiresTable
 	}
 	var onlyIf *string
 	if t.OnlyIf != "" {
@@ -80,9 +125,13 @@ func CreateTrigger(ctx context.Context, tx pgx.Tx, t Trigger) (Trigger, error) {
 	if err != nil {
 		return Trigger{}, err
 	}
+	var tableID *int
+	if t.TableID != 0 {
+		tableID = &t.TableID
+	}
 	err = tx.QueryRow(ctx,
 		`INSERT INTO _sc_triggers (table_id, when_trigger, action, only_if, after_commit, configuration) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-		t.TableID, string(t.When), t.Action, onlyIf, t.AfterCommit, configJSON,
+		tableID, string(t.When), t.Action, onlyIf, t.AfterCommit, configJSON,
 	).Scan(&t.ID)
 	if err != nil {
 		return Trigger{}, err
@@ -95,6 +144,16 @@ func CreateTrigger(ctx context.Context, tx pgx.Tx, t Trigger) (Trigger, error) {
 // tableID+when — a consulta que Dispatcher faz a cada escrita.
 func TriggersFor(ctx context.Context, tx pgx.Tx, tableID int, when WhenTrigger) ([]Trigger, error) {
 	return queryTriggers(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers WHERE table_id = $1 AND when_trigger = $2 ORDER BY id`, tableID, string(when))
+}
+
+// TriggersForEvent (GO-052) lê, em ordem de criação, os triggers de
+// EVENTO NOMEADO (TableID == 0) registrados para eventName — a consulta
+// que Dispatcher.EmitEvent faz a cada emissão via
+// `POST .../events/{eventname}`. Nunca encontra um trigger ligado a
+// tabela (table_id IS NULL exclui exatamente os 4 whens de registro),
+// mesma separação que CreateTrigger já impõe na escrita.
+func TriggersForEvent(ctx context.Context, tx pgx.Tx, eventName string) ([]Trigger, error) {
+	return queryTriggers(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers WHERE table_id IS NULL AND when_trigger = $1 ORDER BY id`, eventName)
 }
 
 // ListAll lê TODOS os triggers do tenant, em ordem de criação — usado por
@@ -115,11 +174,15 @@ func queryTriggers(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]T
 	var out []Trigger
 	for rows.Next() {
 		var t Trigger
+		var tableID *int
 		var whenStr string
 		var onlyIf *string
 		var configJSON []byte
-		if err := rows.Scan(&t.ID, &t.TableID, &whenStr, &t.Action, &onlyIf, &t.AfterCommit, &configJSON); err != nil {
+		if err := rows.Scan(&t.ID, &tableID, &whenStr, &t.Action, &onlyIf, &t.AfterCommit, &configJSON); err != nil {
 			return nil, err
+		}
+		if tableID != nil {
+			t.TableID = *tableID
 		}
 		t.When = WhenTrigger(whenStr)
 		if onlyIf != nil {

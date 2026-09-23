@@ -1053,6 +1053,52 @@ paths:
         "502":
           $ref: "#/components/responses/DomainUnavailable"
 
+  /api/bff/events/{eventname}:
+    parameters:
+      - name: eventname
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: emitEvent
+      summary: Emite um evento nomeado, disparando os triggers correspondentes (GO-052)
+      description: >
+        O mecanismo Go por trás de `Trigger.emitEvent`/`POST
+        /api/emit-event` do legado. O BFF gera e propaga a
+        Idempotency-Key (mesmo padrão de runWorkflow) — um retry de rede
+        nunca dispara os triggers duas vezes.
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                payload:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: evento despachado (fired=0 nunca é erro — só significa que nenhum trigger está registrado para este nome)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmitEventResult"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          description: CSRF inválido, ou este ator não tem permissão para emitir este nome de evento
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
   /api/bff/files/{id}:
     parameters:
       - name: id
@@ -1308,6 +1354,13 @@ components:
           additionalProperties: true
         error:
           type: string
+
+    EmitEventResult:
+      type: object
+      required: [fired]
+      properties:
+        fired:
+          type: integer
 
     ViewRenderColumn:
       type: object

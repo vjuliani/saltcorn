@@ -9,7 +9,7 @@
 export const PROTOCOL_VERSION = 1;
 
 /** Nomes de capacidade — cada um autoriza exatamente uma classe de callback. */
-export type Capability = "db.read";
+export type Capability = "db.read" | "db.write";
 
 export interface EvalRequest {
   readonly type: "eval";

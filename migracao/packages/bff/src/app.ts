@@ -386,6 +386,19 @@ export function buildRouter(deps: AppDeps): Router {
     res.end(body);
   });
 
+  // emitEvent (GO-052) — o mecanismo por trás de Trigger.emitEvent do
+  // legado. 403 (CSRF inválido, ou nome de evento não autorizado) chega
+  // pronto do Go via BffError — nenhuma reinterpretação aqui.
+  router.post("/api/bff/events/:eventname", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const idempotencyKey = computeIdempotencyKey(data.userId, data.tenant, "events/" + params.eventname, body);
+    const result = await goClient.emitEvent(token, idempotencyKey, data.tenant, params.eventname!, body as { payload?: Record<string, unknown> });
+    sendJSON(res, 200, result);
+  });
+
   // Administração de usuário (GO-044) — a UI de `auth/admin.ts` do
   // legado. Autorização "é admin?" fica quase toda do lado Go
   // (identity.requireAdmin, 403 se não for) — o BFF só propaga; a única

@@ -61,8 +61,11 @@ type ViewPack struct {
 	Configuration map[string]any
 }
 
-// TriggerPack é um trigger ligado a comando de registro (GO-024) —
-// TableName é o nome da tabela associada.
+// TriggerPack é um trigger ligado a comando de registro (GO-024), ou
+// (GO-052) um trigger de EVENTO NOMEADO — TableName é o nome da tabela
+// associada, "" para um trigger de evento nomeado (When é o nome do
+// evento nesse caso, ex.: "ReceiveMobileShareData"; mesma convenção de
+// internal/triggers.Trigger.TableID == 0).
 type TriggerPack struct {
 	TableName     string
 	When          triggers.WhenTrigger

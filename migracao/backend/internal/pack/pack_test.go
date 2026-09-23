@@ -73,6 +73,18 @@ func buildSampleApp(t *testing.T, db *database.DB, tenant tenancy.Tenant) {
 			return err
 		}
 
+		// Trigger de EVENTO NOMEADO (GO-052) — TableID == 0, mesmo formato
+		// de receive_share_trigger do pack piloto guitars. Export/Import
+		// precisam de um caminho SEM tabela (TableName == "" no
+		// TriggerPack) — este corpus prova que o round-trip byte-a-byte
+		// também cobre essa forma, não só a ligada a tabela acima.
+		if _, err := triggers.CreateTrigger(ctx, tx, triggers.Trigger{
+			When: "ReceiveMobileShareData", Action: "log",
+			Configuration: map[string]any{"note": "trigger de evento nomeado — sem tabela"},
+		}); err != nil {
+			return err
+		}
+
 		if _, err := scheduler.CreateScheduledTrigger(ctx, tx, "limpeza-noturna", "log", "0 0 * * *", "UTC"); err != nil {
 			return err
 		}
@@ -135,7 +147,7 @@ func TestRoundTrip_ExportImportExport_NoLoss(t *testing.T) {
 	// Verificação de sanidade: o corpus realmente tem conteúdo em cada
 	// categoria — um teste que passasse comparando dois packs VAZIOS não
 	// provaria nada.
-	if len(original.Tables) != 2 || len(original.Views) != 1 || len(original.Triggers) != 1 ||
+	if len(original.Tables) != 2 || len(original.Views) != 1 || len(original.Triggers) != 2 ||
 		len(original.ScheduledTriggers) != 1 || len(original.Library) != 1 || len(original.Config) != 2 ||
 		len(original.Tags) != 1 || len(original.Tags[0].Tables) != 1 || len(original.Tags[0].Views) != 1 {
 		t.Fatalf("pack original incompleto, corpus não cobre todas as categorias: %+v", original)

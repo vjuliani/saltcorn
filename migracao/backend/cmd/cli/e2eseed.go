@@ -29,6 +29,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/pluginhost"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/workflow"
@@ -126,6 +127,36 @@ func e2eSeed(args []string) error {
 			return err
 		}
 		adminID, err = identity.CreateUser(ctx, tx, *email, hash, identity.RoleAdmin)
+		if err != nil {
+			return err
+		}
+
+		// Fixture de receive_share_trigger (GO-052) — não existe (nem
+		// nesta task, nem em nenhuma anterior) uma rota HTTP para
+		// ADMINISTRAR triggers (criar/editar), só para DISPARÁ-los
+		// (POST .../events/{eventname}); um harness de E2E dirigido pelo
+		// navegador não tem como criar este fixture por conta própria, o
+		// mesmo motivo pelo qual o usuário admin acima é semeado aqui
+		// (bootstrap anterior a qualquer requisição autenticada), não via
+		// HTTP. "photos" replica o formato real do pack piloto guitars —
+		// o teste E2E de GO-052 dispara o evento de verdade via HTTP
+		// contra ESTE trigger.
+		photos, err := metadata.CreateTable(ctx, database.AsTx(tx), identity.RoleAdmin, "e2e_seed_photos", metadata.TableOptions{})
+		if err != nil {
+			return err
+		}
+		if _, err := metadata.AddField(ctx, database.AsTx(tx), identity.RoleAdmin, photos.ID, metadata.FieldDef{Name: "photo", Type: metadata.FieldText, Required: true}); err != nil {
+			return err
+		}
+		_, err = triggers.CreateTrigger(ctx, tx, triggers.Trigger{
+			When: "ReceiveMobileShareData", Action: triggers.ActionRunJSCode,
+			Configuration: map[string]any{
+				"code": "(async () => { if (Array.isArray(row.files) && row.files.length) { " +
+					"const photos = Table.findOne({ name: 'e2e_seed_photos' }); " +
+					"for (const file of row.files) { await photos.insertRow({ photo: file.location }); } " +
+					"} return true; })()",
+			},
+		})
 		return err
 	}); err != nil {
 		return fmt.Errorf("semear catálogo/usuário no tenant %q: %w", tenant, err)
@@ -140,7 +171,7 @@ func e2eSeed(args []string) error {
 		if err := cutover.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
-		for _, capability := range []string{"tables.records", "tables.schema", "tables.views", "workflows", "files"} {
+		for _, capability := range []string{"tables.records", "tables.schema", "tables.views", "workflows", "files", "events", pluginhost.ExpressionCapability} {
 			if err := cutover.SetOwner(ctx, tx, tenant, capability, cutover.OwnerGo); err != nil {
 				return err
 			}

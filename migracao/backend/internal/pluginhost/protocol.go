@@ -14,12 +14,26 @@ package pluginhost
 // cliente Go, defesa em profundidade) — ver classifyCallback em client.go.
 type Capability string
 
-// CapDBRead é a única capacidade implementada nesta tarefa — um callback
-// de LEITURA genérico. Escrita a partir de uma expressão/plugin fica fora
-// de escopo (relatório de GO-004 §5: não prototipada, precisa de decisão
-// própria de idempotência) — ver nota de escopo 5 em
-// docs/migracao-go/execucoes/GO-022.md.
+// CapDBRead é um callback de LEITURA genérico (GO-022).
 const CapDBRead Capability = "db.read"
+
+// CapDBWrite (GO-052) é um callback de ESCRITA — a capacidade que
+// GO-022/GO-040 deixaram deliberadamente de fora ("precisa de decisão
+// própria de idempotência", nota de escopo 5 de
+// docs/migracao-go/execucoes/GO-022.md). Concedida SÓ à ação nativa
+// `run_js_code` (internal/triggers.NewRunJSCode) — nunca à avaliação de
+// expressão genérica (`only_if`, campos calculados), que continua
+// estritamente somente-leitura (nenhuma capacidade declarada). Sua
+// política de idempotência não vive aqui: o CHAMADOR HTTP que dispara o
+// trigger (POST .../events/{eventname}) já exige um Idempotency-Key
+// (mesmo mecanismo de submitView/runWorkflow) que envolve a transação
+// INTEIRA — um retry da mesma chamada nunca escreve duas vezes, mesmo
+// que o código JS do trigger chame o callback de escrita várias vezes
+// dentro de um laço (ex.: receive_share_trigger inserindo uma linha por
+// arquivo compartilhado — múltiplas escritas DENTRO de uma emissão são o
+// comportamento esperado; o que a idempotência impede é reexecutar a
+// emissão INTEIRA numa segunda chamada HTTP com a mesma chave).
+const CapDBWrite Capability = "db.write"
 
 // EvalKind distingue "expr" (código de expressão livre) de "call"
 // (função já registrada no host, chamada por NOME — nunca por closure

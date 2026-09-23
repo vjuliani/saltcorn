@@ -15,4 +15,10 @@ var (
 	// parâmetro obrigatório daquela ação — nunca um envio silencioso com
 	// destinatário/URL vazio.
 	ErrActionConfigInvalid = errors.New("triggers: configuration inválida para esta ação")
+	// ErrAfterCommitRequiresTable (GO-052) é devolvido por CreateTrigger
+	// quando um trigger de evento nomeado (TableID == 0) tenta marcar
+	// AfterCommit=true — esse mecanismo depende de record["id"] (ver
+	// Dispatcher.enqueueAfterCommit), que não existe para um evento sem
+	// registro associado.
+	ErrAfterCommitRequiresTable = errors.New("triggers: after_commit exige um trigger ligado a tabela (table_id != 0)")
 )

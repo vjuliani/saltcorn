@@ -1013,7 +1013,7 @@ Execute a task GO-051 — Portar renderização de view aninhada, viewtemplate F
 
 ### GO-052 — Portar mecanismo de evento nomeado (`emitEvent`) e capacidade de escrita no host de plugins
 
-- [ ] **Status:** TODO
+- [x] **Status:** IN_REVIEW
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-040, GO-022

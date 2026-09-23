@@ -95,6 +95,16 @@ export class MockGoServer {
   private readonly files = new Map<number, { filename: string; mimeSuper: string; mimeSub: string; content: Buffer }>();
   private nextFileId = 1;
 
+  // GO-052: réplica mínima da autorização por nome de evento —
+  // "ReceiveMobileShareData" sempre permitido (mesma exceção do legado);
+  // "SemPermissao" é o único nome hardcoded como NÃO autorizado (simula
+  // um evento sem mobile_emit_allowed_events configurado), suficiente
+  // para o BFF exercitar o 403 sem reimplementar internal/config —
+  // qualquer outro nome dispara 1 "trigger" fixo, o bastante para provar
+  // a fronteira HTTP/idempotência (o despacho real já tem cobertura
+  // própria em internal/triggers).
+  private readonly eventKeys = new Map<string, IdempotentEntry>();
+
   constructor(private readonly opts: MockGoServerOptions) {
     this.server = createServer((req, res) => {
       void this.handle(req, res);
@@ -700,6 +710,36 @@ export class MockGoServer {
       if (!f) { sendJSON(res, 404, { error: { code: "not_found", message: "arquivo não encontrado" } }); return; }
       res.writeHead(200, { "Content-Type": `${f.mimeSuper}/${f.mimeSub}` });
       res.end(f.content);
+      return;
+    }
+
+    // GO-052: evento nomeado — ver comentário de this.eventKeys.
+    const eventMatch = url.pathname.match(/\/events\/([^/]+)$/);
+    if (eventMatch && req.method === "POST") {
+      const eventName = decodeURIComponent(eventMatch[1]!);
+      const idempotencyKey = req.headers["idempotency-key"];
+      if (!idempotencyKey || Array.isArray(idempotencyKey)) {
+        sendJSON(res, 400, { error: { code: "idempotency_key_required", message: "cabeçalho Idempotency-Key é obrigatório" } });
+        return;
+      }
+      const body = (await readBody(req)) as Record<string, unknown>;
+      const payloadHash = hashPayload(body);
+      const existing = this.eventKeys.get(idempotencyKey);
+      if (existing) {
+        if (existing.payloadHash !== payloadHash) {
+          sendJSON(res, 409, { error: { code: "idempotency_key_conflict", message: "Idempotency-Key já foi usada com um payload diferente" } });
+          return;
+        }
+        sendJSON(res, 200, existing.body);
+        return;
+      }
+      if (eventName !== "ReceiveMobileShareData" && eventName === "SemPermissao") {
+        sendJSON(res, 403, { error: { code: "event_not_allowed", message: "este ator não tem permissão para emitir este evento" } });
+        return;
+      }
+      const resultBody = { fired: 1 };
+      this.eventKeys.set(idempotencyKey, { payloadHash, body: resultBody });
+      sendJSON(res, 200, resultBody);
       return;
     }
 
