@@ -975,7 +975,7 @@ Execute a task GO-049 — Portar administração de ciclo de vida de tenants, de
 
 ### GO-050 — Decidir escopo dos achados de nicho da auditoria de completude
 
-- [x] **Status:** IN_REVIEW
+- [x] **Status:** DONE — integrada via PR [#54](https://github.com/vjuliani/saltcorn/pull/54) (merge `401ee584044c`); histórico em [execucoes/GO-050.md](execucoes/GO-050.md)
 - **Fase:** F4 · **Prioridade:** P2 · **Tamanho:** S
 - **Responsável sugerido:** Arquitetura
 - **Depende de:** GO-001
