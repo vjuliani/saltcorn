@@ -215,6 +215,11 @@ type Bootstrap struct {
 	Tenant Tenant `json:"tenant"`
 }
 
+// EmitEventResult defines model for EmitEventResult.
+type EmitEventResult struct {
+	Fired int `json:"fired"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	Error struct {
@@ -570,6 +575,11 @@ type SetActorLanguageJSONBody struct {
 	Language *string `json:"language,omitempty"`
 }
 
+// EmitEventJSONBody defines parameters for EmitEvent.
+type EmitEventJSONBody struct {
+	Payload *map[string]interface{} `json:"payload,omitempty"`
+}
+
 // UploadFileMultipartBody defines parameters for UploadFile.
 type UploadFileMultipartBody struct {
 	File openapi_types.File `json:"file"`
@@ -672,6 +682,9 @@ type RunWorkflowJSONBody struct {
 
 // SetActorLanguageJSONRequestBody defines body for SetActorLanguage for application/json ContentType.
 type SetActorLanguageJSONRequestBody SetActorLanguageJSONBody
+
+// EmitEventJSONRequestBody defines body for EmitEvent for application/json ContentType.
+type EmitEventJSONRequestBody EmitEventJSONBody
 
 // UploadFileMultipartRequestBody defines body for UploadFile for multipart/form-data ContentType.
 type UploadFileMultipartRequestBody UploadFileMultipartBody
@@ -1001,6 +1014,24 @@ type ClientInterface interface {
 	// Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 	GetBootstrap(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// EmitEventWithBody Emite um evento nomeado, disparando os triggers correspondentes (GO-052)
+	//
+	// O mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado. O BFF gera e propaga a Idempotency-Key (mesmo padrão de runWorkflow) — um retry de rede nunca dispara os triggers duas vezes.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/bff/events/{eventname} (the `EmitEvent` operationId).
+	EmitEventWithBody(ctx context.Context, eventname string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// EmitEvent Emite um evento nomeado, disparando os triggers correspondentes (GO-052)
+	//
+	// O mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado. O BFF gera e propaga a Idempotency-Key (mesmo padrão de runWorkflow) — um retry de rede nunca dispara os triggers duas vezes.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/bff/events/{eventname} (the `EmitEvent` operationId).
+	EmitEvent(ctx context.Context, eventname string, body EmitEventJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// UploadFileWithBody Envia um arquivo (multipart/form-data) (GO-051)
 	//
 	// Repassa o multipart ao Go real, sem reinterpretar — o BFF só transporta a identidade delegada (mesmo padrão de todas as outras mutações). Upload PRIMEIRO (devolve um id), submissão do Edit DEPOIS (`updateView`-like `submit`, usando esse id como valor do campo).
@@ -1316,6 +1347,44 @@ func (c *Client) SetActorLanguage(ctx context.Context, body SetActorLanguageJSON
 // Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 func (c *Client) GetBootstrap(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetBootstrapRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EmitEventWithBody Emite um evento nomeado, disparando os triggers correspondentes (GO-052)
+//
+// O mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado. O BFF gera e propaga a Idempotency-Key (mesmo padrão de runWorkflow) — um retry de rede nunca dispara os triggers duas vezes.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/bff/events/{eventname} (the `EmitEvent` operationId).
+func (c *Client) EmitEventWithBody(ctx context.Context, eventname string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEmitEventRequestWithBody(c.Server, eventname, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// EmitEvent Emite um evento nomeado, disparando os triggers correspondentes (GO-052)
+//
+// O mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado. O BFF gera e propaga a Idempotency-Key (mesmo padrão de runWorkflow) — um retry de rede nunca dispara os triggers duas vezes.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/bff/events/{eventname} (the `EmitEvent` operationId).
+func (c *Client) EmitEvent(ctx context.Context, eventname string, body EmitEventJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewEmitEventRequest(c.Server, eventname, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2034,6 +2103,53 @@ func NewGetBootstrapRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewEmitEventRequest calls the generic EmitEvent builder with application/json body
+func NewEmitEventRequest(server string, eventname string, body EmitEventJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewEmitEventRequestWithBody(server, eventname, "application/json", bodyReader)
+}
+
+// NewEmitEventRequestWithBody constructs an http.Request for the EmitEvent method, with any body, and a specified content type
+func NewEmitEventRequestWithBody(server string, eventname string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "eventname", eventname, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/events/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -3215,6 +3331,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 	GetBootstrapWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetBootstrapResponse, error)
 
+	// EmitEventWithBodyWithResponse Emite um evento nomeado, disparando os triggers correspondentes (GO-052)
+	//
+	// O mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado. O BFF gera e propaga a Idempotency-Key (mesmo padrão de runWorkflow) — um retry de rede nunca dispara os triggers duas vezes.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/events/{eventname} (the `EmitEvent` operationId).
+	EmitEventWithBodyWithResponse(ctx context.Context, eventname string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EmitEventResponse, error)
+
+	// EmitEventWithResponse Emite um evento nomeado, disparando os triggers correspondentes (GO-052)
+	//
+	// O mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado. O BFF gera e propaga a Idempotency-Key (mesmo padrão de runWorkflow) — um retry de rede nunca dispara os triggers duas vezes.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/events/{eventname} (the `EmitEvent` operationId).
+	EmitEventWithResponse(ctx context.Context, eventname string, body EmitEventJSONRequestBody, reqEditors ...RequestEditorFn) (*EmitEventResponse, error)
+
 	// UploadFileWithBodyWithResponse Envia um arquivo (multipart/form-data) (GO-051)
 	//
 	// Repassa o multipart ao Go real, sem reinterpretar — o BFF só transporta a identidade delegada (mesmo padrão de todas as outras mutações). Upload PRIMEIRO (devolve um id), submissão do Edit DEPOIS (`updateView`-like `submit`, usando esse id como valor do campo).
@@ -3624,6 +3758,68 @@ func (r GetBootstrapResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetBootstrapResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type EmitEventResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EmitEventResult
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r EmitEventResponse) GetJSON200() *EmitEventResult {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r EmitEventResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r EmitEventResponse) GetJSON403() *Error {
+	return r.JSON403
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r EmitEventResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r EmitEventResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r EmitEventResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r EmitEventResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r EmitEventResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5287,6 +5483,36 @@ func (c *ClientWithResponses) GetBootstrapWithResponse(ctx context.Context, reqE
 	return ParseGetBootstrapResponse(rsp)
 }
 
+// EmitEventWithBodyWithResponse Emite um evento nomeado, disparando os triggers correspondentes (GO-052)
+//
+// O mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado. O BFF gera e propaga a Idempotency-Key (mesmo padrão de runWorkflow) — um retry de rede nunca dispara os triggers duas vezes.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/events/{eventname} (the `EmitEvent` operationId).
+func (c *ClientWithResponses) EmitEventWithBodyWithResponse(ctx context.Context, eventname string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*EmitEventResponse, error) {
+	rsp, err := c.EmitEventWithBody(ctx, eventname, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEmitEventResponse(rsp)
+}
+
+// EmitEventWithResponse Emite um evento nomeado, disparando os triggers correspondentes (GO-052)
+//
+// O mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado. O BFF gera e propaga a Idempotency-Key (mesmo padrão de runWorkflow) — um retry de rede nunca dispara os triggers duas vezes.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/events/{eventname} (the `EmitEvent` operationId).
+func (c *ClientWithResponses) EmitEventWithResponse(ctx context.Context, eventname string, body EmitEventJSONRequestBody, reqEditors ...RequestEditorFn) (*EmitEventResponse, error) {
+	rsp, err := c.EmitEvent(ctx, eventname, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseEmitEventResponse(rsp)
+}
+
 // UploadFileWithBodyWithResponse Envia um arquivo (multipart/form-data) (GO-051)
 //
 // Repassa o multipart ao Go real, sem reinterpretar — o BFF só transporta a identidade delegada (mesmo padrão de todas as outras mutações). Upload PRIMEIRO (devolve um id), submissão do Edit DEPOIS (`updateView`-like `submit`, usando esse id como valor do campo).
@@ -5879,6 +6105,53 @@ func ParseGetBootstrapResponse(rsp *http.Response) (*GetBootstrapResponse, error
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseEmitEventResponse parses an HTTP response from a EmitEventWithResponse call
+func ParseEmitEventResponse(rsp *http.Response) (*EmitEventResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &EmitEventResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EmitEventResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
 
 	}
 

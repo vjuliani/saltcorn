@@ -371,6 +371,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bff/events/{eventname}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventname: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Emite um evento nomeado, disparando os triggers correspondentes (GO-052)
+         * @description O mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado. O BFF gera e propaga a Idempotency-Key (mesmo padrão de runWorkflow) — um retry de rede nunca dispara os triggers duas vezes.
+         */
+        post: operations["emitEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bff/files/{id}": {
         parameters: {
             query?: never;
@@ -476,6 +498,9 @@ export interface components {
                 [key: string]: unknown;
             };
             error?: string;
+        };
+        EmitEventResult: {
+            fired: number;
         };
         /** @description Três variantes discriminadas por `kind`: "field" (campo direto), "join_field" (campo trazido por join — `field_name` é a chave composta "<campo_local>__<campo_remoto>", a MESMA chave usada em `rows`), "action" (ação de coluna — só `action_name`, sem `field_name`). */
         ViewRenderColumn: {
@@ -1750,6 +1775,47 @@ export interface operations {
             };
             401: components["responses"]["SessionRequired"];
             403: components["responses"]["CsrfInvalid"];
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    emitEvent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eventname: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    payload?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description evento despachado (fired=0 nunca é erro — só significa que nenhum trigger está registrado para este nome) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmitEventResult"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            /** @description CSRF inválido, ou este ator não tem permissão para emitir este nome de evento */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             502: components["responses"]["DomainUnavailable"];
         };
     };

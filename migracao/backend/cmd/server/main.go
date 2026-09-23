@@ -93,6 +93,14 @@ const workflowsRoute = "tenant_workflows"
 const filesCapability = "files"
 const filesRoute = "tenant_files"
 
+// eventsCapability (GO-052) identifica a capacidade de emitir um evento
+// nomeado (Dispatcher.EmitEvent) — capacidade própria, pelo mesmo motivo
+// granular de GO-009: o corte gradual Node/Go pode liberar este mecanismo
+// independentemente de recordsCapability, mesmo ambos passando pelo
+// mesmo Dispatcher internamente.
+const eventsCapability = "events"
+const eventsRoute = "tenant_events"
+
 func main() {
 	cfg, err := config.Load()
 	logger := slog.New(telemetry.NewHandler(os.Stdout, cfg.LogLevel))
@@ -349,6 +357,15 @@ func main() {
 		mux.Handle("GET /v1/tenants/{tenant}/files/{id}",
 			tenancy.Middleware(verifier, telemetry.Middleware(filesRoute, httpMetrics,
 				cutover.RequireOwnership(guard, filesCapability, downloadFileHandler(tracker, db, filesBackend)))))
+
+		// GO-052: evento nomeado (Trigger.emitEvent do legado) — o
+		// mecanismo por trás de POST /api/emit-event, que o pack piloto
+		// guitars usa via receive_share_trigger (when_trigger=
+		// "ReceiveMobileShareData"). Reaproveita o MESMO dispatcher já
+		// construído acima para o corte de triggers/ações (GO-040).
+		mux.Handle("POST /v1/tenants/{tenant}/events/{eventname}",
+			tenancy.Middleware(verifier, telemetry.Middleware(eventsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, eventsCapability, emitEventHandler(tracker, db, dispatcher)))))
 
 		// GO-044: administração de usuários — a superfície de
 		// auth/admin.ts do legado (ver docs/migracao-go/execucoes/GO-044.md

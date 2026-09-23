@@ -38,6 +38,7 @@ import (
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/expression"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/files"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/notify"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config"
@@ -279,9 +280,21 @@ func triggerOutboxHandler(dispatcher *triggers.Dispatcher, fallback outbox.Handl
 		record, _ := ev.Payload["record"].(map[string]any)
 		configuration, _ := ev.Payload["configuration"].(map[string]any)
 		triggerID, _ := ev.Payload["trigger_id"].(float64)
+		// actor_role (GO-052) — decodifica como float64 pela mesma razão de
+		// trigger_id (JSON genérico de outbox.ListPending). Falha para o
+		// papel MENOS privilegiado (RolePublic, "nunca elevado" mesmo na
+		// ausência de dado) — só um evento gravado ANTES desta task (sem
+		// "actor_role" no payload) cairia nesse caminho, um caso de
+		// transição único que se auto-resolve ao esvaziar a fila; nunca o
+		// oposto (tratar ausência como RoleAdmin seria uma elevação
+		// silenciosa real).
+		actorRole := identity.RolePublic
+		if v, ok := ev.Payload["actor_role"].(float64); ok {
+			actorRole = identity.RoleID(int(v))
+		}
 		tenant, _ := tenancy.TenantFromContext(ctx)
 		trig := triggers.Trigger{ID: int(triggerID), Action: action, Configuration: configuration}
-		return dispatcher.RunOne(ctx, tx, tenant, metadata.Table{Name: tableName}, trig, record)
+		return dispatcher.RunOne(ctx, tx, tenant, actorRole, metadata.Table{Name: tableName}, trig, record)
 	}
 }
 

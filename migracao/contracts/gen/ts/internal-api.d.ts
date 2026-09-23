@@ -722,6 +722,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant}/events/{eventname}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                eventname: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: emite um evento nomeado, disparando os triggers correspondentes
+         * @description GO-052 — o mecanismo Go por trás de `Trigger.emitEvent`/`POST /api/emit-event` do legado: dispara, síncrono e dentro da mesma transação idempotente, todos os triggers cujo `when_trigger` bate exatamente com `eventname` (sem tabela associada — ver `internal/triggers.TriggersForEvent`). Autorização por nome de evento: `"ReceiveMobileShareData"` é sempre permitido para qualquer ator autenticado (mesma exceção do legado); qualquer outro nome exige a configuração `mobile_emit_allowed_events` (array de strings) já conter o nome. Idempotente por Idempotency-Key: um retry da MESMA chamada nunca dispara os triggers uma segunda vez — mesma garantia (mais forte que o legado, que despacha fire-and-forget em memória) já documentada em `enqueueAfterCommit`.
+         */
+        post: operations["emitEvent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -879,6 +902,16 @@ export interface components {
             context?: {
                 [key: string]: unknown;
             };
+        };
+        EmitEventInput: {
+            /** @description O dado do evento em si (ex.: `{"files": [...]}` para "ReceiveMobileShareData") — exposto como `row` para `only_if`/a ação do trigger, mesmo contrato de um registro comum. Default {} quando ausente. Deliberadamente sem `channel` (o filtro secundário/pub-sub do legado) — nenhum uso real desta entrega precisa dele. */
+            payload?: {
+                [key: string]: unknown;
+            };
+        };
+        EmitEventResult: {
+            /** @description Quantos triggers corresponderam a eventname e dispararam (0 nunca é erro — só significa que nenhum trigger está registrado para este nome ainda). */
+            fired: number;
         };
         WorkflowRun: {
             id: components["schemas"]["Id"];
@@ -3114,6 +3147,65 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    emitEvent: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                eventname: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["EmitEventInput"];
+            };
+        };
+        responses: {
+            /** @description evento despachado (mesmo quando nenhum trigger corresponde — fired=0 nunca é erro) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmitEventResult"];
+                };
+            };
+            /** @description corpo inválido, ou Idempotency-Key ausente */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description este ator não tem permissão para emitir este nome de evento (fora de "ReceiveMobileShareData"/mobile_emit_allowed_events) */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            409: components["responses"]["IdempotencyConflict"];
             /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
             503: {
                 headers: {

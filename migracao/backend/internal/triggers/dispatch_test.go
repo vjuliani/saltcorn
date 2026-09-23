@@ -40,7 +40,7 @@ func TestValidate_AbortsWrite(t *testing.T) {
 	}}
 
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "nunca deveria existir"}, d.HooksFor(tenant, nil))
+		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "nunca deveria existir"}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err
 	})
 	if !errors.Is(err, errRejected) {
@@ -81,7 +81,7 @@ func TestOnlyIf_GatesAction(t *testing.T) {
 	}}
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "rascunho", "published": false}, d.HooksFor(tenant, nil))
+		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "rascunho", "published": false}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err
 	}); err != nil {
 		t.Fatalf("CreateRecord (published=false): %v", err)
@@ -91,7 +91,7 @@ func TestOnlyIf_GatesAction(t *testing.T) {
 	}
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "publicado", "published": true}, d.HooksFor(tenant, nil))
+		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "publicado", "published": true}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err
 	}); err != nil {
 		t.Fatalf("CreateRecord (published=true): %v", err)
@@ -123,7 +123,7 @@ func TestAfterInsert_RunsInSameTransaction(t *testing.T) {
 	}}
 
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "olá"}, d.HooksFor(tenant, nil)); err != nil {
+		if _, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "olá"}, d.HooksFor(tenant, identity.RoleAdmin, nil)); err != nil {
 			return err
 		}
 		// Visível DENTRO da mesma transação, antes do commit — prova que o
@@ -180,7 +180,7 @@ func TestAfterCommit_EnqueuesOutboxEvent_NeverRunsSynchronously(t *testing.T) {
 
 	var recordID any
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		rec, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "efeito adiado"}, d.HooksFor(tenant, nil))
+		rec, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "efeito adiado"}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		if err != nil {
 			return err
 		}
@@ -235,7 +235,7 @@ func TestAfterCommit_RollbackNeverEnqueuesEvent(t *testing.T) {
 
 	errDeliberateRollback := errors.New("rollback deliberado do teste")
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		if _, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "vai sumir"}, d.HooksFor(tenant, nil)); err != nil {
+		if _, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "vai sumir"}, d.HooksFor(tenant, identity.RoleAdmin, nil)); err != nil {
 			return err
 		}
 		return errDeliberateRollback
@@ -295,12 +295,12 @@ func TestAfterCommit_RetryDoesNotDuplicateEvent(t *testing.T) {
 			return err
 		}
 		record := map[string]any{"id": float64(999), "title": "retry"}
-		if err := d.enqueueAfterCommit(ctx, tx, trig, *tbl, record); err != nil {
+		if err := d.enqueueAfterCommit(ctx, tx, identity.RoleAdmin, trig, *tbl, record); err != nil {
 			return err
 		}
 		// Repetição deliberada da MESMA chamada (mesmo trigger, mesmo
 		// registro) — simula um retry de nível superior.
-		return d.enqueueAfterCommit(ctx, tx, trig, *tbl, record)
+		return d.enqueueAfterCommit(ctx, tx, identity.RoleAdmin, trig, *tbl, record)
 	}); err != nil {
 		t.Fatalf("enqueueAfterCommit (x2): %v", err)
 	}
@@ -333,7 +333,7 @@ func TestUnknownAction_ReturnsExplicitError(t *testing.T) {
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{}}
 
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "x"}, d.HooksFor(tenant, nil))
+		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "x"}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err
 	})
 	if !errors.Is(err, ErrUnknownAction) {
@@ -370,7 +370,7 @@ func TestOnlyIf_LegacyOwner_FailsClosed(t *testing.T) {
 	}
 
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "x"}, d.HooksFor(tenant, nil))
+		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "x"}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err
 	})
 	if err == nil {

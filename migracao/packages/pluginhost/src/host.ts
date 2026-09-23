@@ -53,14 +53,7 @@ const registeredFunctions: Record<string, (args: Record<string, unknown>) => unk
  * quando a semântica diverge" exigido pelo critério de aceite de GO-023.
  */
 function unsupportedSingleton(name: string): unknown {
-  const deny = () => {
-    throw Object.assign(
-      new Error(
-        `referência a ${name} não suportada nesta fronteira — singleton de domínio sem canal de callback explícito (GO-004 caso #6, ver GO-023)`,
-      ),
-      { rpcCode: "unsupported_reference" },
-    );
-  };
+  const deny = () => denyReference(name);
   return new Proxy(function () {} as unknown as object, {
     get: deny,
     has: deny,
@@ -92,6 +85,76 @@ function requestCallback(op: Capability, args: Record<string, unknown>, granted:
     const corr = "c" + nextCorr++;
     pendingCallbacks.set(corr, { resolve, reject });
     writeMessage({ type: "callback_request", corr, op, args });
+  });
+}
+
+/**
+ * tableHandle (GO-052) é o que `Table.findOne({name})` devolve —
+ * SÍNCRONO, sem nenhum callback ao Go (achado do preflight: o
+ * `Table.findOne` do legado é síncrono, resolve contra um cache
+ * em-memória; só `.insertRow(...)` faz I/O de verdade, e é isso que vira
+ * a chamada assíncrona `db.write`). Existência da tabela NUNCA é validada
+ * aqui — diferença deliberada do legado, que devolve `undefined`
+ * silenciosamente para uma tabela desconhecida (o próximo `.insertRow`
+ * então lança `Cannot read properties of undefined`, um erro confuso);
+ * aqui a validação acontece do lado Go dentro do próprio callback
+ * `db.write`, devolvendo uma mensagem clara.
+ *
+ * Escopo NARROW de propósito: só `insertRow`, o único método que o
+ * trigger real do pack piloto guitars (`receive_share_trigger`) usa.
+ * `updateRow`/`deleteRows`/`getRows`/etc. do `Table` do legado
+ * permanecem indisponíveis — chamar qualquer um deles lança um erro
+ * explícito (`unsupported_reference`), nunca `undefined` silencioso.
+ */
+function tableHandle(name: string, granted: readonly Capability[]): Record<string, unknown> {
+  return new Proxy(
+    { insertRow: (values: Record<string, unknown>) => requestCallback("db.write", { table: name, values }, granted) },
+    {
+      get(target, prop, receiver) {
+        if (prop in target) return Reflect.get(target, prop, receiver);
+        return unsupportedSingleton(`Table.${String(prop)}`);
+      },
+    },
+  );
+}
+
+function denyReference(name: string): never {
+  throw Object.assign(
+    new Error(
+      `referência a ${name} não suportada nesta fronteira — singleton de domínio sem canal de callback explícito (GO-004 caso #6, ver GO-023)`,
+    ),
+    { rpcCode: "unsupported_reference" },
+  );
+}
+
+/**
+ * tableSingleton (GO-052) substitui o `unsupportedSingleton("Table")`
+ * anterior — só `findOne({name: string})` é suportado (a única forma que
+ * o pack piloto usa); qualquer outra propriedade lida, chamada direta ou
+ * `new Table(...)` cai no MESMO comportamento "nunca undefined
+ * silencioso" já usado por File/View (denyReference, extraído do corpo
+ * de unsupportedSingleton para ser reaproveitado aqui).
+ */
+function tableSingleton(granted: readonly Capability[]): unknown {
+  return new Proxy(function () {} as unknown as object, {
+    get(_target, prop) {
+      if (prop === "findOne") {
+        return (where: Record<string, unknown>) => {
+          const name = typeof where?.name === "string" ? where.name : undefined;
+          if (!name) {
+            throw Object.assign(
+              new Error("Table.findOne só suporta { name: string } nesta fronteira (GO-052)"),
+              { rpcCode: "unsupported_reference" },
+            );
+          }
+          return tableHandle(name, granted);
+        };
+      }
+      return denyReference(`Table.${String(prop)}`);
+    },
+    has: () => true,
+    apply: () => denyReference("Table"),
+    construct: () => denyReference("Table"),
   });
 }
 
@@ -144,7 +207,10 @@ async function handleEval(req: EvalRequest): Promise<void> {
         Date,
         callHost: (op: Capability, args: Record<string, unknown>) => requestCallback(op, args, granted),
         // GO-023: nunca undefined silencioso — ver unsupportedSingleton.
-        Table: unsupportedSingleton("Table"),
+        // Table (GO-052): findOne({name}).insertRow(...) tem um canal real
+        // (db.write) agora — ver tableSingleton. File/View continuam
+        // totalmente bloqueados.
+        Table: tableSingleton(granted),
         File: unsupportedSingleton("File"),
         View: unsupportedSingleton("View"),
       };

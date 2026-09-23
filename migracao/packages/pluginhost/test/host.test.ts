@@ -47,16 +47,17 @@ function startHost(): Session {
   };
 }
 
-// runOne envia uma requisição e serve callback_request de "db.read" com uma
-// resposta fixa — o suficiente para provar o mecanismo de capacidade sem
-// depender de Postgres real (isso já é coberto do lado Go,
-// internal/pluginhost, com internal/records de verdade).
-async function runOne(s: Session, req: EvalRequest, dbAnswer?: { result?: unknown; error?: string }) {
+// runOne envia uma requisição e serve callback_request de "db.read" (ou
+// "db.write", GO-052) com uma resposta fixa — o suficiente para provar o
+// mecanismo de capacidade sem depender de Postgres real (isso já é
+// coberto do lado Go, internal/pluginhost, com internal/records de
+// verdade).
+async function runOne(s: Session, req: EvalRequest, dbAnswer?: { result?: unknown; error?: string }, expectedOp: "db.read" | "db.write" = "db.read") {
   s.send(req);
   for (;;) {
     const msg = await s.next();
     if (msg.type === "callback_request") {
-      assert.equal(msg.op, "db.read");
+      assert.equal(msg.op, expectedOp);
       s.send({ type: "callback_response", corr: msg.corr, ...dbAnswer });
       continue;
     }
@@ -222,6 +223,79 @@ test("referência a File/View também lança unsupported_reference", async () =>
     const resView = await runOne(s, { type: "eval", id: 12, kind: "expr", code: "'x' in View", capabilities: [] });
     assert.equal(resView.ok, false);
     assert.equal(resView.error?.code, "unsupported_reference");
+  } finally {
+    s.close();
+  }
+});
+
+// GO-052: Table.findOne({name}).insertRow(...) — o código real de
+// receive_share_trigger (pack piloto guitars) — funciona ponta a ponta
+// quando db.write é concedida, e continua bloqueado nos mesmos casos que
+// unsupportedSingleton já cobria antes (achado do preflight: o legado
+// Table.findOne é SÍNCRONO, só .insertRow faz I/O — por isso findOne por
+// si só nunca precisa de callback/capacidade).
+test("Table.findOne({name}).insertRow(...) concedido chama db.write com table/values, devolve o resultado do lado Go", async () => {
+  const s = startHost();
+  try {
+    const res = await runOne(
+      s,
+      {
+        type: "eval",
+        id: 13,
+        kind: "expr",
+        code: "await Table.findOne({name: 'photos'}).insertRow({photo: 'x.png'})",
+        capabilities: ["db.write"],
+      },
+      { result: { id: 7, photo: "x.png" } },
+      "db.write",
+    );
+    assert.equal(res.ok, true);
+    assert.deepEqual(res.result, { id: 7, photo: "x.png" });
+  } finally {
+    s.close();
+  }
+});
+
+test("Table.findOne(...).insertRow(...) SEM db.write concedida é negado — nunca escreve sem capacidade explícita", async () => {
+  const s = startHost();
+  try {
+    const res = await runOne(s, {
+      type: "eval",
+      id: 14,
+      kind: "expr",
+      code: "await Table.findOne({name: 'photos'}).insertRow({photo: 'x.png'})",
+      capabilities: [],
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.error?.code, "capability_denied");
+  } finally {
+    s.close();
+  }
+});
+
+test("Table.findOne sem { name: string } (ex.: { id: 1 }) continua unsupported_reference — só a forma real do pack piloto é suportada", async () => {
+  const s = startHost();
+  try {
+    const res = await runOne(s, { type: "eval", id: 15, kind: "expr", code: "Table.findOne({id: 1})", capabilities: ["db.write"] });
+    assert.equal(res.ok, false);
+    assert.equal(res.error?.code, "unsupported_reference");
+  } finally {
+    s.close();
+  }
+});
+
+test("Table.updateRow (método não portado) continua unsupported_reference, nunca undefined silencioso", async () => {
+  const s = startHost();
+  try {
+    const res = await runOne(s, {
+      type: "eval",
+      id: 16,
+      kind: "expr",
+      code: "Table.findOne({name: 'photos'}).updateRow({id: 1}, {photo: 'y.png'})",
+      capabilities: ["db.write"],
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.error?.code, "unsupported_reference");
   } finally {
     s.close();
   }

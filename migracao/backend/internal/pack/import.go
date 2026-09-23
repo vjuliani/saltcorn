@@ -89,12 +89,18 @@ func Import(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, p Pack, a
 	}
 
 	for _, tp := range p.Triggers {
-		table, err := metadata.GetTable(ctx, database.AsTx(tx), tp.TableName)
-		if err != nil {
-			return fmt.Errorf("pack: trigger em %q referencia tabela desconhecida: %w", tp.TableName, err)
+		// TableName == "" (GO-052) é um trigger de EVENTO NOMEADO — sem
+		// tabela para resolver, mesmo sinal que Export usa.
+		var tableID int
+		if tp.TableName != "" {
+			table, err := metadata.GetTable(ctx, database.AsTx(tx), tp.TableName)
+			if err != nil {
+				return fmt.Errorf("pack: trigger em %q referencia tabela desconhecida: %w", tp.TableName, err)
+			}
+			tableID = table.ID
 		}
 		if _, err := triggers.CreateTrigger(ctx, tx, triggers.Trigger{
-			TableID: table.ID, When: tp.When, Action: tp.Action, OnlyIf: tp.OnlyIf, AfterCommit: tp.AfterCommit,
+			TableID: tableID, When: tp.When, Action: tp.Action, OnlyIf: tp.OnlyIf, AfterCommit: tp.AfterCommit,
 			Configuration: tp.Configuration,
 		}); err != nil {
 			return fmt.Errorf("pack: criar trigger em %q: %w", tp.TableName, err)

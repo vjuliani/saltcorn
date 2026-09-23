@@ -374,7 +374,7 @@ func createRecordHandler(tracker *shutdown.Tracker, db *database.DB, dispatcher 
 			}
 			result, _, doErr := outbox.Do(ctx, tx, idempotencyKey, input,
 				func(ctx context.Context, tx pgx.Tx) (any, []outbox.Event, error) {
-					rec, err := records.CreateRecord(ctx, tx, role, table, input, dispatcher.HooksFor(tenant, actorUserContext(ctx, role)))
+					rec, err := records.CreateRecord(ctx, tx, role, table, input, dispatcher.HooksFor(tenant, role, actorUserContext(ctx, role)))
 					if err != nil {
 						return nil, nil, err
 					}
@@ -471,7 +471,7 @@ func updateRecordHandler(tracker *shutdown.Tracker, db *database.DB, dispatcher 
 			}
 			result, _, doErr := outbox.Do(ctx, tx, idempotencyKey, input,
 				func(ctx context.Context, tx pgx.Tx) (any, []outbox.Event, error) {
-					rec, err := records.UpdateRecord(ctx, tx, role, table, id, expectedVersion, values, dispatcher.HooksFor(tenant, actorUserContext(ctx, role)))
+					rec, err := records.UpdateRecord(ctx, tx, role, table, id, expectedVersion, values, dispatcher.HooksFor(tenant, role, actorUserContext(ctx, role)))
 					if err != nil {
 						return nil, nil, err
 					}
@@ -535,7 +535,7 @@ func deleteRecordHandler(tracker *shutdown.Tracker, db *database.DB, dispatcher 
 			if !ok {
 				return errHandled
 			}
-			return records.DeleteRecord(ctx, tx, role, table, id, expectedVersion, dispatcher.HooksFor(tenant, actorUserContext(ctx, role)))
+			return records.DeleteRecord(ctx, tx, role, table, id, expectedVersion, dispatcher.HooksFor(tenant, role, actorUserContext(ctx, role)))
 		})
 		if err != nil {
 			if errors.Is(err, errHandled) {

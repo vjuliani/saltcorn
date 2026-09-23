@@ -11,11 +11,18 @@
 // silenciosamente aceitas (ADR-0005, achados de GO-004):
 //  1. Closure serializada — o host já falha com ReferenceError (nenhuma
 //     mudança necessária aqui, o erro chega como ErrRuntime).
-//  2. Singleton de domínio sem canal de callback (Table/File/View) — o
-//     host de GO-023 (host.ts) agora lança pluginhost.ErrUnsupportedReference
-//     explicitamente, nunca undefined silencioso.
-//  3. Escrita a partir de expressão — continua fora de escopo (GO-004 §5),
-//     nenhuma capacidade de escrita é oferecida aqui.
+//  2. Singleton de domínio sem canal de callback (File/View — Table
+//     ganhou um canal real em GO-052, ver nota 3) — o host de GO-023
+//     (host.ts) lança pluginhost.ErrUnsupportedReference explicitamente,
+//     nunca undefined silencioso.
+//  3. Escrita a partir de EXPRESSÃO genérica (`only_if`, campos
+//     calculados) continua fora de escopo — este pacote nunca declara
+//     nenhuma Capability por conta própria, Eval só repassa
+//     req.Capabilities/callbacks do CHAMADOR (Request abaixo). GO-052
+//     concede escrita (pluginhost.CapDBWrite) apenas ao chamador
+//     internal/triggers.NewRunJSCode (a ação nativa `run_js_code`, mais
+//     privilegiada por natureza — configurada por um admin, não uma
+//     fórmula de usuário) — nunca a este pacote nem a `only_if`.
 //
 // Ver docs/migracao-go/execucoes/GO-023.md para as decisões de escopo
 // completas.

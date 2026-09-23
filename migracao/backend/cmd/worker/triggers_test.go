@@ -105,7 +105,7 @@ func TestTriggerOutboxHandler_AfterCommitTriggerActuallyExecutes(t *testing.T) {
 	// "trigger:send_email" na MESMA transação (Dispatcher.enqueueAfterCommit),
 	// nunca executa a ação aqui.
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
-		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "widgets", map[string]any{"label": "gizmo"}, dispatcher.HooksFor(tenant, nil))
+		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "widgets", map[string]any{"label": "gizmo"}, dispatcher.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err
 	}); err != nil {
 		t.Fatalf("CreateRecord: %v", err)

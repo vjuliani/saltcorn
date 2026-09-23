@@ -192,3 +192,21 @@ upload→download falhar comparando bytes DIFERENTES dos enviados — não
 um erro de parsing, um dado silenciosamente errado, a pior classe de
 falha para um parser binário. Restaurado, os 39 testes voltam a passar.
 Detalhes completos em `docs/migracao-go/execucoes/GO-051.md`.
+
+## Evento nomeado (`emitEvent`) (GO-052)
+
+`goClient.emitEvent`/rota `POST /api/bff/events/:eventname` — mesmo
+padrão de `runWorkflow`: o BFF calcula a Idempotency-Key
+(`computeIdempotencyKey` a partir de ator+tenant+escopo+corpo, nunca o
+cliente) e a propaga ao Go, então um retry de rede da mesma chamada
+nunca dispara os triggers correspondentes duas vezes. Um 403 do Go
+(nome de evento não autorizado, ver `mobile_emit_allowed_events` no
+README do backend) chega pronto via `BffError` — nenhuma
+reinterpretação aqui, mesmo tratamento genérico que qualquer outro erro
+4xx do Go já recebe.
+
+**Verificação de regressão deliberada**: remover `requireCsrf` da rota
+— o teste dedicado ("sem CSRF é rejeitado") passa a receber 200 em vez
+de 403, confirmando que a checagem realmente protegia a rota. Restaurado,
+os 44 testes voltam a passar. Detalhes completos em
+`docs/migracao-go/execucoes/GO-052.md`.
