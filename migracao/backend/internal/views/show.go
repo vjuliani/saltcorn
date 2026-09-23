@@ -9,8 +9,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
@@ -74,19 +72,19 @@ func classifyShowColumns(configuration map[string]any, fieldsByName map[string]m
 // registro recordID — mesma dupla checagem de autorização de
 // CompileListPlan (papel de leitura da VIEW, depois papel de leitura da
 // TABELA, via records.Rows/Where).
-func CompileShowPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, viewID int, recordID int) (*ShowPlan, error) {
-	v, err := GetView(ctx, tx, actorRole, viewID)
+func CompileShowPlanTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, viewID int, recordID int) (*ShowPlan, error) {
+	v, err := GetViewTx(ctx, tx, actorRole, viewID)
 	if err != nil {
 		return nil, err
 	}
 	if v.Template != "Show" {
 		return nil, &UnsupportedLayoutError{Reason: fmt.Sprintf("template %q não é \"Show\"", v.Template)}
 	}
-	table, err := metadata.GetTableByID(ctx, database.AsTx(tx), v.TableID)
+	table, err := metadata.GetTableByID(ctx, tx, v.TableID)
 	if err != nil {
 		return nil, err
 	}
-	fields, err := metadata.ListFields(ctx, database.AsTx(tx), table.ID)
+	fields, err := metadata.ListFields(ctx, tx, table.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +93,7 @@ func CompileShowPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 		return nil, err
 	}
 
-	rows, err := records.Rows(ctx, tx, actorRole, records.Query{
+	rows, err := records.RowsTx(ctx, tx, actorRole, records.Query{
 		Table: table.Name,
 		Where: records.Eq{Field: "id", Value: recordID},
 		Limit: 1,

@@ -800,14 +800,14 @@ Execute a task GO-040 — Ligar automação (triggers/ações) ao caminho HTTP r
 
 ### GO-041 — Completar adapter SQLite (identidade, views, worker e caminho web)
 
-- [ ] **Status:** TODO
+- [~] **Status:** IN_REVIEW — PR aberto; escopo reduzido em relação ao Aceite original com decisão explícita do usuário registrada em [execucoes/GO-041.md](execucoes/GO-041.md) (triggers/scheduler/notify/files/config seguem `pgx.Tx`-only, deferidos para GO-055)
 - **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-030, GO-008, GO-019, GO-020, GO-025
 - **Branch:** `task/go-041`
 - **Escopo:** Estender a fronteira `internal/platform/database.Tx` (GO-030 — já usada por `internal/records`/`internal/platform/outbox` desde a extensão pós-GO-030) para `internal/identity` e `internal/views`; ligar `internal/platform/sqlite` em `cmd/server` e `cmd/worker`, que hoje não têm nenhuma referência a esse pacote.
-- **Aceite:** `cmd/server` e `cmd/worker` sobem e servem tráfego real contra um tenant em arquivo SQLite (identidade, views, triggers, scheduler funcionando); GO-033 (CAP-021 "Facade de banco", CAP-023 "Adapter SQLite") reclassificado de PARTIAL para PASS.
-- **Rotina de validação:** Executar as mesmas fixtures de domínio (identidade, views, triggers, scheduler) nos dois adapters; testar concorrência/rollback SQLite sem depender de sintaxe exclusiva de PG.
+- **Aceite:** `cmd/server` e `cmd/worker` sobem e servem tráfego real contra um tenant em arquivo SQLite (identidade, views, registros CRUD funcionando, testado via HTTP/httptest); GO-033 (CAP-021 "Facade de banco", CAP-023 "Adapter SQLite") reclassificado de PARTIAL para **PASS PARCIAL** — triggers/scheduler não convertidos nesta entrega (ver [execucoes/GO-041.md](execucoes/GO-041.md) e GO-055).
+- **Rotina de validação:** Executar as mesmas fixtures de domínio (identidade, views) nos dois adapters; testar concorrência/rollback SQLite sem depender de sintaxe exclusiva de PG; prova HTTP real (httptest) do caminho SQLite completo em `cmd/server`.
 - **Regra de retomada:** Identificar versões e checkpoints de banco, cliente e artefatos; retomar a partir de estado consistente comprovado, sem apagar dados locais pendentes.
 - **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-041; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
 
@@ -815,6 +815,25 @@ Execute a task GO-040 — Ligar automação (triggers/ações) ao caminho HTTP r
 
 ```text
 Execute a task GO-041 — Completar adapter SQLite (identidade, views, worker e caminho web), de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas e o checkpoint; crie ou retome a branch task/go-041 a partir da base registrada. Escopo: Estender internal/platform/database.Tx para internal/identity e internal/views; ligar internal/platform/sqlite em cmd/server e cmd/worker. Valide: Executar as mesmas fixtures de domínio nos dois adapters; testar concorrência/rollback SQLite sem depender de sintaxe exclusiva de PG. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-055 — Portar internal/triggers, internal/scheduler e internal/notify para database.Tx (completar adapter SQLite)
+
+- [ ] **Status:** TODO
+- **Fase:** F5 · **Prioridade:** P1 · **Tamanho:** L
+- **Responsável sugerido:** Backend
+- **Depende de:** GO-041
+- **Branch:** `task/go-055`
+- **Escopo:** Follow-up do escopo deferido em GO-041 (decisão explícita do usuário, ver [execucoes/GO-041.md](execucoes/GO-041.md)) — `internal/triggers` (inclui `Dispatcher.HooksFor`, que hoje produz um `*records.Hooks` fechado em `pgx.Tx`), `internal/scheduler` e `internal/notify` permanecem inteiramente `pgx.Tx`-only e não têm nenhum caminho contra o adapter SQLite (`internal/platform/sqlite`). Estender a fronteira `database.Tx` (GO-030) a esses três pacotes, preservando os wrappers `pgx.Tx` existentes (mesmo padrão `postgres.go` de GO-041/GO-030) para não quebrar nenhum chamador Postgres já testado. Avaliar também `internal/files`/`internal/config`, identificados na mesma auditoria como igualmente `pgx.Tx`-only, e decidir se entram nesta task ou em follow-up próprio.
+- **Aceite:** `cmd/server` em modo SQLite dispara triggers reais (`Dispatcher.HooksFor`/`EmitEvent`) a partir de uma escrita HTTP de registro, sem `hooks=nil`; `cmd/worker` em modo SQLite executa pelo menos um job real (outbox/scheduler) contra um tenant em arquivo SQLite; GO-033 (CAP-021, CAP-023) reclassificado de PASS PARCIAL para PASS completo.
+- **Rotina de validação:** Mesmas fixtures de domínio (triggers, scheduler, notify) nos dois adapters via `internal/platform/sqlite/parity_test.go`; testar concorrência/rollback SQLite sem depender de sintaxe exclusiva de PG; prova HTTP/job real (não só unitária) do disparo de trigger e da execução de job contra SQLite.
+- **Regra de retomada:** Identificar versões e checkpoints de banco, cliente e artefatos; retomar a partir de estado consistente comprovado, sem apagar dados locais pendentes.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-055; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-055 — Portar internal/triggers, internal/scheduler e internal/notify para database.Tx (completar adapter SQLite), de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas (GO-041 DONE/IN_REVIEW) e o checkpoint; crie ou retome a branch task/go-055 a partir da base registrada. Escopo: Estender internal/platform/database.Tx a internal/triggers (incluindo Dispatcher.HooksFor, hoje pgx.Tx-only), internal/scheduler e internal/notify, preservando os wrappers pgx.Tx existentes; avaliar internal/files/internal/config para a mesma conversão ou follow-up próprio. Valide: mesmas fixtures de domínio nos dois adapters; testar concorrência/rollback SQLite sem depender de sintaxe exclusiva de PG; prova HTTP/job real de trigger e job de worker contra SQLite. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
 ```
 
 ### GO-042 — Validar substituição de plugins de terceiro do piloto ponta a ponta

@@ -1223,3 +1223,113 @@ concedida" passa a escrever mesmo assim); BFF — remover `requireCsrf` da
 rota `/api/bff/events/:eventname` (o teste de CSRF ausente recebe 200 em
 vez de 403). Detalhes completos em
 `docs/migracao-go/execucoes/GO-052.md`.
+
+## Adapter SQLite: identidade, views e caminho web (GO-041)
+
+Estende a fronteira `database.Tx` (GO-030 — já usada por
+`internal/records`/`internal/metadata`/`internal/platform/outbox`) a
+`internal/identity` e `internal/views`, e liga `internal/platform/sqlite`
+em `cmd/server`/`cmd/worker`, que antes não tinham nenhuma referência a
+esse pacote.
+
+- **Padrão `postgres.go`/DDL dialect-rewrite/`VersionExpr` reaplicado tal
+  qual GO-030** — toda função de `internal/identity`/`internal/views`
+  ganha sufixo `Tx` e é retipada para `database.Tx`; um `postgres.go` novo
+  em cada pacote mantém wrappers `pgx.Tx` com o NOME ORIGINAL, para que
+  nenhum chamador Postgres existente precise mudar uma linha. DDL de
+  ambos os pacotes usa `strings.NewReplacer` para reescrever a MESMA
+  string Postgres-flavored para SQLite (`serial PRIMARY KEY` →
+  `INTEGER PRIMARY KEY AUTOINCREMENT`, `timestamptz` → `timestamp`,
+  `now()` → `CURRENT_TIMESTAMP`), nunca duas definições paralelas.
+- **`internal/records.versionExpr` exportado como `VersionExpr(dialect,
+  prefix)`** e reaproveitado por `internal/views` — Postgres usa `xmin`
+  (coluna de sistema implícita), SQLite não tem equivalente e ganhou uma
+  coluna EXPLÍCITA `"_version" INTEGER NOT NULL DEFAULT 1` em
+  `_sc_views`, incrementada manualmente (`"_version" = "_version" + 1`)
+  só no branch SQLite de `UpdateViewTx`.
+- **`database.Tx.Exec` não tem `RowsAffected()`** (ao contrário de
+  `pgx.Tx.Exec`) — toda detecção de "UPDATE/DELETE afetou zero linhas"
+  (`identity.UpdateUserRoleTx`/`SetPasswordTx`, já existente em
+  `views`/`records`) usa `UPDATE ... RETURNING <col>` + checagem de
+  `database.ErrNoRows`, nunca contagem de linhas afetadas.
+- **`cmd/server/sqlite.go` (novo): handlers PARALELOS, nunca uma
+  unificação com os handlers Postgres existentes** — decisão deliberada,
+  não atalho. Unificar exigiria que `records.go`/`views.go` chamassem
+  `internal/triggers.Dispatcher.HooksFor` (que devolve um `*records.Hooks`
+  fechado sobre `pgx.Tx`) através de uma interface comum, arrastando a
+  conversão de `internal/triggers`/`internal/scheduler`/`internal/notify`
+  — exatamente o escopo que esta task deliberadamente NÃO cobre (ver
+  abaixo). O arquivo novo reaproveita tipos/funções de erro já existentes
+  (que operam sobre tipos de domínio, não sobre `Tx`) e não modifica UMA
+  linha dos arquivos Postgres-only existentes.
+- **`hooks=nil`, documentado e explícito**, nos três handlers de escrita
+  de registro SQLite (`sqliteCreateRecordHandler`/`Update`/`Delete`) —
+  tenants SQLite não disparam nenhum trigger nesta entrega. Uma limitação
+  real e visível no código, nunca uma promessa quebrada silenciosamente.
+- **`cutover.RequireOwnership` deliberadamente NUNCA envolve uma rota
+  SQLite** — achado real, encontrado por leitura de código antes de
+  qualquer teste: `cutover.LoadFromRegistry` (que popula o guard usado por
+  `RequireOwnership`) só roda dentro do branch `cfg.DatabaseURL != ""` de
+  `main.go`, e é ele mesmo hardcoded contra Postgres (`db.WithTenant`
+  lendo/escrevendo a tabela compartilhada `_sc_capability_ownership`). Em
+  modo SQLite-only, `db` fica `nil` e o guard nunca é populado —
+  `RequireOwnership` falha fechado por padrão, então envolver qualquer
+  rota SQLite nele rejeitaria TODA requisição com 409. O pacote `cutover`
+  inteiro modela um conceito (corte gradual Node→Go por capacidade) sem
+  análogo num deploy Go-only "modo desktop" desde o primeiro dia — as
+  rotas SQLite usam só `tenancy.Middleware`.
+- **`cmd/server`: `sqliteMode` mutuamente exclusivo com Postgres** —
+  `cfg.SQLiteDir != "" && cfg.DatabaseURL == ""`; se ambos estiverem
+  configurados, Postgres tem precedência e um `WARN` avisa que SQLite foi
+  ignorado nesta instância. 11 registros de rota (`GET/POST/PATCH/DELETE
+  .../records`, `.../actor` GET, `.../tables`, `.../tables/.../fields`,
+  `.../views` POST/GET, `.../views/{id}/render`, `.../views/{id}/submit`)
+  bifurcam entre o handler Postgres existente e o novo handler SQLite pelo
+  MESMO padrão de URL — todas as demais rotas (sync/exchange, histórico,
+  permissões, realtime, arquivos, eventos, workflows, admin de usuário)
+  permanecem inalteradas, confiando no `db == nil` → 503 já existente para
+  degradação graciosa em modo SQLite-only.
+- **`cmd/worker`: wiring deliberadamente mínimo** — abre o diretório
+  SQLite só para validar que existe e sobe sem crash (subida/encerramento
+  graciosos confirmados por smoke test); nenhum job (`outbox`/scheduler de
+  trigger/limpeza de arquivo) roda contra um tenant SQLite nesta entrega,
+  já que todos dependem de pacotes (`internal/scheduler`,
+  `internal/notify`, `internal/triggers`, `internal/files`) que continuam
+  100% `pgx.Tx`-only. Um `WARN` no log documenta a lacuna explicitamente.
+
+**Achado real de escopo, descoberto no preflight (não previsto pelo texto
+original da task):** `internal/triggers` (inclui `Dispatcher.HooksFor`),
+`internal/scheduler`, `internal/notify`, `internal/files` e
+`internal/config` são inteiramente `pgx.Tx`-only, sem nenhum caminho
+contra `database.Tx` — convertê-los tocaria um raio de mudança muito
+maior do que o previsto (`internal/triggers` sozinho arrasta
+`internal/scheduler`/`internal/notify`). Apresentada a descoberta ao
+usuário com três opções (escopo estreito agora / converter tudo agora /
+parar e revisar o desenho); **decisão do usuário: escopo estreito agora**
+— identidade+views convertidos e testados nos dois dialetos, `cmd/server`/
+`cmd/worker` ligados para um caminho SQLite real e testado cobrindo
+tabelas/campos/registros(CRUD)/views, e uma nova task (**GO-055**) aberta
+para completar triggers/scheduler/notify (e avaliar `files`/`config`).
+CAP-021/CAP-023 reclassificadas como **PASS PARCIAL**, não PASS completo
+— a lacuna é nomeada explicitamente, nunca escondida.
+
+**Achado real, não um bug de produto:** `_sc_impersonation_log` não usa
+`ON DELETE CASCADE` de propósito (comentário já existente em `schema.go`
+— um registro de auditoria nunca deveria desaparecer junto com o usuário
+que documenta). Um teste inicial de parity tentava apagar um usuário que
+havia sido personificado no mesmo teste e falhava com violação de FK em
+AMBOS os dialetos — corrigido no TESTE (apaga um terceiro usuário
+descartável, nunca envolvido em personificação), não no produto.
+
+**Verificação de regressão deliberada** (uma por camada realmente
+tocada): quebrar o incremento `"_version" = "_version" + 1` no branch
+SQLite de `UpdateViewTx` (o teste de conflito otimista deixa de detectar
+mudança concorrente); envolver uma rota SQLite em
+`cutover.RequireOwnership` com o guard vazio (estado real de um processo
+SQLite-only, já que `LoadFromRegistry` nunca roda nesse modo) — toda
+requisição passa a devolver 409; trocar a detecção de "usuário
+inexistente" de `identity.UpdateUserRoleTx` (baseada em `RETURNING
+id`/`database.ErrNoRows`) por um `Exec` simples sem verificação (o teste
+de not-found falha nos dois dialetos). Todas as três restauradas com
+sucesso confirmado. Detalhes completos em
+`docs/migracao-go/execucoes/GO-041.md`.

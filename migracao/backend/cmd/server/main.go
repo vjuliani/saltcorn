@@ -31,6 +31,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/health"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/sqlite"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/telemetry"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/pluginhost"
@@ -133,6 +134,34 @@ func main() {
 		logger.Warn("SALTCORN_GO_DATABASE_URL não configurada — rotas que dependem de banco responderão 503")
 	}
 
+	// sqliteDB (GO-041) — o adapter "modo desktop" (internal/platform/
+	// sqlite, GO-030), mutuamente exclusivo com o Postgres no MESMO
+	// processo: DatabaseURL configurada sempre tem precedência (log de
+	// aviso se os dois estiverem presentes, nunca um erro fatal — mesmo
+	// espírito de config redundante não travar a subida). Escopo NARROW
+	// desta entrega (ver cmd/server/sqlite.go): só tabelas/campos,
+	// registros (sem trigger) e views (CRUD+render List/Show/Edit+submit)
+	// respondem de verdade neste modo — todas as demais rotas (sync,
+	// histórico, workflows, arquivos, eventos, admin de usuário, etc.)
+	// continuam exclusivamente Postgres, 503 se só SQLite estiver
+	// configurado (GO-055 registrada para fechar essa lacuna).
+	var sqliteDB *sqlite.DB
+	sqliteMode := false
+	if cfg.SQLiteDir != "" {
+		if cfg.DatabaseURL != "" {
+			logger.Warn("SALTCORN_GO_SQLITE_DIR e SALTCORN_GO_DATABASE_URL configuradas juntas — Postgres tem precedência, SQLite ignorado nesta instância")
+		} else {
+			sqliteDB, err = sqlite.Open(cfg.SQLiteDir)
+			if err != nil {
+				logger.Error("abrir diretório de tenants SQLite", "error", err.Error())
+				os.Exit(1)
+			}
+			defer sqliteDB.Close()
+			sqliteMode = true
+			logger.Info("adapter SQLite ativo (modo desktop) — escopo narrow: tabelas/campos, registros (sem trigger) e views", "dir", cfg.SQLiteDir)
+		}
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", checker.LivenessHandler())
 	mux.HandleFunc("/readyz", checker.ReadinessHandler())
@@ -221,26 +250,43 @@ func main() {
 		// delete por ID não eram wireados aqui ainda. GO-040 liga
 		// update/delete (getRecord por ID continua fora — bff-api.yaml
 		// ainda não o expõe a nenhum consumidor React).
-		mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records",
-			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
-				cutover.RequireOwnership(guard, recordsCapability, listRecordsHandler(tracker, db)))))
+		if !sqliteMode {
+			mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records",
+				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+					cutover.RequireOwnership(guard, recordsCapability, listRecordsHandler(tracker, db)))))
+			mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/records",
+				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+					cutover.RequireOwnership(guard, recordsCapability, createRecordHandler(tracker, db, dispatcher)))))
+			// updateRecord/deleteRecord (GO-040) — a rota já existia no
+			// contrato desde GO-006 (ver nota de escopo acima), nunca tinha
+			// handler; ligar aqui também é o ponto em que triggers/ações
+			// (Dispatcher.HooksFor) passam a disparar de uma escrita HTTP
+			// real (ver GO-040 abaixo).
+			mux.Handle("PATCH /v1/tenants/{tenant}/tables/{table}/records/{id}",
+				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+					cutover.RequireOwnership(guard, recordsCapability, updateRecordHandler(tracker, db, dispatcher)))))
+			mux.Handle("DELETE /v1/tenants/{tenant}/tables/{table}/records/{id}",
+				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+					cutover.RequireOwnership(guard, recordsCapability, deleteRecordHandler(tracker, db, dispatcher)))))
+		} else {
+			// GO-041: mesmos paths, contra o adapter SQLite — SEM
+			// disparo de trigger (hooks=nil, ver cmd/server/sqlite.go).
+			mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records",
+				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+					sqliteListRecordsHandler(tracker, sqliteDB))))
+			mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/records",
+				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+					sqliteCreateRecordHandler(tracker, sqliteDB))))
+			mux.Handle("PATCH /v1/tenants/{tenant}/tables/{table}/records/{id}",
+				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+					sqliteUpdateRecordHandler(tracker, sqliteDB))))
+			mux.Handle("DELETE /v1/tenants/{tenant}/tables/{table}/records/{id}",
+				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
+					sqliteDeleteRecordHandler(tracker, sqliteDB))))
+		}
 		mux.Handle("POST /v1/tenants/{tenant}/sync/{table}/exchange",
 			tenancy.Middleware(verifier, telemetry.Middleware("tenant_sync", httpMetrics,
 				cutover.RequireOwnership(guard, recordsCapability, syncExchangeHandler(tracker, db)))))
-		mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/records",
-			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
-				cutover.RequireOwnership(guard, recordsCapability, createRecordHandler(tracker, db, dispatcher)))))
-		// updateRecord/deleteRecord (GO-040) — a rota já existia no
-		// contrato desde GO-006 (ver nota de escopo acima), nunca tinha
-		// handler; ligar aqui também é o ponto em que triggers/ações
-		// (Dispatcher.HooksFor) passam a disparar de uma escrita HTTP
-		// real (ver GO-040 abaixo).
-		mux.Handle("PATCH /v1/tenants/{tenant}/tables/{table}/records/{id}",
-			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
-				cutover.RequireOwnership(guard, recordsCapability, updateRecordHandler(tracker, db, dispatcher)))))
-		mux.Handle("DELETE /v1/tenants/{tenant}/tables/{table}/records/{id}",
-			tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
-				cutover.RequireOwnership(guard, recordsCapability, deleteRecordHandler(tracker, db, dispatcher)))))
 		// getRecordHistory/restoreRecordVersion (GO-045) — versionamento
 		// de linha, só relevante para tabelas versioned=true (ver
 		// createTableHandler); mesma capacidade de ownership de qualquer
@@ -257,8 +303,13 @@ func main() {
 		// Node/Go, é infraestrutura que já vive inteiramente em Go desde
 		// GO-008 — só precisa de tenancy.Middleware (identidade+tenant
 		// verificados).
-		mux.Handle("GET /v1/tenants/{tenant}/actor",
-			tenancy.Middleware(verifier, telemetry.Middleware(actorRoute, httpMetrics, getActorHandler(tracker, db))))
+		if !sqliteMode {
+			mux.Handle("GET /v1/tenants/{tenant}/actor",
+				tenancy.Middleware(verifier, telemetry.Middleware(actorRoute, httpMetrics, getActorHandler(tracker, db))))
+		} else {
+			mux.Handle("GET /v1/tenants/{tenant}/actor",
+				tenancy.Middleware(verifier, telemetry.Middleware(actorRoute, httpMetrics, sqliteGetActorHandler(tracker, sqliteDB))))
+		}
 		// setActorLanguage (GO-047) — mesmo raciocínio de getActor acima:
 		// preferência de idioma é self-service sobre a PRÓPRIA identidade
 		// delegada, nunca uma capacidade de domínio sujeita a corte.
@@ -272,36 +323,63 @@ func main() {
 		// views são concerns distintos de dados de registro, cada um pode
 		// ser cortado para Go independentemente (mesmo espírito granular de
 		// GO-009).
-		mux.Handle("POST /v1/tenants/{tenant}/tables",
-			tenancy.Middleware(verifier, telemetry.Middleware(tablesSchemaRoute, httpMetrics,
-				cutover.RequireOwnership(guard, tablesSchemaCapability, createTableHandler(tracker, db)))))
-		mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/fields",
-			tenancy.Middleware(verifier, telemetry.Middleware(tablesSchemaRoute, httpMetrics,
-				cutover.RequireOwnership(guard, tablesSchemaCapability, addFieldHandler(tracker, db)))))
+		if !sqliteMode {
+			mux.Handle("POST /v1/tenants/{tenant}/tables",
+				tenancy.Middleware(verifier, telemetry.Middleware(tablesSchemaRoute, httpMetrics,
+					cutover.RequireOwnership(guard, tablesSchemaCapability, createTableHandler(tracker, db)))))
+			mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/fields",
+				tenancy.Middleware(verifier, telemetry.Middleware(tablesSchemaRoute, httpMetrics,
+					cutover.RequireOwnership(guard, tablesSchemaCapability, addFieldHandler(tracker, db)))))
+		} else {
+			mux.Handle("POST /v1/tenants/{tenant}/tables",
+				tenancy.Middleware(verifier, telemetry.Middleware(tablesSchemaRoute, httpMetrics,
+					sqliteCreateTableHandler(tracker, sqliteDB))))
+			mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/fields",
+				tenancy.Middleware(verifier, telemetry.Middleware(tablesSchemaRoute, httpMetrics,
+					sqliteAddFieldHandler(tracker, sqliteDB))))
+		}
 		mux.Handle("PATCH /v1/tenants/{tenant}/tables/{table}/permissions",
 			tenancy.Middleware(verifier, telemetry.Middleware(tablesSchemaRoute, httpMetrics,
 				cutover.RequireOwnership(guard, tablesSchemaCapability, updateTablePermissionsHandler(tracker, db)))))
-		mux.Handle("POST /v1/tenants/{tenant}/views",
-			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
-				cutover.RequireOwnership(guard, viewsCapability, createViewHandler(tracker, db)))))
-		mux.Handle("GET /v1/tenants/{tenant}/views",
-			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
-				cutover.RequireOwnership(guard, viewsCapability, listViewsHandler(tracker, db)))))
+		if !sqliteMode {
+			mux.Handle("POST /v1/tenants/{tenant}/views",
+				tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+					cutover.RequireOwnership(guard, viewsCapability, createViewHandler(tracker, db)))))
+			mux.Handle("GET /v1/tenants/{tenant}/views",
+				tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+					cutover.RequireOwnership(guard, viewsCapability, listViewsHandler(tracker, db)))))
+		} else {
+			mux.Handle("POST /v1/tenants/{tenant}/views",
+				tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+					sqliteCreateViewHandler(tracker, sqliteDB))))
+			mux.Handle("GET /v1/tenants/{tenant}/views",
+				tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+					sqliteListViewsHandler(tracker, sqliteDB))))
+		}
 		mux.Handle("GET /v1/tenants/{tenant}/views/{id}",
 			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, viewsCapability, getViewHandler(tracker, db)))))
 		mux.Handle("PATCH /v1/tenants/{tenant}/views/{id}",
 			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, viewsCapability, updateViewHandler(tracker, db)))))
-		mux.Handle("GET /v1/tenants/{tenant}/views/{id}/render",
-			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
-				cutover.RequireOwnership(guard, viewsCapability, renderViewHandler(tracker, db)))))
 		// submit (form_action) e rows/{recordId} (ação de coluna "Delete")
 		// — GO-039, o formulário de escrita real de Edit e a exclusão de
 		// linha de List.
-		mux.Handle("POST /v1/tenants/{tenant}/views/{id}/submit",
-			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
-				cutover.RequireOwnership(guard, viewsCapability, submitViewHandler(tracker, db)))))
+		if !sqliteMode {
+			mux.Handle("GET /v1/tenants/{tenant}/views/{id}/render",
+				tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+					cutover.RequireOwnership(guard, viewsCapability, renderViewHandler(tracker, db)))))
+			mux.Handle("POST /v1/tenants/{tenant}/views/{id}/submit",
+				tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+					cutover.RequireOwnership(guard, viewsCapability, submitViewHandler(tracker, db)))))
+		} else {
+			mux.Handle("GET /v1/tenants/{tenant}/views/{id}/render",
+				tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+					sqliteRenderViewHandler(tracker, sqliteDB))))
+			mux.Handle("POST /v1/tenants/{tenant}/views/{id}/submit",
+				tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
+					sqliteSubmitViewHandler(tracker, sqliteDB))))
+		}
 		mux.Handle("DELETE /v1/tenants/{tenant}/views/{id}/rows/{recordId}",
 			tenancy.Middleware(verifier, telemetry.Middleware(viewsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, viewsCapability, deleteViewRowHandler(tracker, db)))))

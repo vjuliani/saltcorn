@@ -6,17 +6,30 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	sqliteDriver "modernc.org/sqlite"
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/records"
 )
 
 const sqlstateUniqueViolation = "23505"
 
+// classifyPgError (GO-041) classifica uma violação de unicidade de
+// _sc_views.name nos dois dialetos — códigos de erro do driver
+// modernc.org/sqlite (2067/1555, UNIQUE) e SQLSTATE do Postgres (23505),
+// mesmo padrão já estabelecido em internal/records.commands.go.
 func classifyPgError(err error) error {
+	var sqliteErr *sqliteDriver.Error
+	if errors.As(err, &sqliteErr) {
+		switch sqliteErr.Code() {
+		case 2067, 1555:
+			return fmt.Errorf("%w", ErrDuplicateName)
+		}
+		return err
+	}
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
 		return err
@@ -38,7 +51,7 @@ func requireAdmin(actorRole identity.RoleID) error {
 	return nil
 }
 
-func scanView(row pgx.Row) (View, error) {
+func scanView(row database.Row) (View, error) {
 	var v View
 	var minRole int
 	var configJSON []byte
@@ -56,15 +69,20 @@ func scanView(row pgx.Row) (View, error) {
 	return v, nil
 }
 
-const viewColumns = `id, name, table_id, template, min_role, configuration, xmin::text AS "_version"`
+// viewColumns (GO-041) usa records.VersionExpr para "_version" — xmin no
+// Postgres, a coluna explícita "_version" no SQLite (ver schema.go),
+// mesma fachada dialeto-neutra que internal/records já usa.
+func viewColumns(dialect database.Dialect) string {
+	return `id, name, table_id, template, min_role, configuration, ` + records.VersionExpr(dialect, "") + ` AS "_version"`
+}
 
-// CreateView grava uma view nova — MinRole ausente (zero-value) vira
+// CreateViewTx grava uma view nova — MinRole ausente (zero-value) vira
 // identity.RoleAdmin (ver ViewOptions), nunca publicada por omissão. Se o
 // chamador pedir MinRole != RoleAdmin já na criação (publicar direto, sem
 // passar por um rascunho admin-only primeiro), o mesmo bloqueio de layout
-// incompatível de UpdateView (GO-020) se aplica aqui — "bloqueiam
+// incompatível de UpdateViewTx (GO-020) se aplica aqui — "bloqueiam
 // publicação" vale para qualquer forma de publicar, não só a mais comum.
-func CreateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name string, tableID int, template string, configuration map[string]any, opts ViewOptions) (View, error) {
+func CreateViewTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, name string, tableID int, template string, configuration map[string]any, opts ViewOptions) (View, error) {
 	if err := requireAdmin(actorRole); err != nil {
 		return View{}, err
 	}
@@ -73,7 +91,7 @@ func CreateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name 
 		minRole = identity.RoleAdmin
 	}
 	if minRole != identity.RoleAdmin {
-		fields, err := metadata.ListFields(ctx, database.AsTx(tx), tableID)
+		fields, err := metadata.ListFields(ctx, tx, tableID)
 		if err != nil {
 			return View{}, err
 		}
@@ -90,7 +108,7 @@ func CreateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name 
 		INSERT INTO _sc_views (name, table_id, template, min_role, configuration)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING %s
-	`, viewColumns), name, tableID, template, int(minRole), configJSON)
+	`, viewColumns(tx.Dialect())), name, tableID, template, int(minRole), configJSON)
 
 	v, err := scanView(row)
 	if err != nil {
@@ -99,15 +117,15 @@ func CreateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name 
 	return v, nil
 }
 
-// GetView busca uma view por ID, checando identity.CanRead(actorRole,
+// GetViewTx busca uma view por ID, checando identity.CanRead(actorRole,
 // view.MinRole) — uma view não publicada (MinRole = RoleAdmin) só é
 // visível para um ator admin, exatamente o mecanismo que "publica com
 // dois papéis" (critério de aceite) exercita.
-func GetView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, id int) (View, error) {
-	row := tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM _sc_views WHERE id = $1`, viewColumns), id)
+func GetViewTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, id int) (View, error) {
+	row := tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM _sc_views WHERE id = $1`, viewColumns(tx.Dialect())), id)
 	v, err := scanView(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return View{}, ErrViewNotFound
 		}
 		return View{}, err
@@ -118,18 +136,18 @@ func GetView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, id int) 
 	return v, nil
 }
 
-// GetViewByName busca uma view pelo NOME — necessário para resolver uma
+// GetViewByNameTx busca uma view pelo NOME — necessário para resolver uma
 // referência textual a outra view (GO-051: o nó de layout `type: "view"`
 // de uma view aninhada, e os campos `show_view`/`view_to_create` do
 // viewtemplate Feed guardam o NOME da view referenciada, nunca o id).
-// Mesma checagem de MinRole de GetView — uma view aninhada/embutida não
+// Mesma checagem de MinRole de GetViewTx — uma view aninhada/embutida não
 // publicada permanece invisível a um ator sem papel suficiente, mesmo
 // que a view PAI seja visível.
-func GetViewByName(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, name string) (View, error) {
-	row := tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM _sc_views WHERE name = $1`, viewColumns), name)
+func GetViewByNameTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, name string) (View, error) {
+	row := tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM _sc_views WHERE name = $1`, viewColumns(tx.Dialect())), name)
 	v, err := scanView(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return View{}, ErrViewNotFound
 		}
 		return View{}, err
@@ -140,17 +158,17 @@ func GetViewByName(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, na
 	return v, nil
 }
 
-// ListViews lista views cujo table_id bate com tableID (0 = todas),
+// ListViewsTx lista views cujo table_id bate com tableID (0 = todas),
 // filtrando pelas que o ator pode ler — nunca revela a existência de uma
 // view não publicada a um ator sem papel suficiente (mesmo espírito do
-// filtro de autorização em internal/records.Rows).
-func ListViews(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableID int) ([]View, error) {
-	var rows pgx.Rows
+// filtro de autorização em internal/records.RowsTx).
+func ListViewsTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, tableID int) ([]View, error) {
+	var rows database.Rows
 	var err error
 	if tableID != 0 {
-		rows, err = tx.Query(ctx, fmt.Sprintf(`SELECT %s FROM _sc_views WHERE table_id = $1 ORDER BY id`, viewColumns), tableID)
+		rows, err = tx.Query(ctx, fmt.Sprintf(`SELECT %s FROM _sc_views WHERE table_id = $1 ORDER BY id`, viewColumns(tx.Dialect())), tableID)
 	} else {
-		rows, err = tx.Query(ctx, fmt.Sprintf(`SELECT %s FROM _sc_views ORDER BY id`, viewColumns))
+		rows, err = tx.Query(ctx, fmt.Sprintf(`SELECT %s FROM _sc_views ORDER BY id`, viewColumns(tx.Dialect())))
 	}
 	if err != nil {
 		return nil, err
@@ -170,10 +188,10 @@ func ListViews(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, tableI
 	return result, rows.Err()
 }
 
-// UpdateView atualiza configuration/template/min_role de uma view,
+// UpdateViewTx atualiza configuration/template/min_role de uma view,
 // exigindo expectedVersion (o "_version"/xmin de uma leitura anterior)
 // para controle de concorrência otimista — mesmo mecanismo (e mesma
-// garantia) de internal/records.UpdateRecord (GO-013): se a view mudou
+// garantia) de internal/records.UpdateRecordTx (GO-013): se a view mudou
 // desde a leitura, ErrVersionConflict, nunca uma sobrescrita silenciosa.
 // "Publicar" é uma chamada desta função baixando MinRole (ex.: para
 // identity.RolePublic) — não um mecanismo separado. Desde GO-020, publicar
@@ -186,12 +204,12 @@ type ViewUpdate struct {
 	MinRole       *identity.RoleID
 }
 
-func UpdateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, id int, expectedVersion string, update ViewUpdate) (View, error) {
+func UpdateViewTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, id int, expectedVersion string, update ViewUpdate) (View, error) {
 	if err := requireAdmin(actorRole); err != nil {
 		return View{}, err
 	}
 
-	current, err := getViewForWrite(ctx, tx, id)
+	current, err := getViewForWriteTx(ctx, tx, id)
 	if err != nil {
 		return View{}, err
 	}
@@ -216,7 +234,7 @@ func UpdateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, id in
 	// Nunca uma sobrescrita silenciosa de uma view incompatível "meio
 	// publicada": ou passa por inteiro, ou falha com o motivo específico.
 	if minRole != identity.RoleAdmin {
-		fields, err := metadata.ListFields(ctx, database.AsTx(tx), current.TableID)
+		fields, err := metadata.ListFields(ctx, tx, current.TableID)
 		if err != nil {
 			return View{}, err
 		}
@@ -230,31 +248,35 @@ func UpdateView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, id in
 		return View{}, fmt.Errorf("views: codificar configuration: %w", err)
 	}
 
+	setVersion := ""
+	if tx.Dialect() == database.DialectSQLite {
+		setVersion = `, "_version" = "_version" + 1`
+	}
 	row := tx.QueryRow(ctx, fmt.Sprintf(`
-		UPDATE _sc_views SET template = $1, min_role = $2, configuration = $3
-		WHERE id = $4 AND xmin::text = $5
+		UPDATE _sc_views SET template = $1, min_role = $2, configuration = $3%s
+		WHERE id = $4 AND %s = $5
 		RETURNING %s
-	`, viewColumns), template, int(minRole), configJSON, id, expectedVersion)
+	`, setVersion, records.VersionExpr(tx.Dialect(), ""), viewColumns(tx.Dialect())), template, int(minRole), configJSON, id, expectedVersion)
 
 	v, err := scanView(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return View{}, conflictOrNotFound(ctx, tx, id)
+		if errors.Is(err, database.ErrNoRows) {
+			return View{}, conflictOrNotFoundTx(ctx, tx, id)
 		}
 		return View{}, classifyPgError(err)
 	}
 	return v, nil
 }
 
-// getViewForWrite busca a view SEM checar MinRole de leitura — quem já
+// getViewForWriteTx busca a view SEM checar MinRole de leitura — quem já
 // passou requireAdmin pode ler qualquer view para editá-la, mesmo uma
-// ainda não publicada (só GetView, o caminho de leitura pública, filtra
+// ainda não publicada (só GetViewTx, o caminho de leitura pública, filtra
 // por MinRole).
-func getViewForWrite(ctx context.Context, tx pgx.Tx, id int) (View, error) {
-	row := tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM _sc_views WHERE id = $1`, viewColumns), id)
+func getViewForWriteTx(ctx context.Context, tx database.Tx, id int) (View, error) {
+	row := tx.QueryRow(ctx, fmt.Sprintf(`SELECT %s FROM _sc_views WHERE id = $1`, viewColumns(tx.Dialect())), id)
 	v, err := scanView(row)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return View{}, ErrViewNotFound
 		}
 		return View{}, err
@@ -262,10 +284,10 @@ func getViewForWrite(ctx context.Context, tx pgx.Tx, id int) (View, error) {
 	return v, nil
 }
 
-// conflictOrNotFound distingue "id não existe" de "existe, mas mudou
+// conflictOrNotFoundTx distingue "id não existe" de "existe, mas mudou
 // desde a leitura" depois de um UPDATE condicional afetar zero linhas —
 // mesmo padrão de internal/records.
-func conflictOrNotFound(ctx context.Context, tx pgx.Tx, id int) error {
+func conflictOrNotFoundTx(ctx context.Context, tx database.Tx, id int) error {
 	var exists bool
 	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM _sc_views WHERE id = $1)`, id).Scan(&exists); err != nil {
 		return err

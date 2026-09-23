@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // User é o registro de identidade persistido — o shape mínimo que esta
@@ -30,9 +30,9 @@ var (
 	ErrTokenNotFoundOrRevoked = errors.New("identity: token de API não encontrado ou revogado")
 )
 
-// CreateUser insere um novo usuário. passwordHash já deve vir de
+// CreateUserTx insere um novo usuário. passwordHash já deve vir de
 // HashPassword — este pacote nunca grava senha em texto plano.
-func CreateUser(ctx context.Context, tx pgx.Tx, email, passwordHash string, roleID RoleID) (int, error) {
+func CreateUserTx(ctx context.Context, tx database.Tx, email, passwordHash string, roleID RoleID) (int, error) {
 	var id int
 	err := tx.QueryRow(ctx,
 		"INSERT INTO _sc_users (email, password_hash, role_id) VALUES ($1, $2, $3) RETURNING id",
@@ -41,10 +41,10 @@ func CreateUser(ctx context.Context, tx pgx.Tx, email, passwordHash string, role
 	return id, err
 }
 
-// FindUserByEmail busca um usuário pelo e-mail. Retorna ErrUserNotFound
+// FindUserByEmailTx busca um usuário pelo e-mail. Retorna ErrUserNotFound
 // (não o erro cru do driver) quando não existe, para que quem chama não
-// precise conhecer o tipo de erro do pgx.
-func FindUserByEmail(ctx context.Context, tx pgx.Tx, email string) (*User, error) {
+// precise conhecer o tipo de erro do driver.
+func FindUserByEmailTx(ctx context.Context, tx database.Tx, email string) (*User, error) {
 	u := &User{}
 	var roleID int
 	var totpSecret, language *string
@@ -53,7 +53,7 @@ func FindUserByEmail(ctx context.Context, tx pgx.Tx, email string) (*User, error
 		email,
 	).Scan(&u.ID, &u.Email, &u.PasswordHash, &roleID, &totpSecret, &u.TOTPEnabled, &language)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
 		return nil, err
@@ -68,14 +68,14 @@ func FindUserByEmail(ctx context.Context, tx pgx.Tx, email string) (*User, error
 	return u, nil
 }
 
-// FindUserByID busca um usuário pelo ID — o `sub` da identidade delegada
+// FindUserByIDTx busca um usuário pelo ID — o `sub` da identidade delegada
 // (ServiceIdentity, GO-008/ADR-0007) é o ID do usuário como string, nunca
 // seu papel: o backend Go resolve o papel atual aqui, a cada requisição,
 // em vez de confiar num valor potencialmente desatualizado vindo de fora
 // (mesmo motivo de ADR-0007 nunca gravar role_id na sessão do BFF). Mesmo
-// tratamento de erro de FindUserByEmail: ErrUserNotFound, nunca o erro cru
-// do driver.
-func FindUserByID(ctx context.Context, tx pgx.Tx, id int) (*User, error) {
+// tratamento de erro de FindUserByEmailTx: ErrUserNotFound, nunca o erro
+// cru do driver.
+func FindUserByIDTx(ctx context.Context, tx database.Tx, id int) (*User, error) {
 	u := &User{}
 	var roleID int
 	var totpSecret, language *string
@@ -84,7 +84,7 @@ func FindUserByID(ctx context.Context, tx pgx.Tx, id int) (*User, error) {
 		id,
 	).Scan(&u.ID, &u.Email, &u.PasswordHash, &roleID, &totpSecret, &u.TOTPEnabled, &language)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
 		return nil, err
@@ -99,11 +99,11 @@ func FindUserByID(ctx context.Context, tx pgx.Tx, id int) (*User, error) {
 	return u, nil
 }
 
-// Authenticate combina busca por e-mail e verificação de senha, sem
+// AuthenticateTx combina busca por e-mail e verificação de senha, sem
 // distinguir "usuário não existe" de "senha errada" no erro retornado —
 // distinguir os dois no lado do cliente é um vetor de enumeração de contas.
-func Authenticate(ctx context.Context, tx pgx.Tx, email, password string) (*User, error) {
-	u, err := FindUserByEmail(ctx, tx, email)
+func AuthenticateTx(ctx context.Context, tx database.Tx, email, password string) (*User, error) {
+	u, err := FindUserByEmailTx(ctx, tx, email)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			return nil, ErrInvalidCredentials
@@ -116,40 +116,38 @@ func Authenticate(ctx context.Context, tx pgx.Tx, email, password string) (*User
 	return u, nil
 }
 
-// SetUserLanguage grava a preferência de idioma EXPLÍCITA de userID
+// SetUserLanguageTx grava a preferência de idioma EXPLÍCITA de userID
 // (GO-047, self-service — o próprio usuário muda sua preferência, nunca
 // um admin em nome de outro; a checagem de "userID é o ator autenticado"
 // é responsabilidade do handler HTTP, este pacote só persiste). language
 // vazio LIMPA a preferência (volta a "sem preferência", cai no fallback
 // de cookie/default_locale do tenant) — nunca um erro, apagar a
 // preferência é uma operação legítima.
-func SetUserLanguage(ctx context.Context, tx pgx.Tx, userID int, language string) error {
+func SetUserLanguageTx(ctx context.Context, tx database.Tx, userID int, language string) error {
 	var value any
 	if language != "" {
 		value = language
 	}
-	_, err := tx.Exec(ctx, "UPDATE _sc_users SET language = $1 WHERE id = $2", value, userID)
-	return err
+	return tx.Exec(ctx, "UPDATE _sc_users SET language = $1 WHERE id = $2", value, userID)
 }
 
-// EnableTOTP grava o segredo TOTP de um usuário e marca MFA como ativado.
-func EnableTOTP(ctx context.Context, tx pgx.Tx, userID int, secret string) error {
-	_, err := tx.Exec(ctx,
+// EnableTOTPTx grava o segredo TOTP de um usuário e marca MFA como ativado.
+func EnableTOTPTx(ctx context.Context, tx database.Tx, userID int, secret string) error {
+	return tx.Exec(ctx,
 		"UPDATE _sc_users SET totp_secret = $1, totp_enabled = true WHERE id = $2",
 		secret, userID,
 	)
-	return err
 }
 
-// CreateAPITokenForUser gera um novo token de API para o usuário e persiste
-// só o hash (ver token.go). Retorna o texto plano — a única vez que ele
-// existe fora da memória de quem chamou GenerateAPIToken.
-func CreateAPITokenForUser(ctx context.Context, tx pgx.Tx, userID int) (plaintext string, err error) {
+// CreateAPITokenForUserTx gera um novo token de API para o usuário e
+// persiste só o hash (ver token.go). Retorna o texto plano — a única vez
+// que ele existe fora da memória de quem chamou GenerateAPIToken.
+func CreateAPITokenForUserTx(ctx context.Context, tx database.Tx, userID int) (plaintext string, err error) {
 	plaintext, hash, err := GenerateAPIToken()
 	if err != nil {
 		return "", err
 	}
-	if _, err := tx.Exec(ctx,
+	if err := tx.Exec(ctx,
 		"INSERT INTO _sc_api_tokens (user_id, token_hash) VALUES ($1, $2)",
 		userID, hash,
 	); err != nil {
@@ -158,10 +156,10 @@ func CreateAPITokenForUser(ctx context.Context, tx pgx.Tx, userID int) (plaintex
 	return plaintext, nil
 }
 
-// FindUserByAPIToken busca o usuário dono de um token de API em texto
+// FindUserByAPITokenTx busca o usuário dono de um token de API em texto
 // plano, rejeitando tokens revogados — o caminho de autenticação da API
 // pública (matriz GO-001 §2.1, estratégia AuthStrategyAPIToken).
-func FindUserByAPIToken(ctx context.Context, tx pgx.Tx, plaintext string) (*User, error) {
+func FindUserByAPITokenTx(ctx context.Context, tx database.Tx, plaintext string) (*User, error) {
 	hash := HashAPIToken(plaintext)
 	u := &User{}
 	var roleID int
@@ -172,7 +170,7 @@ func FindUserByAPIToken(ctx context.Context, tx pgx.Tx, plaintext string) (*User
 		WHERE t.token_hash = $1 AND t.revoked_at IS NULL
 	`, hash).Scan(&u.ID, &u.Email, &u.PasswordHash, &roleID)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return nil, ErrTokenNotFoundOrRevoked
 		}
 		return nil, err
@@ -181,15 +179,15 @@ func FindUserByAPIToken(ctx context.Context, tx pgx.Tx, plaintext string) (*User
 	return u, nil
 }
 
-// RevokeAPIToken marca um token como revogado — chamadas seguintes a
-// FindUserByAPIToken com o mesmo texto plano passam a falhar com
+// RevokeAPITokenTx marca um token como revogado — chamadas seguintes a
+// FindUserByAPITokenTx com o mesmo texto plano passam a falhar com
 // ErrTokenNotFoundOrRevoked. Idempotente: revogar um token já revogado não
-// é erro.
-func RevokeAPIToken(ctx context.Context, tx pgx.Tx, plaintext string) error {
+// é erro. CURRENT_TIMESTAMP (não `now()`) — entendido pelos dois dialetos,
+// mesma escolha já feita em internal/platform/outbox/worker.go.
+func RevokeAPITokenTx(ctx context.Context, tx database.Tx, plaintext string) error {
 	hash := HashAPIToken(plaintext)
-	_, err := tx.Exec(ctx,
-		"UPDATE _sc_api_tokens SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL",
+	return tx.Exec(ctx,
+		"UPDATE _sc_api_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE token_hash = $1 AND revoked_at IS NULL",
 		hash,
 	)
-	return err
 }

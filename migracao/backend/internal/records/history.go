@@ -220,7 +220,7 @@ func RestoreRowVersionTx(ctx context.Context, tx database.Tx, actorRole identity
 // isenta da MESMA proteção contra escrita concorrente perdida).
 func currentRowVersion(ctx context.Context, tx database.Tx, tableName string, id int) (string, error) {
 	quotedTable := pgx.Identifier{tableName}.Sanitize()
-	version := versionExpr(tx.Dialect(), "")
+	version := VersionExpr(tx.Dialect(), "")
 	sql := fmt.Sprintf(`SELECT %s FROM %s WHERE id = $1`, version, quotedTable)
 	var v string
 	err := tx.QueryRow(ctx, sql, id).Scan(&v)

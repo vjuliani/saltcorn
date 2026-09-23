@@ -25,7 +25,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // ErrNotAuthorized é devolvido quando o ator não tem papel suficiente
@@ -39,12 +39,12 @@ func requireAdmin(actorRole RoleID) error {
 	return nil
 }
 
-// ListUsers lista todos os usuários do tenant, em ordem de criação —
+// ListUsersTx lista todos os usuários do tenant, em ordem de criação —
 // equivalente Go de `auth/admin.ts` (listagem de usuários), sem nunca expor
 // PasswordHash/TOTPSecret além do que já está em User (que não deveria ser
 // serializado como está para uma resposta HTTP — quem chama isto por HTTP é
 // responsável por projetar só os campos seguros).
-func ListUsers(ctx context.Context, tx pgx.Tx, actorRole RoleID) ([]User, error) {
+func ListUsersTx(ctx context.Context, tx database.Tx, actorRole RoleID) ([]User, error) {
 	if err := requireAdmin(actorRole); err != nil {
 		return nil, err
 	}
@@ -69,45 +69,44 @@ func ListUsers(ctx context.Context, tx pgx.Tx, actorRole RoleID) ([]User, error)
 	return out, rows.Err()
 }
 
-// UpdateUserRole muda o papel de um usuário — equivalente ao formulário de
+// UpdateUserRoleTx muda o papel de um usuário — equivalente ao formulário de
 // edição de usuário do legado (mudar role_id). Idempotente: definir o
-// mesmo papel que o usuário já tem não é erro.
-func UpdateUserRole(ctx context.Context, tx pgx.Tx, actorRole RoleID, userID int, newRole RoleID) error {
+// mesmo papel que o usuário já tem não é erro. `UPDATE ... RETURNING id`
+// (não `RowsAffected`, que `database.Tx.Exec` não expõe — mesmo padrão de
+// detecção de "zero linhas afetadas" já usado por
+// internal/records.UpdateRecordTx) detecta usuário inexistente.
+func UpdateUserRoleTx(ctx context.Context, tx database.Tx, actorRole RoleID, userID int, newRole RoleID) error {
 	if err := requireAdmin(actorRole); err != nil {
 		return err
 	}
-	tag, err := tx.Exec(ctx, "UPDATE _sc_users SET role_id = $1 WHERE id = $2", int(newRole), userID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
+	var id int
+	err := tx.QueryRow(ctx, "UPDATE _sc_users SET role_id = $1 WHERE id = $2 RETURNING id", int(newRole), userID).Scan(&id)
+	if errors.Is(err, database.ErrNoRows) {
 		return ErrUserNotFound
 	}
-	return nil
+	return err
 }
 
-// SetPassword redefine a senha de um usuário a partir de um hash já
+// SetPasswordTx redefine a senha de um usuário a partir de um hash já
 // calculado (chamador usa HashPassword) — o equivalente Go de
 // "reset-password"/"set-random-password" de `auth/admin.ts`. Nunca aceita
-// senha em texto plano diretamente, mesma disciplina de CreateUser.
-func SetPassword(ctx context.Context, tx pgx.Tx, actorRole RoleID, userID int, newPasswordHash string) error {
+// senha em texto plano diretamente, mesma disciplina de CreateUserTx.
+func SetPasswordTx(ctx context.Context, tx database.Tx, actorRole RoleID, userID int, newPasswordHash string) error {
 	if err := requireAdmin(actorRole); err != nil {
 		return err
 	}
-	tag, err := tx.Exec(ctx, "UPDATE _sc_users SET password_hash = $1 WHERE id = $2", newPasswordHash, userID)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
+	var id int
+	err := tx.QueryRow(ctx, "UPDATE _sc_users SET password_hash = $1 WHERE id = $2 RETURNING id", newPasswordHash, userID).Scan(&id)
+	if errors.Is(err, database.ErrNoRows) {
 		return ErrUserNotFound
 	}
-	return nil
+	return err
 }
 
 // GenerateRandomPassword produz uma senha temporária aleatória (para
 // "set-random-password" — nunca gerada de forma previsível), em texto
 // plano: quem chama ainda precisa passá-la por HashPassword antes de
-// SetPassword, e é responsável por entregá-la ao usuário por um canal
+// SetPasswordTx, e é responsável por entregá-la ao usuário por um canal
 // seguro (nunca logada).
 func GenerateRandomPassword() (string, error) {
 	buf := make([]byte, 12)
@@ -117,15 +116,14 @@ func GenerateRandomPassword() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-// DeleteUser remove um usuário (e seus tokens de API, via ON DELETE CASCADE
-// do schema) — idempotente: remover um usuário que não existe é um no-op
-// bem-sucedido, mesma convenção de DropField/DropTable/RevokeAPIToken.
-func DeleteUser(ctx context.Context, tx pgx.Tx, actorRole RoleID, userID int) error {
+// DeleteUserTx remove um usuário (e seus tokens de API, via ON DELETE
+// CASCADE do schema) — idempotente: remover um usuário que não existe é um
+// no-op bem-sucedido, mesma convenção de DropField/RevokeAPITokenTx.
+func DeleteUserTx(ctx context.Context, tx database.Tx, actorRole RoleID, userID int) error {
 	if err := requireAdmin(actorRole); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, "DELETE FROM _sc_users WHERE id = $1", userID)
-	return err
+	return tx.Exec(ctx, "DELETE FROM _sc_users WHERE id = $1", userID)
 }
 
 // APIToken é a projeção segura de um token de API para fins administrativos
@@ -137,16 +135,17 @@ type APIToken struct {
 	Revoked   bool
 }
 
-// ListAPITokensForUser lista os tokens de API de um usuário (revogados
+// ListAPITokensForUserTx lista os tokens de API de um usuário (revogados
 // inclusos, com o status visível) — a metade "admin" que faltava ao lado de
-// CreateAPITokenForUser/RevokeAPIToken (token.go), sem nunca reexibir
-// hash/texto plano.
-func ListAPITokensForUser(ctx context.Context, tx pgx.Tx, actorRole RoleID, userID int) ([]APIToken, error) {
+// CreateAPITokenForUserTx/RevokeAPITokenTx (token.go), sem nunca reexibir
+// hash/texto plano. `CAST(... AS TEXT)` (não `::text`) — sintaxe ANSI
+// entendida pelos dois dialetos.
+func ListAPITokensForUserTx(ctx context.Context, tx database.Tx, actorRole RoleID, userID int) ([]APIToken, error) {
 	if err := requireAdmin(actorRole); err != nil {
 		return nil, err
 	}
 	rows, err := tx.Query(ctx,
-		"SELECT id, created_at::text, revoked_at IS NOT NULL FROM _sc_api_tokens WHERE user_id = $1 ORDER BY id",
+		"SELECT id, CAST(created_at AS TEXT), revoked_at IS NOT NULL FROM _sc_api_tokens WHERE user_id = $1 ORDER BY id",
 		userID,
 	)
 	if err != nil {

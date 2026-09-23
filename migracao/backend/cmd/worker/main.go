@@ -47,6 +47,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/lease"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/sqlite"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/telemetry"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/pluginhost"
@@ -116,6 +117,29 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	baseCtx := telemetry.WithLogger(ctx, logger)
+
+	// sqliteDB (GO-041) — construído/validado quando configurado, pela
+	// mesma razão de cmd/server: um operador que aponte cmd/worker para
+	// um diretório de tenants SQLite inválido deve descobrir isso na
+	// subida, não silenciosamente. Escopo NARROW e diferente de
+	// cmd/server: NENHUM job deste processo (outbox, triggers agendados,
+	// limpeza de arquivo) roda contra um tenant SQLite nesta entrega —
+	// internal/triggers/internal/scheduler/internal/notify/internal/files
+	// continuam 100% pgx.Tx (GO-055 registrada para completar o adapter
+	// também aqui). Isto é aceitação explícita de uma lacuna, não uma
+	// tentativa disfarçada: o worker sobe, loga o modo, e simplesmente
+	// não enfileira nenhum trabalho de tenant contra este backend.
+	if cfg.SQLiteDir != "" && cfg.DatabaseURL == "" {
+		sqliteDB, err := sqlite.Open(cfg.SQLiteDir)
+		if err != nil {
+			logger.Error("abrir diretório de tenants SQLite", "error", err.Error())
+			os.Exit(1)
+		}
+		defer sqliteDB.Close()
+		logger.Warn("adapter SQLite ativo (modo desktop) — nenhum job deste worker roda contra um tenant SQLite nesta entrega (outbox/triggers agendados/limpeza de arquivo continuam exclusivamente Postgres, GO-055 registrada)")
+	} else if cfg.SQLiteDir != "" {
+		logger.Warn("SALTCORN_GO_SQLITE_DIR e SALTCORN_GO_DATABASE_URL configuradas juntas — Postgres tem precedência, SQLite ignorado nesta instância")
+	}
 
 	var db *database.DB
 	guard := cutover.NewGuard()

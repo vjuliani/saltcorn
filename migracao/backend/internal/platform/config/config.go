@@ -68,6 +68,15 @@ type Config struct {
 	// "node" por padrão (mesmo do PATH), sobrescrevível para apontar um
 	// binário específico.
 	PluginHostNodeBin string
+	// SQLiteDir (GO-041) é o diretório onde cada tenant tem seu próprio
+	// arquivo `<tenant>.sqlite` ("modo desktop", internal/platform/sqlite)
+	// — vazio significa "sem adapter SQLite configurado nesta instância".
+	// Mutuamente exclusivo com DatabaseURL na prática (cmd/server/cmd/worker
+	// escolhem UM backend por processo, nunca os dois ao mesmo tempo) — não
+	// impede a subida, mesmo espírito de FilesRootDir/PluginHostScript
+	// vazios: quem decide o que fazer com os dois configurados ou nenhum é
+	// o chamador (main.go), nunca este pacote.
+	SQLiteDir string
 }
 
 const (
@@ -86,6 +95,7 @@ const (
 	envFilesRootDir          = "SALTCORN_GO_FILES_ROOT_DIR"
 	envPluginHostScript      = "SALTCORN_GO_PLUGINHOST_SCRIPT"
 	envPluginHostNodeBin     = "SALTCORN_GO_PLUGINHOST_NODE_BIN"
+	envSQLiteDir             = "SALTCORN_GO_SQLITE_DIR"
 
 	defaultHTTPAddr          = ":8090"
 	defaultShutdownTimeout   = 15 * time.Second
@@ -114,6 +124,7 @@ func Load() (Config, error) {
 		FilesRootDir:          getEnv(envFilesRootDir, ""),
 		PluginHostScript:      getEnv(envPluginHostScript, ""),
 		PluginHostNodeBin:     getEnv(envPluginHostNodeBin, defaultPluginHostNodeBin),
+		SQLiteDir:             getEnv(envSQLiteDir, ""),
 	}
 
 	if v, ok := os.LookupEnv(envShutdownTimeout); ok && v != "" {

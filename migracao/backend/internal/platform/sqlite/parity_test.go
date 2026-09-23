@@ -20,6 +20,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/sqlite"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/records"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 )
 
 type runner func(context.Context, func(context.Context, database.Tx) error) error
@@ -75,7 +76,13 @@ func adapters(t *testing.T, test func(*testing.T, runner, runner)) {
 				if err := metadata.EnsureSchema(ctx, tx); err != nil {
 					return err
 				}
-				return outbox.EnsureSchemaTx(ctx, tx)
+				if err := outbox.EnsureSchemaTx(ctx, tx); err != nil {
+					return err
+				}
+				if err := identity.EnsureSchemaTx(ctx, tx); err != nil {
+					return err
+				}
+				return views.EnsureSchemaTx(ctx, tx)
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -567,5 +574,372 @@ func TestSQLiteUpgradePreservesLocalRecords(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestParityIdentity (GO-041) prova que internal/identity produz o MESMO
+// comportamento observável nos dois dialetos — criação/busca/autenticação
+// de usuário, token de API (criação/verificação/revogação), administração
+// (papel/senha/exclusão, via UPDATE ... RETURNING, já que database.Tx não
+// expõe RowsAffected) e a trilha de auditoria de impersonação.
+func TestParityIdentity(t *testing.T) {
+	adapters(t, func(t *testing.T, run, other runner) {
+		var userID int
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			id, err := identity.CreateUserTx(ctx, tx, "ana@example.com", "hash-inicial", identity.RolePublic)
+			userID = id
+			return err
+		})
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			u, err := identity.FindUserByEmailTx(ctx, tx, "ana@example.com")
+			if err != nil {
+				return err
+			}
+			if u.ID != userID || u.RoleID != identity.RolePublic {
+				t.Fatalf("FindUserByEmailTx: %+v", u)
+			}
+			u2, err := identity.FindUserByIDTx(ctx, tx, userID)
+			if err != nil {
+				return err
+			}
+			if u2.Email != "ana@example.com" {
+				t.Fatalf("FindUserByIDTx: %+v", u2)
+			}
+			return nil
+		})
+
+		err := run(context.Background(), func(ctx context.Context, tx database.Tx) error {
+			_, err := identity.FindUserByEmailTx(ctx, tx, "nunca@example.com")
+			return err
+		})
+		if !errors.Is(err, identity.ErrUserNotFound) {
+			t.Fatalf("got %v, want ErrUserNotFound", err)
+		}
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			return identity.SetUserLanguageTx(ctx, tx, userID, "pt")
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			u, err := identity.FindUserByIDTx(ctx, tx, userID)
+			if err != nil {
+				return err
+			}
+			if u.Language != "pt" {
+				t.Fatalf("Language = %q, esperado pt", u.Language)
+			}
+			return nil
+		})
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			return identity.UpdateUserRoleTx(ctx, tx, identity.RoleAdmin, userID, identity.RoleAdmin)
+		})
+		err = run(context.Background(), func(ctx context.Context, tx database.Tx) error {
+			return identity.UpdateUserRoleTx(ctx, tx, identity.RoleAdmin, userID+999, identity.RoleAdmin)
+		})
+		if !errors.Is(err, identity.ErrUserNotFound) {
+			t.Fatalf("UpdateUserRoleTx (id inexistente): got %v, want ErrUserNotFound", err)
+		}
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			return identity.SetPasswordTx(ctx, tx, identity.RoleAdmin, userID, "hash-novo")
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			_, err := identity.AuthenticateTx(ctx, tx, "ana@example.com", "senha-qualquer")
+			if !errors.Is(err, identity.ErrInvalidCredentials) {
+				t.Fatalf("Authenticate com hash não-bcrypt: got %v", err)
+			}
+			return nil
+		})
+
+		var plaintext string
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			var err error
+			plaintext, err = identity.CreateAPITokenForUserTx(ctx, tx, userID)
+			return err
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			u, err := identity.FindUserByAPITokenTx(ctx, tx, plaintext)
+			if err != nil {
+				return err
+			}
+			if u.ID != userID {
+				t.Fatalf("FindUserByAPITokenTx: %+v", u)
+			}
+			tokens, err := identity.ListAPITokensForUserTx(ctx, tx, identity.RoleAdmin, userID)
+			if err != nil {
+				return err
+			}
+			if len(tokens) != 1 || tokens[0].Revoked {
+				t.Fatalf("ListAPITokensForUserTx: %+v", tokens)
+			}
+			return nil
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			return identity.RevokeAPITokenTx(ctx, tx, plaintext)
+		})
+		err = run(context.Background(), func(ctx context.Context, tx database.Tx) error {
+			_, err := identity.FindUserByAPITokenTx(ctx, tx, plaintext)
+			return err
+		})
+		if !errors.Is(err, identity.ErrTokenNotFoundOrRevoked) {
+			t.Fatalf("token revogado: got %v, want ErrTokenNotFoundOrRevoked", err)
+		}
+
+		var adminID, logID int
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			id, err := identity.CreateUserTx(ctx, tx, "admin@example.com", "hash", identity.RoleAdmin)
+			adminID = id
+			return err
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			id, err := identity.StartImpersonationTx(ctx, tx, identity.RoleAdmin, adminID, userID)
+			logID = id
+			return err
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			rec, err := identity.GetImpersonationTx(ctx, tx, logID)
+			if err != nil {
+				return err
+			}
+			if !rec.StillActive || rec.AdminUserID != adminID || rec.TargetUserID != userID {
+				t.Fatalf("GetImpersonationTx (ativa): %+v", rec)
+			}
+			return nil
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			return identity.EndImpersonationTx(ctx, tx, logID)
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			rec, err := identity.GetImpersonationTx(ctx, tx, logID)
+			if err != nil {
+				return err
+			}
+			if rec.StillActive || rec.EndedAt == "" {
+				t.Fatalf("GetImpersonationTx (encerrada): %+v", rec)
+			}
+			return nil
+		})
+
+		// DeleteUserTx num usuário SEM linha em _sc_impersonation_log —
+		// userID/adminID têm ON DELETE sem CASCADE de propósito nessa
+		// tabela (a trilha de auditoria nunca desaparece junto com o
+		// usuário que documenta, ver comentário de schema.go), então a
+		// prova de exclusão usa um TERCEIRO usuário, nunca envolvido em
+		// nenhuma impersonação.
+		var throwawayID int
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			id, err := identity.CreateUserTx(ctx, tx, "descartavel@example.com", "hash", identity.RolePublic)
+			throwawayID = id
+			return err
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			users, err := identity.ListUsersTx(ctx, tx, identity.RoleAdmin)
+			if err != nil {
+				return err
+			}
+			if len(users) != 3 {
+				t.Fatalf("ListUsersTx: %d usuários, esperado 3", len(users))
+			}
+			return nil
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			return identity.DeleteUserTx(ctx, tx, identity.RoleAdmin, throwawayID)
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			users, err := identity.ListUsersTx(ctx, tx, identity.RoleAdmin)
+			if err != nil {
+				return err
+			}
+			if len(users) != 2 {
+				t.Fatalf("ListUsersTx após DeleteUserTx: %d usuários, esperado 2", len(users))
+			}
+			return nil
+		})
+	})
+}
+
+// TestParityViews (GO-041) prova que internal/views produz o MESMO
+// comportamento observável nos dois dialetos — criação/leitura/listagem
+// de view e, principalmente, o controle de concorrência otimista via
+// "_version" (records.VersionExpr: xmin no Postgres, coluna explícita no
+// SQLite) — a peça que exigia mudança de schema, não só de tipo de Tx.
+func TestParityViews(t *testing.T) {
+	adapters(t, func(t *testing.T, run, other runner) {
+		var tableID int
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			table, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "books", metadata.TableOptions{})
+			if err != nil {
+				return err
+			}
+			tableID = table.ID
+			_, err = metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true})
+			return err
+		})
+
+		var viewID int
+		var version string
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			v, err := views.CreateViewTx(ctx, tx, identity.RoleAdmin, "booklist", tableID, "List", map[string]any{
+				"columns": []any{map[string]any{"type": "Field", "field_name": "title"}},
+			}, views.ViewOptions{})
+			viewID = v.ID
+			version = v.Version
+			return err
+		})
+		if version == "" {
+			t.Fatal("CreateViewTx: _version vazia")
+		}
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			v, err := views.GetViewByNameTx(ctx, tx, identity.RoleAdmin, "booklist")
+			if err != nil {
+				return err
+			}
+			if v.ID != viewID {
+				t.Fatalf("GetViewByNameTx: %+v", v)
+			}
+			all, err := views.ListViewsTx(ctx, tx, identity.RoleAdmin, 0)
+			if err != nil {
+				return err
+			}
+			if len(all) != 1 {
+				t.Fatalf("ListViewsTx: %v", all)
+			}
+			return nil
+		})
+
+		// Concorrência otimista: a MESMA leitura (version) usada por duas
+		// escritas concorrentes — a segunda precisa falhar com
+		// ErrVersionConflict, nunca uma sobrescrita silenciosa, exatamente
+		// o que xmin/coluna _version existem para garantir.
+		mustRun(t, other, func(ctx context.Context, tx database.Tx) error {
+			updated, err := views.UpdateViewTx(ctx, tx, identity.RoleAdmin, viewID, version, views.ViewUpdate{})
+			if err != nil {
+				return err
+			}
+			if updated.Version == version {
+				t.Fatal("_version não mudou após UpdateViewTx")
+			}
+			return nil
+		})
+		err := run(context.Background(), func(ctx context.Context, tx database.Tx) error {
+			_, err := views.UpdateViewTx(ctx, tx, identity.RoleAdmin, viewID, version, views.ViewUpdate{})
+			return err
+		})
+		if !errors.Is(err, views.ErrVersionConflict) {
+			t.Fatalf("UpdateViewTx com version obsoleta: got %v, want ErrVersionConflict", err)
+		}
+
+		err = run(context.Background(), func(ctx context.Context, tx database.Tx) error {
+			_, err := views.UpdateViewTx(ctx, tx, identity.RoleAdmin, viewID+999, version, views.ViewUpdate{})
+			return err
+		})
+		if !errors.Is(err, views.ErrViewNotFound) {
+			t.Fatalf("UpdateViewTx com id inexistente: got %v, want ErrViewNotFound", err)
+		}
+
+		err = run(context.Background(), func(ctx context.Context, tx database.Tx) error {
+			_, err := views.CreateViewTx(ctx, tx, identity.RoleAdmin, "booklist", tableID, "List", map[string]any{
+				"columns": []any{map[string]any{"type": "Field", "field_name": "title"}},
+			}, views.ViewOptions{})
+			return err
+		})
+		if !errors.Is(err, views.ErrDuplicateName) {
+			t.Fatalf("nome duplicado: got %v, want ErrDuplicateName", err)
+		}
+	})
+}
+
+// TestParityViewsEditPlan (GO-041) prova que a camada de RENDERIZAÇÃO de
+// views (CompileEditPlanTx/SubmitEditViewTx — o que cmd/server de fato
+// expõe via HTTP para o botão "Salvar" de um Edit) produz o MESMO
+// comportamento nos dois dialetos, não só o CRUD de _sc_views em si
+// (já coberto por TestParityViews).
+func TestParityViewsEditPlan(t *testing.T) {
+	adapters(t, func(t *testing.T, run, other runner) {
+		var tableID, viewID int
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			table, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "notes", metadata.TableOptions{})
+			if err != nil {
+				return err
+			}
+			tableID = table.ID
+			if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true}); err != nil {
+				return err
+			}
+			v, err := views.CreateViewTx(ctx, tx, identity.RoleAdmin, "editnote", tableID, "Edit", map[string]any{
+				"columns": []any{
+					map[string]any{"type": "Field", "field_name": "title", "fieldview": "edit"},
+					map[string]any{"type": "Action", "action_name": "Save"},
+				},
+			}, views.ViewOptions{})
+			viewID = v.ID
+			return err
+		})
+
+		var recordID int
+		var recordVersion string
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			plan, err := views.CompileEditPlanTx(ctx, tx, identity.RoleAdmin, viewID, 0)
+			if err != nil {
+				return err
+			}
+			if len(plan.Fields) != 1 || plan.Fields[0].FieldName != "title" || plan.RecordID != 0 {
+				t.Fatalf("CompileEditPlanTx (criação): %+v", plan)
+			}
+			result, err := views.SubmitEditViewTx(ctx, tx, identity.RoleAdmin, viewID, 0, "", map[string]any{"title": "Primeira nota"})
+			if err != nil {
+				return err
+			}
+			recordID = int(idAsFloat(result.Record["id"]))
+			recordVersion = result.Record["_version"].(string)
+			if result.Navigate.Type != "reload" {
+				t.Fatalf("Navigate: %+v", result.Navigate)
+			}
+			return nil
+		})
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			plan, err := views.CompileEditPlanTx(ctx, tx, identity.RoleAdmin, viewID, recordID)
+			if err != nil {
+				return err
+			}
+			if plan.Fields[0].Value != "Primeira nota" {
+				t.Fatalf("CompileEditPlanTx (edição): %+v", plan.Fields[0])
+			}
+			return nil
+		})
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			_, err := views.SubmitEditViewTx(ctx, tx, identity.RoleAdmin, viewID, recordID, recordVersion, map[string]any{"title": "Nota atualizada"})
+			return err
+		})
+		err := run(context.Background(), func(ctx context.Context, tx database.Tx) error {
+			_, err := views.SubmitEditViewTx(ctx, tx, identity.RoleAdmin, viewID, recordID, recordVersion, map[string]any{"title": "Nota conflitante"})
+			return err
+		})
+		if !errors.Is(err, records.ErrVersionConflict) {
+			t.Fatalf("SubmitEditViewTx com version obsoleta: got %v, want ErrVersionConflict", err)
+		}
+	})
+}
+
+// idAsFloat normaliza um valor de "id" devolvido por um registro — pgx
+// devolve int32, o driver SQLite devolve int64, o valor genérico já
+// decodificado de outbox/JSON pode chegar como float64; este helper de
+// teste aceita os três, mesma disciplina defensiva de internal/views.idAsInt.
+func idAsFloat(v any) float64 {
+	switch n := v.(type) {
+	case int32:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case int:
+		return float64(n)
+	case float64:
+		return n
+	default:
+		return 0
 	}
 }
