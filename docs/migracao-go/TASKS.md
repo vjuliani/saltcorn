@@ -937,7 +937,7 @@ Execute a task GO-047 — Portar internacionalização (i18n) da interface, de d
 
 ### GO-048 — Portar editor visual de Workflow
 
-- [x] **Status:** IN_REVIEW
+- [x] **Status:** DONE — integrada via PR [#51](https://github.com/vjuliani/saltcorn/pull/51) (merge `f3ecae87d4d`); histórico em [execucoes/GO-048.md](execucoes/GO-048.md)
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Frontend
 - **Depende de:** GO-018, GO-024
