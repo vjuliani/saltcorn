@@ -160,6 +160,27 @@ func (e ViewRenderColumnKind) Valid() bool {
 	}
 }
 
+// Defines values for WorkflowRunStatus.
+const (
+	WorkflowRunStatusError    WorkflowRunStatus = "error"
+	WorkflowRunStatusFinished WorkflowRunStatus = "finished"
+	WorkflowRunStatusRunning  WorkflowRunStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the WorkflowRunStatus enum.
+func (e WorkflowRunStatus) Valid() bool {
+	switch e {
+	case WorkflowRunStatusError:
+		return true
+	case WorkflowRunStatusFinished:
+		return true
+	case WorkflowRunStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ExchangeOperatorTicket200JSONResponseBodyStatus.
 const (
 	Ok ExchangeOperatorTicket200JSONResponseBodyStatus = "ok"
@@ -408,6 +429,78 @@ type ViewSubmitResult struct {
 	Record   map[string]interface{} `json:"record"`
 }
 
+// Workflow defines model for Workflow.
+type Workflow struct {
+	UnderscoreVersion string `json:"_version"`
+
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id          Id     `json:"id"`
+	InitialStep string `json:"initial_step"`
+	Name        string `json:"name"`
+
+	// Steps Presente apenas em getWorkflow.
+	Steps *[]WorkflowStep `json:"steps,omitempty"`
+}
+
+// WorkflowRun defines model for WorkflowRun.
+type WorkflowRun struct {
+	Context     map[string]interface{} `json:"context"`
+	CurrentStep string                 `json:"current_step"`
+	Error       *string                `json:"error,omitempty"`
+
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id      Id                `json:"id"`
+	Name    string            `json:"name"`
+	Status  WorkflowRunStatus `json:"status"`
+	StepSeq int               `json:"step_seq"`
+}
+
+// WorkflowRunStatus defines model for WorkflowRun.Status.
+type WorkflowRunStatus string
+
+// WorkflowStep defines model for WorkflowStep.
+type WorkflowStep struct {
+	UnderscoreVersion string                 `json:"_version"`
+	ActionName        string                 `json:"action_name"`
+	Configuration     map[string]interface{} `json:"configuration"`
+	ElseStep          string                 `json:"else_step"`
+	ErrorStep         string                 `json:"error_step"`
+
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id        Id      `json:"id"`
+	Name      string  `json:"name"`
+	NextStep  string  `json:"next_step"`
+	OnlyIf    string  `json:"only_if"`
+	PositionX float32 `json:"position_x"`
+	PositionY float32 `json:"position_y"`
+}
+
+// WorkflowStepInput defines model for WorkflowStepInput.
+type WorkflowStepInput struct {
+	ActionName    string                  `json:"action_name"`
+	Configuration *map[string]interface{} `json:"configuration,omitempty"`
+	ElseStep      *string                 `json:"else_step,omitempty"`
+	ErrorStep     *string                 `json:"error_step,omitempty"`
+	Name          string                  `json:"name"`
+	NextStep      *string                 `json:"next_step,omitempty"`
+	OnlyIf        *string                 `json:"only_if,omitempty"`
+	PositionX     *float32                `json:"position_x,omitempty"`
+	PositionY     *float32                `json:"position_y,omitempty"`
+}
+
+// WorkflowStepUpdateInput defines model for WorkflowStepUpdateInput.
+type WorkflowStepUpdateInput struct {
+	UnderscoreVersion string                  `json:"_version"`
+	ActionName        *string                 `json:"action_name,omitempty"`
+	Configuration     *map[string]interface{} `json:"configuration,omitempty"`
+	ElseStep          *string                 `json:"else_step,omitempty"`
+	ErrorStep         *string                 `json:"error_step,omitempty"`
+	NextStep          *string                 `json:"next_step,omitempty"`
+	OnlyIf            *string                 `json:"only_if,omitempty"`
+	PositionX         *float32                `json:"position_x,omitempty"`
+	PositionY         *float32                `json:"position_y,omitempty"`
+}
+
 // Cursor defines model for Cursor.
 type Cursor = string
 
@@ -507,6 +600,23 @@ type DeleteViewRowParams struct {
 	Version string `form:"version" json:"version"`
 }
 
+// CreateWorkflowJSONBody defines parameters for CreateWorkflow.
+type CreateWorkflowJSONBody struct {
+	Name string `json:"name"`
+}
+
+// UpdateWorkflowJSONBody defines parameters for UpdateWorkflow.
+type UpdateWorkflowJSONBody struct {
+	UnderscoreVersion string  `json:"_version"`
+	InitialStep       *string `json:"initial_step,omitempty"`
+	Name              *string `json:"name,omitempty"`
+}
+
+// RunWorkflowJSONBody defines parameters for RunWorkflow.
+type RunWorkflowJSONBody struct {
+	Context *map[string]interface{} `json:"context,omitempty"`
+}
+
 // SetActorLanguageJSONRequestBody defines body for SetActorLanguage for application/json ContentType.
 type SetActorLanguageJSONRequestBody SetActorLanguageJSONBody
 
@@ -533,6 +643,21 @@ type UpdateViewJSONRequestBody UpdateViewJSONBody
 
 // SubmitViewJSONRequestBody defines body for SubmitView for application/json ContentType.
 type SubmitViewJSONRequestBody = ViewSubmitInput
+
+// CreateWorkflowJSONRequestBody defines body for CreateWorkflow for application/json ContentType.
+type CreateWorkflowJSONRequestBody CreateWorkflowJSONBody
+
+// UpdateWorkflowJSONRequestBody defines body for UpdateWorkflow for application/json ContentType.
+type UpdateWorkflowJSONRequestBody UpdateWorkflowJSONBody
+
+// RunWorkflowJSONRequestBody defines body for RunWorkflow for application/json ContentType.
+type RunWorkflowJSONRequestBody RunWorkflowJSONBody
+
+// CreateWorkflowStepJSONRequestBody defines body for CreateWorkflowStep for application/json ContentType.
+type CreateWorkflowStepJSONRequestBody = WorkflowStepInput
+
+// UpdateWorkflowStepJSONRequestBody defines body for UpdateWorkflowStep for application/json ContentType.
+type UpdateWorkflowStepJSONRequestBody = WorkflowStepUpdateInput
 
 // Getter for additional properties for Response_Rows_Item. Returns the specified
 // element and whether it was found
@@ -956,6 +1081,104 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/bff/views/{id}/submit (the `SubmitView` operationId).
 	SubmitView(ctx context.Context, id Id, body SubmitViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListWorkflows Lista workflows do tenant (GO-048)
+	//
+	// Corresponds with GET /api/bff/workflows (the `ListWorkflows` operationId).
+	ListWorkflows(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateWorkflowWithBody Cria um workflow, sem passo inicial (GO-048)
+	//
+	// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createView.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/bff/workflows (the `CreateWorkflow` operationId).
+	CreateWorkflowWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateWorkflow Cria um workflow, sem passo inicial (GO-048)
+	//
+	// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createView.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/bff/workflows (the `CreateWorkflow` operationId).
+	CreateWorkflow(ctx context.Context, body CreateWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteWorkflow Remove um workflow e seus passos (GO-048)
+	//
+	// Corresponds with DELETE /api/bff/workflows/{id} (the `DeleteWorkflow` operationId).
+	DeleteWorkflow(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetWorkflow Reabre um workflow, com todos os seus passos (GO-048)
+	//
+	// Corresponds with GET /api/bff/workflows/{id} (the `GetWorkflow` operationId).
+	GetWorkflow(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateWorkflowWithBody Renomeia e/ou muda o passo inicial de um workflow (GO-048)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /api/bff/workflows/{id} (the `UpdateWorkflow` operationId).
+	UpdateWorkflowWithBody(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateWorkflow Renomeia e/ou muda o passo inicial de um workflow (GO-048)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /api/bff/workflows/{id} (the `UpdateWorkflow` operationId).
+	UpdateWorkflow(ctx context.Context, id Id, body UpdateWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RunWorkflowWithBody Compila, inicia e roda o workflow até o fim (GO-048)
+	//
+	// A prova ponta a ponta do critério de aceite de GO-048 — devolve o estado final síncrono (sem fila, sem polling). O BFF gera e propaga a Idempotency-Key: um duplo-clique no botão "Executar" do editor visual nunca inicia dois runs.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/bff/workflows/{id}/run (the `RunWorkflow` operationId).
+	RunWorkflowWithBody(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RunWorkflow Compila, inicia e roda o workflow até o fim (GO-048)
+	//
+	// A prova ponta a ponta do critério de aceite de GO-048 — devolve o estado final síncrono (sem fila, sem polling). O BFF gera e propaga a Idempotency-Key: um duplo-clique no botão "Executar" do editor visual nunca inicia dois runs.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/bff/workflows/{id}/run (the `RunWorkflow` operationId).
+	RunWorkflow(ctx context.Context, id Id, body RunWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateWorkflowStepWithBody Cria um passo novo no workflow (GO-048)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/bff/workflows/{id}/steps (the `CreateWorkflowStep` operationId).
+	CreateWorkflowStepWithBody(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateWorkflowStep Cria um passo novo no workflow (GO-048)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/bff/workflows/{id}/steps (the `CreateWorkflowStep` operationId).
+	CreateWorkflowStep(ctx context.Context, id Id, body CreateWorkflowStepJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteWorkflowStep Remove um passo (GO-048)
+	//
+	// Corresponds with DELETE /api/bff/workflows/{id}/steps/{stepId} (the `DeleteWorkflowStep` operationId).
+	DeleteWorkflowStep(ctx context.Context, id Id, stepId Id, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateWorkflowStepWithBody Reconfigura um passo, ou só reposiciona no canvas (GO-048)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /api/bff/workflows/{id}/steps/{stepId} (the `UpdateWorkflowStep` operationId).
+	UpdateWorkflowStepWithBody(ctx context.Context, id Id, stepId Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateWorkflowStep Reconfigura um passo, ou só reposiciona no canvas (GO-048)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /api/bff/workflows/{id}/steps/{stepId} (the `UpdateWorkflowStep` operationId).
+	UpdateWorkflowStep(ctx context.Context, id Id, stepId Id, body UpdateWorkflowStepJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // SetActorLanguageWithBody Define a preferência de idioma do ator autenticado (GO-047)
@@ -1370,6 +1593,244 @@ func (c *Client) SubmitViewWithBody(ctx context.Context, id Id, contentType stri
 // Corresponds with POST /api/bff/views/{id}/submit (the `SubmitView` operationId).
 func (c *Client) SubmitView(ctx context.Context, id Id, body SubmitViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSubmitViewRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListWorkflows Lista workflows do tenant (GO-048)
+//
+// Corresponds with GET /api/bff/workflows (the `ListWorkflows` operationId).
+func (c *Client) ListWorkflows(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListWorkflowsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateWorkflowWithBody Cria um workflow, sem passo inicial (GO-048)
+//
+// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createView.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/bff/workflows (the `CreateWorkflow` operationId).
+func (c *Client) CreateWorkflowWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateWorkflowRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateWorkflow Cria um workflow, sem passo inicial (GO-048)
+//
+// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createView.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/bff/workflows (the `CreateWorkflow` operationId).
+func (c *Client) CreateWorkflow(ctx context.Context, body CreateWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateWorkflowRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteWorkflow Remove um workflow e seus passos (GO-048)
+//
+// Corresponds with DELETE /api/bff/workflows/{id} (the `DeleteWorkflow` operationId).
+func (c *Client) DeleteWorkflow(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteWorkflowRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetWorkflow Reabre um workflow, com todos os seus passos (GO-048)
+//
+// Corresponds with GET /api/bff/workflows/{id} (the `GetWorkflow` operationId).
+func (c *Client) GetWorkflow(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetWorkflowRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateWorkflowWithBody Renomeia e/ou muda o passo inicial de um workflow (GO-048)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /api/bff/workflows/{id} (the `UpdateWorkflow` operationId).
+func (c *Client) UpdateWorkflowWithBody(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateWorkflowRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateWorkflow Renomeia e/ou muda o passo inicial de um workflow (GO-048)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /api/bff/workflows/{id} (the `UpdateWorkflow` operationId).
+func (c *Client) UpdateWorkflow(ctx context.Context, id Id, body UpdateWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateWorkflowRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RunWorkflowWithBody Compila, inicia e roda o workflow até o fim (GO-048)
+//
+// A prova ponta a ponta do critério de aceite de GO-048 — devolve o estado final síncrono (sem fila, sem polling). O BFF gera e propaga a Idempotency-Key: um duplo-clique no botão "Executar" do editor visual nunca inicia dois runs.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/bff/workflows/{id}/run (the `RunWorkflow` operationId).
+func (c *Client) RunWorkflowWithBody(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRunWorkflowRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RunWorkflow Compila, inicia e roda o workflow até o fim (GO-048)
+//
+// A prova ponta a ponta do critério de aceite de GO-048 — devolve o estado final síncrono (sem fila, sem polling). O BFF gera e propaga a Idempotency-Key: um duplo-clique no botão "Executar" do editor visual nunca inicia dois runs.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/bff/workflows/{id}/run (the `RunWorkflow` operationId).
+func (c *Client) RunWorkflow(ctx context.Context, id Id, body RunWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRunWorkflowRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateWorkflowStepWithBody Cria um passo novo no workflow (GO-048)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/bff/workflows/{id}/steps (the `CreateWorkflowStep` operationId).
+func (c *Client) CreateWorkflowStepWithBody(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateWorkflowStepRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateWorkflowStep Cria um passo novo no workflow (GO-048)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/bff/workflows/{id}/steps (the `CreateWorkflowStep` operationId).
+func (c *Client) CreateWorkflowStep(ctx context.Context, id Id, body CreateWorkflowStepJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateWorkflowStepRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteWorkflowStep Remove um passo (GO-048)
+//
+// Corresponds with DELETE /api/bff/workflows/{id}/steps/{stepId} (the `DeleteWorkflowStep` operationId).
+func (c *Client) DeleteWorkflowStep(ctx context.Context, id Id, stepId Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteWorkflowStepRequest(c.Server, id, stepId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateWorkflowStepWithBody Reconfigura um passo, ou só reposiciona no canvas (GO-048)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /api/bff/workflows/{id}/steps/{stepId} (the `UpdateWorkflowStep` operationId).
+func (c *Client) UpdateWorkflowStepWithBody(ctx context.Context, id Id, stepId Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateWorkflowStepRequestWithBody(c.Server, id, stepId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateWorkflowStep Reconfigura um passo, ou só reposiciona no canvas (GO-048)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /api/bff/workflows/{id}/steps/{stepId} (the `UpdateWorkflowStep` operationId).
+func (c *Client) UpdateWorkflowStep(ctx context.Context, id Id, stepId Id, body UpdateWorkflowStepJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateWorkflowStepRequest(c.Server, id, stepId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2125,6 +2586,377 @@ func NewSubmitViewRequestWithBody(server string, id Id, contentType string, body
 	return req, nil
 }
 
+// NewListWorkflowsRequest constructs an http.Request for the ListWorkflows method
+func NewListWorkflowsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/workflows")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateWorkflowRequest calls the generic CreateWorkflow builder with application/json body
+func NewCreateWorkflowRequest(server string, body CreateWorkflowJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateWorkflowRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateWorkflowRequestWithBody constructs an http.Request for the CreateWorkflow method, with any body, and a specified content type
+func NewCreateWorkflowRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/workflows")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteWorkflowRequest constructs an http.Request for the DeleteWorkflow method
+func NewDeleteWorkflowRequest(server string, id Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/workflows/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetWorkflowRequest constructs an http.Request for the GetWorkflow method
+func NewGetWorkflowRequest(server string, id Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/workflows/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateWorkflowRequest calls the generic UpdateWorkflow builder with application/json body
+func NewUpdateWorkflowRequest(server string, id Id, body UpdateWorkflowJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateWorkflowRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewUpdateWorkflowRequestWithBody constructs an http.Request for the UpdateWorkflow method, with any body, and a specified content type
+func NewUpdateWorkflowRequestWithBody(server string, id Id, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/workflows/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRunWorkflowRequest calls the generic RunWorkflow builder with application/json body
+func NewRunWorkflowRequest(server string, id Id, body RunWorkflowJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRunWorkflowRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewRunWorkflowRequestWithBody constructs an http.Request for the RunWorkflow method, with any body, and a specified content type
+func NewRunWorkflowRequestWithBody(server string, id Id, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/workflows/%s/run", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCreateWorkflowStepRequest calls the generic CreateWorkflowStep builder with application/json body
+func NewCreateWorkflowStepRequest(server string, id Id, body CreateWorkflowStepJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateWorkflowStepRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewCreateWorkflowStepRequestWithBody constructs an http.Request for the CreateWorkflowStep method, with any body, and a specified content type
+func NewCreateWorkflowStepRequestWithBody(server string, id Id, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/workflows/%s/steps", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteWorkflowStepRequest constructs an http.Request for the DeleteWorkflowStep method
+func NewDeleteWorkflowStepRequest(server string, id Id, stepId Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "stepId", stepId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/workflows/%s/steps/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateWorkflowStepRequest calls the generic UpdateWorkflowStep builder with application/json body
+func NewUpdateWorkflowStepRequest(server string, id Id, stepId Id, body UpdateWorkflowStepJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateWorkflowStepRequestWithBody(server, id, stepId, "application/json", bodyReader)
+}
+
+// NewUpdateWorkflowStepRequestWithBody constructs an http.Request for the UpdateWorkflowStep method, with any body, and a specified content type
+func NewUpdateWorkflowStepRequestWithBody(server string, id Id, stepId Id, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "stepId", stepId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/workflows/%s/steps/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -2362,6 +3194,112 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/bff/views/{id}/submit (the `SubmitView` operationId).
 	SubmitViewWithResponse(ctx context.Context, id Id, body SubmitViewJSONRequestBody, reqEditors ...RequestEditorFn) (*SubmitViewResponse, error)
+
+	// ListWorkflowsWithResponse Lista workflows do tenant (GO-048)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/bff/workflows (the `ListWorkflows` operationId).
+	ListWorkflowsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListWorkflowsResponse, error)
+
+	// CreateWorkflowWithBodyWithResponse Cria um workflow, sem passo inicial (GO-048)
+	//
+	// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createView.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/workflows (the `CreateWorkflow` operationId).
+	CreateWorkflowWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateWorkflowResponse, error)
+
+	// CreateWorkflowWithResponse Cria um workflow, sem passo inicial (GO-048)
+	//
+	// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createView.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/workflows (the `CreateWorkflow` operationId).
+	CreateWorkflowWithResponse(ctx context.Context, body CreateWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateWorkflowResponse, error)
+
+	// DeleteWorkflowWithResponse Remove um workflow e seus passos (GO-048)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/bff/workflows/{id} (the `DeleteWorkflow` operationId).
+	DeleteWorkflowWithResponse(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*DeleteWorkflowResponse, error)
+
+	// GetWorkflowWithResponse Reabre um workflow, com todos os seus passos (GO-048)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/bff/workflows/{id} (the `GetWorkflow` operationId).
+	GetWorkflowWithResponse(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*GetWorkflowResponse, error)
+
+	// UpdateWorkflowWithBodyWithResponse Renomeia e/ou muda o passo inicial de um workflow (GO-048)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/bff/workflows/{id} (the `UpdateWorkflow` operationId).
+	UpdateWorkflowWithBodyWithResponse(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateWorkflowResponse, error)
+
+	// UpdateWorkflowWithResponse Renomeia e/ou muda o passo inicial de um workflow (GO-048)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/bff/workflows/{id} (the `UpdateWorkflow` operationId).
+	UpdateWorkflowWithResponse(ctx context.Context, id Id, body UpdateWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateWorkflowResponse, error)
+
+	// RunWorkflowWithBodyWithResponse Compila, inicia e roda o workflow até o fim (GO-048)
+	//
+	// A prova ponta a ponta do critério de aceite de GO-048 — devolve o estado final síncrono (sem fila, sem polling). O BFF gera e propaga a Idempotency-Key: um duplo-clique no botão "Executar" do editor visual nunca inicia dois runs.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/workflows/{id}/run (the `RunWorkflow` operationId).
+	RunWorkflowWithBodyWithResponse(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RunWorkflowResponse, error)
+
+	// RunWorkflowWithResponse Compila, inicia e roda o workflow até o fim (GO-048)
+	//
+	// A prova ponta a ponta do critério de aceite de GO-048 — devolve o estado final síncrono (sem fila, sem polling). O BFF gera e propaga a Idempotency-Key: um duplo-clique no botão "Executar" do editor visual nunca inicia dois runs.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/workflows/{id}/run (the `RunWorkflow` operationId).
+	RunWorkflowWithResponse(ctx context.Context, id Id, body RunWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*RunWorkflowResponse, error)
+
+	// CreateWorkflowStepWithBodyWithResponse Cria um passo novo no workflow (GO-048)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/workflows/{id}/steps (the `CreateWorkflowStep` operationId).
+	CreateWorkflowStepWithBodyWithResponse(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateWorkflowStepResponse, error)
+
+	// CreateWorkflowStepWithResponse Cria um passo novo no workflow (GO-048)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/workflows/{id}/steps (the `CreateWorkflowStep` operationId).
+	CreateWorkflowStepWithResponse(ctx context.Context, id Id, body CreateWorkflowStepJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateWorkflowStepResponse, error)
+
+	// DeleteWorkflowStepWithResponse Remove um passo (GO-048)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/bff/workflows/{id}/steps/{stepId} (the `DeleteWorkflowStep` operationId).
+	DeleteWorkflowStepWithResponse(ctx context.Context, id Id, stepId Id, reqEditors ...RequestEditorFn) (*DeleteWorkflowStepResponse, error)
+
+	// UpdateWorkflowStepWithBodyWithResponse Reconfigura um passo, ou só reposiciona no canvas (GO-048)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/bff/workflows/{id}/steps/{stepId} (the `UpdateWorkflowStep` operationId).
+	UpdateWorkflowStepWithBodyWithResponse(ctx context.Context, id Id, stepId Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateWorkflowStepResponse, error)
+
+	// UpdateWorkflowStepWithResponse Reconfigura um passo, ou só reposiciona no canvas (GO-048)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /api/bff/workflows/{id}/steps/{stepId} (the `UpdateWorkflowStep` operationId).
+	UpdateWorkflowStepWithResponse(ctx context.Context, id Id, stepId Id, body UpdateWorkflowStepJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateWorkflowStepResponse, error)
 }
 
 type SetActorLanguageResponse struct {
@@ -3377,6 +4315,606 @@ func (r SubmitViewResponse) ContentType() string {
 	return ""
 }
 
+type ListWorkflowsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]Workflow
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListWorkflowsResponse) GetJSON200() *[]Workflow {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListWorkflowsResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r ListWorkflowsResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r ListWorkflowsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListWorkflowsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListWorkflowsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListWorkflowsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateWorkflowResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Workflow
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateWorkflowResponse) GetJSON201() *Workflow {
+	return r.JSON201
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateWorkflowResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateWorkflowResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r CreateWorkflowResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateWorkflowResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateWorkflowResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateWorkflowResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateWorkflowResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteWorkflowResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DeleteWorkflowResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DeleteWorkflowResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DeleteWorkflowResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r DeleteWorkflowResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteWorkflowResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteWorkflowResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteWorkflowResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteWorkflowResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetWorkflowResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Workflow
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetWorkflowResponse) GetJSON200() *Workflow {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetWorkflowResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetWorkflowResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r GetWorkflowResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r GetWorkflowResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetWorkflowResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetWorkflowResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetWorkflowResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateWorkflowResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Workflow
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateWorkflowResponse) GetJSON200() *Workflow {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UpdateWorkflowResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UpdateWorkflowResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r UpdateWorkflowResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r UpdateWorkflowResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateWorkflowResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateWorkflowResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateWorkflowResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateWorkflowResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RunWorkflowResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *WorkflowRun
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON422 the response for an HTTP 422 `application/json` response
+	JSON422 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RunWorkflowResponse) GetJSON200() *WorkflowRun {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RunWorkflowResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RunWorkflowResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RunWorkflowResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON422 returns the response for an HTTP 422 `application/json` response
+func (r RunWorkflowResponse) GetJSON422() *Error {
+	return r.JSON422
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r RunWorkflowResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r RunWorkflowResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RunWorkflowResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RunWorkflowResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RunWorkflowResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateWorkflowStepResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *WorkflowStep
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateWorkflowStepResponse) GetJSON201() *WorkflowStep {
+	return r.JSON201
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateWorkflowStepResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateWorkflowStepResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r CreateWorkflowStepResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r CreateWorkflowStepResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r CreateWorkflowStepResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateWorkflowStepResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateWorkflowStepResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateWorkflowStepResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateWorkflowStepResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteWorkflowStepResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DeleteWorkflowStepResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DeleteWorkflowStepResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DeleteWorkflowStepResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r DeleteWorkflowStepResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteWorkflowStepResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteWorkflowStepResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteWorkflowStepResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteWorkflowStepResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateWorkflowStepResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *WorkflowStep
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateWorkflowStepResponse) GetJSON200() *WorkflowStep {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UpdateWorkflowStepResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UpdateWorkflowStepResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r UpdateWorkflowStepResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r UpdateWorkflowStepResponse) GetJSON409() *Error {
+	return r.JSON409
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r UpdateWorkflowStepResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateWorkflowStepResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateWorkflowStepResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateWorkflowStepResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateWorkflowStepResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // SetActorLanguageWithBodyWithResponse Define a preferência de idioma do ator autenticado (GO-047)
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -3713,6 +5251,196 @@ func (c *ClientWithResponses) SubmitViewWithResponse(ctx context.Context, id Id,
 		return nil, err
 	}
 	return ParseSubmitViewResponse(rsp)
+}
+
+// ListWorkflowsWithResponse Lista workflows do tenant (GO-048)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/bff/workflows (the `ListWorkflows` operationId).
+func (c *ClientWithResponses) ListWorkflowsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListWorkflowsResponse, error) {
+	rsp, err := c.ListWorkflows(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListWorkflowsResponse(rsp)
+}
+
+// CreateWorkflowWithBodyWithResponse Cria um workflow, sem passo inicial (GO-048)
+//
+// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createView.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/workflows (the `CreateWorkflow` operationId).
+func (c *ClientWithResponses) CreateWorkflowWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateWorkflowResponse, error) {
+	rsp, err := c.CreateWorkflowWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateWorkflowResponse(rsp)
+}
+
+// CreateWorkflowWithResponse Cria um workflow, sem passo inicial (GO-048)
+//
+// O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createView.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/workflows (the `CreateWorkflow` operationId).
+func (c *ClientWithResponses) CreateWorkflowWithResponse(ctx context.Context, body CreateWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateWorkflowResponse, error) {
+	rsp, err := c.CreateWorkflow(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateWorkflowResponse(rsp)
+}
+
+// DeleteWorkflowWithResponse Remove um workflow e seus passos (GO-048)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/bff/workflows/{id} (the `DeleteWorkflow` operationId).
+func (c *ClientWithResponses) DeleteWorkflowWithResponse(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*DeleteWorkflowResponse, error) {
+	rsp, err := c.DeleteWorkflow(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteWorkflowResponse(rsp)
+}
+
+// GetWorkflowWithResponse Reabre um workflow, com todos os seus passos (GO-048)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/bff/workflows/{id} (the `GetWorkflow` operationId).
+func (c *ClientWithResponses) GetWorkflowWithResponse(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*GetWorkflowResponse, error) {
+	rsp, err := c.GetWorkflow(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetWorkflowResponse(rsp)
+}
+
+// UpdateWorkflowWithBodyWithResponse Renomeia e/ou muda o passo inicial de um workflow (GO-048)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/bff/workflows/{id} (the `UpdateWorkflow` operationId).
+func (c *ClientWithResponses) UpdateWorkflowWithBodyWithResponse(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateWorkflowResponse, error) {
+	rsp, err := c.UpdateWorkflowWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateWorkflowResponse(rsp)
+}
+
+// UpdateWorkflowWithResponse Renomeia e/ou muda o passo inicial de um workflow (GO-048)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/bff/workflows/{id} (the `UpdateWorkflow` operationId).
+func (c *ClientWithResponses) UpdateWorkflowWithResponse(ctx context.Context, id Id, body UpdateWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateWorkflowResponse, error) {
+	rsp, err := c.UpdateWorkflow(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateWorkflowResponse(rsp)
+}
+
+// RunWorkflowWithBodyWithResponse Compila, inicia e roda o workflow até o fim (GO-048)
+//
+// A prova ponta a ponta do critério de aceite de GO-048 — devolve o estado final síncrono (sem fila, sem polling). O BFF gera e propaga a Idempotency-Key: um duplo-clique no botão "Executar" do editor visual nunca inicia dois runs.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/workflows/{id}/run (the `RunWorkflow` operationId).
+func (c *ClientWithResponses) RunWorkflowWithBodyWithResponse(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RunWorkflowResponse, error) {
+	rsp, err := c.RunWorkflowWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRunWorkflowResponse(rsp)
+}
+
+// RunWorkflowWithResponse Compila, inicia e roda o workflow até o fim (GO-048)
+//
+// A prova ponta a ponta do critério de aceite de GO-048 — devolve o estado final síncrono (sem fila, sem polling). O BFF gera e propaga a Idempotency-Key: um duplo-clique no botão "Executar" do editor visual nunca inicia dois runs.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/workflows/{id}/run (the `RunWorkflow` operationId).
+func (c *ClientWithResponses) RunWorkflowWithResponse(ctx context.Context, id Id, body RunWorkflowJSONRequestBody, reqEditors ...RequestEditorFn) (*RunWorkflowResponse, error) {
+	rsp, err := c.RunWorkflow(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRunWorkflowResponse(rsp)
+}
+
+// CreateWorkflowStepWithBodyWithResponse Cria um passo novo no workflow (GO-048)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/workflows/{id}/steps (the `CreateWorkflowStep` operationId).
+func (c *ClientWithResponses) CreateWorkflowStepWithBodyWithResponse(ctx context.Context, id Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateWorkflowStepResponse, error) {
+	rsp, err := c.CreateWorkflowStepWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateWorkflowStepResponse(rsp)
+}
+
+// CreateWorkflowStepWithResponse Cria um passo novo no workflow (GO-048)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/workflows/{id}/steps (the `CreateWorkflowStep` operationId).
+func (c *ClientWithResponses) CreateWorkflowStepWithResponse(ctx context.Context, id Id, body CreateWorkflowStepJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateWorkflowStepResponse, error) {
+	rsp, err := c.CreateWorkflowStep(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateWorkflowStepResponse(rsp)
+}
+
+// DeleteWorkflowStepWithResponse Remove um passo (GO-048)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/bff/workflows/{id}/steps/{stepId} (the `DeleteWorkflowStep` operationId).
+func (c *ClientWithResponses) DeleteWorkflowStepWithResponse(ctx context.Context, id Id, stepId Id, reqEditors ...RequestEditorFn) (*DeleteWorkflowStepResponse, error) {
+	rsp, err := c.DeleteWorkflowStep(ctx, id, stepId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteWorkflowStepResponse(rsp)
+}
+
+// UpdateWorkflowStepWithBodyWithResponse Reconfigura um passo, ou só reposiciona no canvas (GO-048)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/bff/workflows/{id}/steps/{stepId} (the `UpdateWorkflowStep` operationId).
+func (c *ClientWithResponses) UpdateWorkflowStepWithBodyWithResponse(ctx context.Context, id Id, stepId Id, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateWorkflowStepResponse, error) {
+	rsp, err := c.UpdateWorkflowStepWithBody(ctx, id, stepId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateWorkflowStepResponse(rsp)
+}
+
+// UpdateWorkflowStepWithResponse Reconfigura um passo, ou só reposiciona no canvas (GO-048)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /api/bff/workflows/{id}/steps/{stepId} (the `UpdateWorkflowStep` operationId).
+func (c *ClientWithResponses) UpdateWorkflowStepWithResponse(ctx context.Context, id Id, stepId Id, body UpdateWorkflowStepJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateWorkflowStepResponse, error) {
+	rsp, err := c.UpdateWorkflowStep(ctx, id, stepId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateWorkflowStepResponse(rsp)
 }
 
 // ParseSetActorLanguageResponse parses an HTTP response from a SetActorLanguageWithResponse call
@@ -4492,6 +6220,477 @@ func ParseSubmitViewResponse(rsp *http.Response) (*SubmitViewResponse, error) {
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListWorkflowsResponse parses an HTTP response from a ListWorkflowsWithResponse call
+func ParseListWorkflowsResponse(rsp *http.Response) (*ListWorkflowsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListWorkflowsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []Workflow
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateWorkflowResponse parses an HTTP response from a CreateWorkflowWithResponse call
+func ParseCreateWorkflowResponse(rsp *http.Response) (*CreateWorkflowResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateWorkflowResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Workflow
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteWorkflowResponse parses an HTTP response from a DeleteWorkflowWithResponse call
+func ParseDeleteWorkflowResponse(rsp *http.Response) (*DeleteWorkflowResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteWorkflowResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetWorkflowResponse parses an HTTP response from a GetWorkflowWithResponse call
+func ParseGetWorkflowResponse(rsp *http.Response) (*GetWorkflowResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetWorkflowResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Workflow
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateWorkflowResponse parses an HTTP response from a UpdateWorkflowWithResponse call
+func ParseUpdateWorkflowResponse(rsp *http.Response) (*UpdateWorkflowResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateWorkflowResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Workflow
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRunWorkflowResponse parses an HTTP response from a RunWorkflowWithResponse call
+func ParseRunWorkflowResponse(rsp *http.Response) (*RunWorkflowResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RunWorkflowResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkflowRun
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateWorkflowStepResponse parses an HTTP response from a CreateWorkflowStepWithResponse call
+func ParseCreateWorkflowStepResponse(rsp *http.Response) (*CreateWorkflowStepResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateWorkflowStepResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest WorkflowStep
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteWorkflowStepResponse parses an HTTP response from a DeleteWorkflowStepWithResponse call
+func ParseDeleteWorkflowStepResponse(rsp *http.Response) (*DeleteWorkflowStepResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteWorkflowStepResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateWorkflowStepResponse parses an HTTP response from a UpdateWorkflowStepWithResponse call
+func ParseUpdateWorkflowStepResponse(rsp *http.Response) (*UpdateWorkflowStepResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateWorkflowStepResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkflowStep
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
 		var dest DomainUnavailable

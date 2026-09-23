@@ -654,3 +654,134 @@ test("identidade com tenant divergente é rejeitada pelo Go real (403 tenant_mis
     await mockGo.close();
   }
 });
+
+// GO-048: workflows — CRUD + execução ponta a ponta via o BFF, mesma
+// disciplina de sessão/CSRF/idempotência de tables/views.
+test("POST /api/bff/workflows sem CSRF é rejeitado (403 csrf_invalid)", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "42", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/workflows`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "onboarding" }),
+    });
+    assert.equal(res.status, 403);
+    const body = (await res.json()) as any;
+    assert.equal(body.error.code, "csrf_invalid");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("ciclo completo: criar workflow, criar 2 passos, marcar inicial, rodar até o fim (prova ponta a ponta do critério de aceite de GO-048)", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "42", "acme");
+    const headers = { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken };
+
+    const createRes = await fetch(`${baseUrl}/api/bff/workflows`, { method: "POST", headers, body: JSON.stringify({ name: "contagem" }) });
+    assert.equal(createRes.status, 201);
+    const wf = (await createRes.json()) as any;
+
+    const step1Res = await fetch(`${baseUrl}/api/bff/workflows/${wf.id}/steps`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "marcar_inicio", action_name: "set_context", configuration: { values: { started: true } }, next_step: "contar" }),
+    });
+    assert.equal(step1Res.status, 201);
+
+    const step2Res = await fetch(`${baseUrl}/api/bff/workflows/${wf.id}/steps`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "contar", action_name: "count_rows", configuration: { table: "books", output: "total" } }),
+    });
+    assert.equal(step2Res.status, 201);
+
+    const updateRes = await fetch(`${baseUrl}/api/bff/workflows/${wf.id}`, {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({ _version: wf._version, initial_step: "marcar_inicio" }),
+    });
+    assert.equal(updateRes.status, 200);
+
+    const getRes = await fetch(`${baseUrl}/api/bff/workflows/${wf.id}`, { headers: { Cookie: cookie } });
+    const got = (await getRes.json()) as any;
+    assert.equal(got.steps.length, 2);
+    assert.equal(got.initial_step, "marcar_inicio");
+
+    const runRes = await fetch(`${baseUrl}/api/bff/workflows/${wf.id}/run`, { method: "POST", headers, body: JSON.stringify({}) });
+    assert.equal(runRes.status, 200);
+    const run = (await runRes.json()) as any;
+    assert.equal(run.status, "finished");
+    assert.equal(run.context.started, true);
+    assert.equal(run.context.total, 3); // mockGoServer semeia 3 "records" (Dune/Foundation/Neuromancer)
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/workflows/:id/run duas vezes com o mesmo corpo não inicia dois runs (idempotência do BFF)", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "42", "acme");
+    const headers = { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken };
+
+    const createRes = await fetch(`${baseUrl}/api/bff/workflows`, { method: "POST", headers, body: JSON.stringify({ name: "vazio-nao" }) });
+    const wf = (await createRes.json()) as any;
+    await fetch(`${baseUrl}/api/bff/workflows/${wf.id}/steps`, {
+      method: "POST", headers,
+      body: JSON.stringify({ name: "unico", action_name: "set_context", configuration: { values: { ok: true } } }),
+    });
+    await fetch(`${baseUrl}/api/bff/workflows/${wf.id}`, {
+      method: "PATCH", headers, body: JSON.stringify({ _version: wf._version, initial_step: "unico" }),
+    });
+
+    const first = await fetch(`${baseUrl}/api/bff/workflows/${wf.id}/run`, { method: "POST", headers, body: JSON.stringify({}) });
+    const second = await fetch(`${baseUrl}/api/bff/workflows/${wf.id}/run`, { method: "POST", headers, body: JSON.stringify({}) });
+    const firstBody = (await first.json()) as any;
+    const secondBody = (await second.json()) as any;
+    assert.equal(firstBody.id, secondBody.id, "a segunda chamada com o mesmo corpo deveria devolver o MESMO run, nunca criar um novo");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/workflows/:id/run num workflow sem passo inicial propaga o 422 do Go", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "42", "acme");
+    const headers = { Cookie: cookie, "Content-Type": "application/json", [CSRF_HEADER_NAME]: csrfToken };
+    const createRes = await fetch(`${baseUrl}/api/bff/workflows`, { method: "POST", headers, body: JSON.stringify({ name: "sem-passo" }) });
+    const wf = (await createRes.json()) as any;
+    const runRes = await fetch(`${baseUrl}/api/bff/workflows/${wf.id}/run`, { method: "POST", headers, body: JSON.stringify({}) });
+    assert.equal(runRes.status, 422);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("DELETE /api/bff/workflows/:id/steps/:stepId sem sessão retorna 401", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, baseUrl } = await startBff(goUrl);
+  try {
+    const res = await fetch(`${baseUrl}/api/bff/workflows/1/steps/1`, { method: "DELETE" });
+    assert.equal(res.status, 401);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});

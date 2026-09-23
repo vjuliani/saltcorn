@@ -114,6 +114,44 @@ persistência assíncrona via `bffClient.setActorLanguage`. Detalhes
 completos em `migracao/backend/README.md` §"Internacionalização (i18n)
 da interface" e `docs/migracao-go/execucoes/GO-047.md`.
 
+## Editor visual de Workflow — `src/workflow/` (GO-048)
+
+`WorkflowEditorPage.tsx` porta o MECANISMO do editor legado
+(`packages/workflow-editor`, React Flow) usando `@xyflow/react` (o
+sucessor mantido da mesma biblioteca, dependência nova desta task) —
+canvas com um nó por passo + painel lateral nativo para configurar ação/
+condições/próximo passo, sem a infraestrutura de `showIf`/Monaco/HTML-
+do-servidor do legado (desnecessária para um catálogo de só 2 ações,
+`set_context`/`count_rows`). Conectar `next_step`/`else_step` é feito
+pelos seletores do painel (`nodesConnectable={false}` no canvas), não
+arrastando uma aresta — decisão documentada em
+`docs/migracao-go/execucoes/GO-048.md`.
+
+**Achado real, não do produto**: montar `<ReactFlow>` de verdade contra
+jsdom (Vitest) trava a suíte inteira — a biblioteca depende de medição
+real de layout via `ResizeObserver` com callback de verdade, que jsdom
+não fornece, entrando num laço de `requestAnimationFrame` que nunca
+estabiliza. Mesma decisão já tomada para o Craft.js em
+`BuilderPanel.test.tsx`: `@xyflow/react` é MOCKADO nos testes unitários
+(`test/WorkflowEditorPage.test.tsx`), isolando a lógica deste componente
+da biblioteca de canvas em si; o canvas real (arrastar nó, clicar,
+desenhar aresta visualmente) é coberto pelo E2E em navegador real
+(`migracao/e2e/tests/workflow.spec.ts`).
+
+**Bug real encontrado e corrigido nesta task** (não uma decisão de
+design, um laço infinito de verdade): `workflow?.steps ?? []` cria uma
+referência de array NOVA a cada render enquanto nenhum workflow está
+selecionado; como esse valor alimentava o `useMemo` de `nodes`
+(dependência `[steps, ...]`), o memo recalculava a cada render, o que
+por sua vez refazia um `useEffect` de sincronização com `renderedNodes`
+a cada render — um ciclo `render → useMemo → useEffect → setState → 
+render` sem fim, consumindo CPU indefinidamente (encontrado via
+instrumentação de contagem de render: ~2000 renders em 8 segundos antes
+do timeout do teste). Corrigido com uma constante `EMPTY_STEPS` estável
+em nível de módulo. Ver `docs/migracao-go/execucoes/GO-048.md` para a
+evidência completa (regressão deliberada: reintroduzir `[]` faz a
+mesma suíte travar de novo).
+
 ## Limitações desta entrega (deliberadas, não fabricadas)
 
 - **Topbar mínima**: a versão de `packages/saltcorn-sbadmin2/index.js` usada neste repositório não monta uma topbar completa (busca/dropdown de usuário) — só o botão de colapsar a sidebar. `Topbar.tsx` porta exatamente o que existe hoje, não uma topbar de SB Admin 2 genérica inventada sem essa referência real.

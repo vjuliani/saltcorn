@@ -44,6 +44,20 @@ type UpdateTablePermissionsResponse =
   InternalPaths["/v1/tenants/{tenant}/tables/{table}/permissions"]["patch"]["responses"]["200"]["content"]["application/json"];
 type SubmitViewResponse =
   InternalPaths["/v1/tenants/{tenant}/views/{id}/submit"]["post"]["responses"]["200"]["content"]["application/json"];
+type ListWorkflowsResponse =
+  InternalPaths["/v1/tenants/{tenant}/workflows"]["get"]["responses"]["200"]["content"]["application/json"];
+type CreateWorkflowResponse =
+  InternalPaths["/v1/tenants/{tenant}/workflows"]["post"]["responses"]["201"]["content"]["application/json"];
+type GetWorkflowResponse =
+  InternalPaths["/v1/tenants/{tenant}/workflows/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
+type UpdateWorkflowResponse =
+  InternalPaths["/v1/tenants/{tenant}/workflows/{id}"]["patch"]["responses"]["200"]["content"]["application/json"];
+type CreateWorkflowStepResponse =
+  InternalPaths["/v1/tenants/{tenant}/workflows/{id}/steps"]["post"]["responses"]["201"]["content"]["application/json"];
+type UpdateWorkflowStepResponse =
+  InternalPaths["/v1/tenants/{tenant}/workflows/{id}/steps/{stepId}"]["patch"]["responses"]["200"]["content"]["application/json"];
+type RunWorkflowResponse =
+  InternalPaths["/v1/tenants/{tenant}/workflows/{id}/run"]["post"]["responses"]["200"]["content"]["application/json"];
 
 export interface GoClientOptions {
   readonly baseUrl: string;
@@ -292,6 +306,133 @@ export class GoClient {
   async endImpersonation(serviceIdentityToken: string, tenant: string, logId: number): Promise<void> {
     const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/impersonations/${logId}/end`);
     await this.request<void>(url, { method: "POST", serviceIdentityToken });
+  }
+
+  // Workflows (GO-048) — CRUD da definição persistida + execução ponta a
+  // ponta. Mesma disciplina de idempotência de createView/updateView:
+  // toda mutação exige Idempotency-Key, calculada pelo chamador (o
+  // handler de app.ts, mesmo padrão de computeIdempotencyKey).
+  async listWorkflows(serviceIdentityToken: string, tenant: string): Promise<ListWorkflowsResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/workflows`);
+    return this.request<ListWorkflowsResponse>(url, { method: "GET", serviceIdentityToken });
+  }
+
+  async createWorkflow(
+    serviceIdentityToken: string,
+    idempotencyKey: string,
+    tenant: string,
+    input: { name: string }
+  ): Promise<CreateWorkflowResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/workflows`);
+    return this.request<CreateWorkflowResponse>(url, {
+      method: "POST",
+      serviceIdentityToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: input,
+    });
+  }
+
+  async getWorkflow(serviceIdentityToken: string, tenant: string, id: number): Promise<GetWorkflowResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/workflows/${id}`);
+    return this.request<GetWorkflowResponse>(url, { method: "GET", serviceIdentityToken });
+  }
+
+  async updateWorkflow(
+    serviceIdentityToken: string,
+    idempotencyKey: string,
+    tenant: string,
+    id: number,
+    input: { _version: string; name?: string; initial_step?: string }
+  ): Promise<UpdateWorkflowResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/workflows/${id}`);
+    return this.request<UpdateWorkflowResponse>(url, {
+      method: "PATCH",
+      serviceIdentityToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: input,
+    });
+  }
+
+  async deleteWorkflow(serviceIdentityToken: string, tenant: string, id: number): Promise<void> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/workflows/${id}`);
+    await this.request<void>(url, { method: "DELETE", serviceIdentityToken });
+  }
+
+  async createWorkflowStep(
+    serviceIdentityToken: string,
+    idempotencyKey: string,
+    tenant: string,
+    workflowId: number,
+    input: {
+      name: string;
+      action_name: string;
+      configuration?: Record<string, unknown>;
+      only_if?: string;
+      next_step?: string;
+      else_step?: string;
+      error_step?: string;
+      position_x?: number;
+      position_y?: number;
+    }
+  ): Promise<CreateWorkflowStepResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/workflows/${workflowId}/steps`);
+    return this.request<CreateWorkflowStepResponse>(url, {
+      method: "POST",
+      serviceIdentityToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: input,
+    });
+  }
+
+  async updateWorkflowStep(
+    serviceIdentityToken: string,
+    idempotencyKey: string,
+    tenant: string,
+    workflowId: number,
+    stepId: number,
+    input: {
+      _version: string;
+      action_name?: string;
+      configuration?: Record<string, unknown>;
+      only_if?: string;
+      next_step?: string;
+      else_step?: string;
+      error_step?: string;
+      position_x?: number;
+      position_y?: number;
+    }
+  ): Promise<UpdateWorkflowStepResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/workflows/${workflowId}/steps/${stepId}`);
+    return this.request<UpdateWorkflowStepResponse>(url, {
+      method: "PATCH",
+      serviceIdentityToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: input,
+    });
+  }
+
+  async deleteWorkflowStep(serviceIdentityToken: string, tenant: string, workflowId: number, stepId: number): Promise<void> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/workflows/${workflowId}/steps/${stepId}`);
+    await this.request<void>(url, { method: "DELETE", serviceIdentityToken });
+  }
+
+  // runWorkflow (GO-048) — a chamada síncrona que compila+inicia+roda até
+  // o fim, devolvendo o estado final. Idempotency-Key protege contra um
+  // duplo-clique no botão "Executar" iniciar dois runs.
+  async runWorkflow(
+    serviceIdentityToken: string,
+    idempotencyKey: string,
+    tenant: string,
+    id: number,
+    input: { context?: Record<string, unknown> }
+  ): Promise<RunWorkflowResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/workflows/${id}/run`);
+    return this.request<RunWorkflowResponse>(url, {
+      method: "POST",
+      serviceIdentityToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: input,
+    });
   }
 
   async updateTablePermissions(

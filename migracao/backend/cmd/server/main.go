@@ -80,6 +80,12 @@ const usersAdminRoute = "tenant_users_admin"
 const realtimeCapability = "realtime.events"
 const realtimeRoute = "tenant_realtime_events"
 
+// workflowsCapability (GO-048) identifica a capacidade de criar/ler/
+// editar/rodar workflows — também distinta de recordsCapability/
+// viewsCapability, pelo mesmo motivo granular de GO-009/GO-019.
+const workflowsCapability = "workflows"
+const workflowsRoute = "tenant_workflows"
+
 func main() {
 	cfg, err := config.Load()
 	logger := slog.New(telemetry.NewHandler(os.Stdout, cfg.LogLevel))
@@ -277,6 +283,40 @@ func main() {
 		mux.Handle("GET /v1/tenants/{tenant}/realtime/events",
 			tenancy.Middleware(verifier, telemetry.Middleware(realtimeRoute, httpMetrics,
 				cutover.RequireOwnership(guard, realtimeCapability, realtimeEventsHandler(tracker, db)))))
+
+		// GO-048: CRUD da definição de workflow (internal/workflow, novo
+		// nesta tarefa — até aqui só existia estado de EXECUÇÃO
+		// persistido, nunca a definição) + o endpoint de execução ponta a
+		// ponta que o editor visual usa. runWorkflowHandler reaproveita o
+		// MESMO evaluator já construído acima para o Dispatcher de
+		// triggers (GO-040).
+		mux.Handle("POST /v1/tenants/{tenant}/workflows",
+			tenancy.Middleware(verifier, telemetry.Middleware(workflowsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, workflowsCapability, createWorkflowHandler(tracker, db)))))
+		mux.Handle("GET /v1/tenants/{tenant}/workflows",
+			tenancy.Middleware(verifier, telemetry.Middleware(workflowsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, workflowsCapability, listWorkflowsHandler(tracker, db)))))
+		mux.Handle("GET /v1/tenants/{tenant}/workflows/{id}",
+			tenancy.Middleware(verifier, telemetry.Middleware(workflowsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, workflowsCapability, getWorkflowHandler(tracker, db)))))
+		mux.Handle("PATCH /v1/tenants/{tenant}/workflows/{id}",
+			tenancy.Middleware(verifier, telemetry.Middleware(workflowsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, workflowsCapability, updateWorkflowHandler(tracker, db)))))
+		mux.Handle("DELETE /v1/tenants/{tenant}/workflows/{id}",
+			tenancy.Middleware(verifier, telemetry.Middleware(workflowsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, workflowsCapability, deleteWorkflowHandler(tracker, db)))))
+		mux.Handle("POST /v1/tenants/{tenant}/workflows/{id}/steps",
+			tenancy.Middleware(verifier, telemetry.Middleware(workflowsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, workflowsCapability, createStepHandler(tracker, db)))))
+		mux.Handle("PATCH /v1/tenants/{tenant}/workflows/{id}/steps/{stepId}",
+			tenancy.Middleware(verifier, telemetry.Middleware(workflowsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, workflowsCapability, updateStepHandler(tracker, db)))))
+		mux.Handle("DELETE /v1/tenants/{tenant}/workflows/{id}/steps/{stepId}",
+			tenancy.Middleware(verifier, telemetry.Middleware(workflowsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, workflowsCapability, deleteStepHandler(tracker, db)))))
+		mux.Handle("POST /v1/tenants/{tenant}/workflows/{id}/run",
+			tenancy.Middleware(verifier, telemetry.Middleware(workflowsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, workflowsCapability, runWorkflowHandler(tracker, db, evaluator)))))
 
 		// GO-044: administração de usuários — a superfície de
 		// auth/admin.ts do legado (ver docs/migracao-go/execucoes/GO-044.md

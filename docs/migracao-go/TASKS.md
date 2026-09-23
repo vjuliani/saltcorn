@@ -937,13 +937,13 @@ Execute a task GO-047 — Portar internacionalização (i18n) da interface, de d
 
 ### GO-048 — Portar editor visual de Workflow
 
-- [ ] **Status:** TODO
+- [x] **Status:** IN_REVIEW
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Frontend
 - **Depende de:** GO-018, GO-024
 - **Branch:** `task/go-048`
-- **Escopo:** Portar a UI de autoria de grafos de workflow (CAP-076: nós/arestas/condições, hoje `packages/workflow-editor` em React Flow) para o frontend novo, produzindo/editando a mesma definição que `internal/workflow` (GO-024) já executa — sem esta UI, o motor de workflow existe mas ninguém consegue autorar um workflow novo.
-- **Aceite:** Um usuário cria/edita um workflow visualmente no frontend novo (React) e o resultado é executado de ponta a ponta por `internal/workflow`; GO-033 (CAP-076) reclassificado de NÃO LISTADA para PASS/PARTIAL.
+- **Escopo:** Portar a UI de autoria de grafos de workflow (CAP-076: nós/arestas/condições, hoje `packages/workflow-editor` em React Flow) para o frontend novo, produzindo/editando a mesma definição que `internal/workflow` (GO-024) já executa — sem esta UI, o motor de workflow existe mas ninguém consegue autorar um workflow novo. **Emendado na execução (2026-09-22, achado de preflight):** `internal/workflow` (GO-024) só tinha estado de EXECUÇÃO persistido, nunca a DEFINIÇÃO — sem isso o próprio Aceite desta task era impossível de cumprir. Absorvido: `_sc_workflows`/`_sc_workflow_steps` (schema novo), `Compile` (liga definição persistida a `Definition` executável), catálogo de ações restrito a `set_context`/`count_rows` (efeitos internos puros — `send_email`/`webhook` ficam fora, razão documentada em execucoes/GO-048.md), CRUD HTTP completo + endpoint de execução síncrona.
+- **Aceite:** Um usuário cria/edita um workflow visualmente no frontend novo (React) e o resultado é executado de ponta a ponta por `internal/workflow` (confirmado ponta a ponta em navegador real: criar 2 passos, ligar por next_step, marcar inicial, rodar, contexto final observável, definição sobrevive a reload); GO-033 (CAP-076) reclassificado de NÃO LISTADA para PASS PARCIAL com lacuna explícita (ramificação binária não N-vias, catálogo de 2 ações, sem geração por IA/sub-workflow/tipos de passo que pausam execução/node type de ForLoop, documentado).
 - **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
 - **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
 - **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-048; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.

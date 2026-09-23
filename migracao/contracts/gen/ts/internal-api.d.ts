@@ -255,6 +255,137 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant}/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Query: lista workflows do tenant
+         * @description Adicionado por GO-048 — o editor visual de workflow precisa enumerar o que existe antes de abrir um específico. Só um ator admin pode listar (workflow é um artefato de automação interno, sem o conceito de "publicado" que View tem).
+         */
+        get: operations["listWorkflows"];
+        put?: never;
+        /**
+         * Command: cria um workflow (sem passo inicial)
+         * @description Adicionado por GO-048 — nasce vazio; o editor visual cria passos (createWorkflowStep) e depois marca um deles como `initial_step` (updateWorkflow) antes de o workflow poder ser executado. Idempotente por Idempotency-Key.
+         */
+        post: operations["createWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/workflows/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Query: reabre um workflow, com todos os seus passos
+         * @description Devolve o workflow COM `steps` preenchido — o editor visual desenha o grafo inteiro a partir de uma única chamada, sem uma segunda requisição por passo.
+         */
+        get: operations["getWorkflow"];
+        put?: never;
+        post?: never;
+        /**
+         * Command: remove um workflow e seus passos
+         * @description Remove `_sc_workflow_steps` em cascata; NUNCA as execuções já feitas (`_sc_workflow_runs`/trace são histórico independente, sobrevivem à remoção do workflow que os originou).
+         */
+        delete: operations["deleteWorkflow"];
+        options?: never;
+        head?: never;
+        /**
+         * Command: renomeia e/ou muda o passo inicial de um workflow
+         * @description Exige `_version` (controle de concorrência otimista, mesma disciplina de updateView) — 409 se o workflow mudou desde a leitura. Definir `initial_step` para um nome que ainda não existe como passo é permitido aqui; a checagem de que o passo existe de fato só acontece ao rodar (runWorkflow devolve 422 nesse caso). Idempotente por Idempotency-Key.
+         */
+        patch: operations["updateWorkflow"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/workflows/{id}/steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: cria um passo novo no workflow
+         * @description O editor visual chama isto quando o usuário solta um nó novo no canvas. Não valida se `action_name` está registrada em nenhum catálogo — essa checagem só acontece ao rodar (runWorkflow devolve 422 para uma ação desconhecida). Idempotente por Idempotency-Key.
+         */
+        post: operations["createWorkflowStep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/workflows/{id}/steps/{stepId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+                stepId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Command: remove um passo
+         * @description Não reescreve automaticamente `next_step`/`else_step` de outros passos que apontavam para este — o editor visual é responsável por atualizar essas arestas antes/depois de remover um nó.
+         */
+        delete: operations["deleteWorkflowStep"];
+        options?: never;
+        head?: never;
+        /**
+         * Command: reconfigura um passo, ou só reposiciona no canvas
+         * @description A mesma operação serve para reconfigurar a ação/condição de um passo E para só persistir `position_x`/`position_y` — o editor visual chama isto a cada drag-and-drop solto no canvas, com só as posições no corpo. Exige `_version`. Idempotente por Idempotency-Key.
+         */
+        patch: operations["updateWorkflowStep"];
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/workflows/{id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: compila, inicia e roda o workflow até o fim
+         * @description A prova ponta a ponta do critério de aceite de GO-048: compila a definição persistida (`_sc_workflow_steps`), inicia um run (`_sc_workflow_runs`) e roda até o fim (ou um limite de segurança de passos, contra um grafo com ciclo infinito), devolvendo o estado final síncrono — sem fila, sem polling. Idempotente por Idempotency-Key: um retry de rede da MESMA chamada nunca inicia um SEGUNDO run, devolve o run já criado (possivelmente já concluído). `context` inicial é opcional (default `{}`).
+         */
+        post: operations["runWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tenants/{tenant}/users": {
         parameters: {
             query?: never;
@@ -632,6 +763,93 @@ export interface components {
                 [key: string]: unknown;
             };
             _version: string;
+        };
+        WorkflowInput: {
+            name: string;
+        };
+        WorkflowUpdateInput: {
+            _version: string;
+            name?: string;
+            /** @description Nome de um passo já existente neste workflow (não validado aqui — só ao rodar). */
+            initial_step?: string;
+        };
+        Workflow: {
+            id: components["schemas"]["Id"];
+            name: string;
+            /** @description Nome do passo por onde a execução começa — vazio ("") significa que o workflow ainda não pode ser rodado (422 em runWorkflow). */
+            initial_step: string;
+            _version: string;
+            /** @description Presente apenas em getWorkflow (ausente em createWorkflow/updateWorkflow/listWorkflows). */
+            steps?: components["schemas"]["WorkflowStep"][];
+        };
+        WorkflowStepInput: {
+            name: string;
+            /** @description Nome de uma ação do catálogo nativo (ex.: "set_context", "count_rows") — não validado na criação, só ao rodar. */
+            action_name: string;
+            /** @description Parâmetros próprios da ação (ex.: `values` para set_context; `table`/`output` para count_rows). */
+            configuration?: {
+                [key: string]: unknown;
+            };
+            /** @description Fórmula opcional — "" significa "sempre roda". */
+            only_if?: string;
+            /** @description Nome do próximo passo quando este RODA — "" marca o último passo. */
+            next_step?: string;
+            /** @description Nome do próximo passo quando `only_if` está presente e é falso — "" finaliza o run (nunca "segue para next_step mesmo assim"). */
+            else_step?: string;
+            /** @description Para onde desviar se a ação falhar — "" marca o run inteiro como erro. */
+            error_step?: string;
+            position_x?: number;
+            position_y?: number;
+        };
+        WorkflowStepUpdateInput: {
+            _version: string;
+            action_name?: string;
+            configuration?: {
+                [key: string]: unknown;
+            };
+            only_if?: string;
+            next_step?: string;
+            else_step?: string;
+            error_step?: string;
+            position_x?: number;
+            position_y?: number;
+        };
+        WorkflowStep: {
+            id: components["schemas"]["Id"];
+            name: string;
+            action_name: string;
+            configuration: {
+                [key: string]: unknown;
+            };
+            only_if: string;
+            next_step: string;
+            else_step: string;
+            error_step: string;
+            position_x: number;
+            position_y: number;
+            _version: string;
+        };
+        WorkflowRunInput: {
+            /** @description Contexto inicial do run — default {} quando ausente. */
+            context?: {
+                [key: string]: unknown;
+            };
+        };
+        WorkflowRun: {
+            id: components["schemas"]["Id"];
+            name: string;
+            /**
+             * @description Numa resposta 200 é sempre "finished" ou "error" — um run que não termina dentro do limite de passos vira 502, nunca um 200 com status "running".
+             * @enum {string}
+             */
+            status: "running" | "finished" | "error";
+            current_step: string;
+            step_seq: number;
+            /** @description Contexto final — números passam por um round-trip JSON (ver docs/migracao-go/execucoes/GO-048.md), nunca presuma um tipo Go específico no cliente. */
+            context: {
+                [key: string]: unknown;
+            };
+            error?: string;
         };
         /** @description Uma coluna de uma view "List" (GO-020, estendida em GO-039) — três variantes discriminadas por `kind`: "field" (campo direto, `field_name` é o nome do campo), "join_field" (campo trazido por join de um nível, `field_name` é a chave composta "<campo_local>__<campo_remoto>" — a MESMA chave usada em `rows`), "action" (ação de coluna, ex.: "Delete" — não tem `field_name`, só `action_name`). */
         ViewRenderColumn: {
@@ -1593,6 +1811,444 @@ export interface operations {
             };
             /** @description view existe, mas não declara uma ação de coluna "Delete" */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listWorkflows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description workflows do tenant, em ordem de criação */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createWorkflow: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowInput"];
+            };
+        };
+        responses: {
+            /** @description workflow criado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["IdempotencyConflict"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description workflow encontrado, com seus passos */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description workflow não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description workflow removido */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description workflow não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateWorkflow: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description workflow atualizado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description conflito de versão otimista ou de idempotência */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    createWorkflowStep: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepInput"];
+            };
+        };
+        responses: {
+            /** @description passo criado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowStep"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description workflow não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description nome de passo duplicado neste workflow, ou conflito de idempotência */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteWorkflowStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+                stepId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description passo removido */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description passo não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    updateWorkflowStep: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+                stepId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description passo atualizado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowStep"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description passo não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description conflito de versão otimista ou de idempotência */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    runWorkflow: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["WorkflowRunInput"];
+            };
+        };
+        responses: {
+            /** @description execução concluída (Status "finished" ou "error" — um erro de DOMÍNIO durante um passo, ex. tabela inexistente em count_rows, aparece aqui como Status "error" + `error`, nunca como falha HTTP). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description workflow não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            409: components["responses"]["IdempotencyConflict"];
+            /** @description workflow sem passo inicial, ou definição com ação/passo desconhecido */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description o grafo não terminou dentro do limite de segurança de passos (provável ciclo sem condição de parada) */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };
