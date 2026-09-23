@@ -955,3 +955,92 @@ compartilha o mesmo usuário/tenant entre Chromium e Firefox — a
 preferência de idioma persistida por um navegador vazava para o
 próximo, corrigido limpando a preferência antes/depois do teste
 dedicado. Detalhes completos em `docs/migracao-go/execucoes/GO-047.md`.
+
+## Editor visual de Workflow (GO-048)
+
+**Achado central do preflight**: `internal/workflow` (GO-024) só tinha
+estado de EXECUÇÃO persistido (`_sc_workflow_runs`/`_sc_workflow_trace`)
+— a `Definition` (grafo de passos) era montada em código Go compilado,
+nunca lida do banco (ver comentário de `definition.go`, que já apontava
+isso como escopo de "uma tarefa futura"). Sem uma definição persistida,
+o próprio critério de aceite de GO-048 ("um usuário cria/edita um
+workflow visualmente... e o resultado é executado de ponta a ponta") era
+impossível de cumprir — esta task teve que absorver esse trabalho de
+backend antes de qualquer UI, uma expansão de escopo real, não tangencial.
+
+- **`_sc_workflows`/`_sc_workflow_steps`** (novo) — a definição
+  persistida, um passo por linha, com `only_if`/`next_step`/`else_step`/
+  `error_step` espelhando exatamente os campos homônimos de `Step`
+  (`definition.go`) e `position_x`/`position_y` só para o layout do
+  canvas (nunca lido por `Compile`). `Workflow` é uma tabela PRÓPRIA, não
+  uma reutilização de `_sc_triggers` (que exige `table_id NOT NULL` — o
+  legado hospedava workflows num `Trigger` com `when_trigger` "API call"/
+  "Never", um conceito que não existe no catálogo Go de triggers hoje).
+- **`Compile`** (`internal/workflow/store.go`) — a ponte que faltava
+  entre `_sc_workflow_steps` (dado) e `Definition` (código): resolve
+  cada `action_name` num catálogo de `ActionBuilder`s, monta os `Step`s,
+  devolve a `Definition` pronta para `Start`/`Advance`/`RunToCompletion`
+  (todos de GO-024, INTOCADOS — nenhuma mudança no motor de execução).
+- **Catálogo de ações** (`actions.go`) — deliberadamente restrito a
+  efeitos INTERNOS: `set_context` (mescla um objeto JSON literal no
+  contexto, puro) e `count_rows` (conta linhas de uma tabela do tenant
+  via `internal/metadata.GetTable`, leitura pura). `send_email`/`webhook`
+  (o catálogo de `internal/triggers`, GO-029) ficam FORA: `StepFunc`
+  recebe só `(ctx, tx, wfContext)`, sem `runID` — a chave de idempotência
+  do enfileiramento em `internal/notify` precisa ser única POR EXECUÇÃO,
+  e derivar isso sem `runID` exigiria injetar um token sintético só para
+  essa finalidade, uma complexidade não exigida pelo critério de aceite
+  (que não depende de efeito externo observável).
+- **Ramificação binária, nunca a expressão N-vias do legado** — o motor
+  Go só executa `Next`/`Else` conforme `OnlyIf` (`run.go`, decisão já
+  tomada em GO-024); o editor visual nunca oferece uma condição que o
+  motor não executaria.
+- **HTTP** (`cmd/server/workflow.go`) — CRUD completo + `POST
+  .../workflows/{id}/run` (compila, inicia e roda até o fim numa única
+  chamada síncrona, sem fila/polling — a prova ponta a ponta do critério
+  de aceite). `run` é idempotente por `Idempotency-Key` só na etapa de
+  `Start` (compilar+iniciar); a definição é compilada DUAS vezes (uma
+  dentro da transação idempotente, outra fora para alimentar
+  `RunToCompletion`, que abre suas próprias transações por passo) —
+  `Compile` é leitura pura e barata, mais simples e correto do que tentar
+  serializar uma `Definition` (que contém closures Go) através da
+  fronteira do outbox.
+- **Frontend** (`migracao/packages/frontend/src/workflow/
+  WorkflowEditorPage.tsx`) — canvas `@xyflow/react` (o sucessor mantido
+  do React Flow do editor legado) + painel lateral nativo (sem a
+  infraestrutura de `showIf`/Monaco/HTML-do-servidor do legado — o
+  catálogo de 2 ações desta entrega não precisa de formulário dinâmico
+  genérico). Conectar `next_step`/`else_step` é feito pelos seletores do
+  painel, não arrastando uma aresta (`nodesConnectable={false}`) — sem
+  ambiguidade sobre qual handle uma conexão arrastada representaria.
+
+**Deliberadamente fora de escopo, documentado**: geração de workflow por
+IA (`copilot_generate_workflow`, plugin+LLM), workflow como ação de outro
+workflow (sub-workflow — já excluído em GO-024), o catálogo de ~14 ações
+builtin + ações de plugin do legado além de `set_context`/`count_rows`,
+tipos de passo que pausam execução (`UserForm`, `WaitUntil` etc. — sem
+suporte a status "Waiting" no motor Go), e um node type dedicado para
+`ForLoop` (um loop é só uma aresta comum apontando para um passo anterior
+— o motor já suporta isso nativamente).
+
+**Achados reais corrigidos durante a execução** (não são bugs de
+produto, são lacunas de bootstrap de teste/E2E — mesma classe já vista
+em GO-040/045/047): (1) `cmd/cli/e2eseed.go` e as fixtures HTTP de
+`cmd/server` não chamavam `workflow.EnsureSchema`; (2) `cmd/cli/
+e2eseed.go` registrava ownership de Go só para
+`["tables.records", "tables.schema", "tables.views"]` — a nova
+capability `"workflows"` não estava na lista, e sem registro explícito
+`cutover.RequireOwnership` falha FECHADO por padrão (nunca aberto):
+toda rota de workflow devolvia 409 imediatamente no E2E até a correção.
+
+**Verificação de regressão deliberada**: `UpdateStep` sem o `AND
+xmin::text = $N` na cláusula `WHERE` (Go — o teste de conflito de versão
+de passo falha de verdade, `<nil>` em vez de `ErrVersionConflict`); a
+chave de idempotência de `runWorkflow` sem o escopo fixo (BFF — duas
+chamadas com o mesmo corpo criam DOIS runs, `1 !== 2`); e um laço
+infinito real encontrado no frontend (`workflow?.steps ?? []` criando uma
+referência nova a cada render enquanto nenhum workflow está selecionado,
+alimentando um ciclo `useMemo`→`useEffect`→`setState` sem fim — corrigido
+com uma constante `EMPTY_STEPS` estável). Detalhes completos, com
+comandos e evidência de falha genuína, em
+`docs/migracao-go/execucoes/GO-048.md`.

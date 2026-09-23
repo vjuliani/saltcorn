@@ -14,6 +14,7 @@ import { Shell } from "./components/Shell";
 import { BuilderPanel, MOCK_BUILDER_LAYOUT, MOCK_BUILDER_OPTIONS } from "./builder/BuilderPanel";
 import { EditorPage } from "./editor/EditorPage";
 import { ViewsListPage } from "./render/ViewsListPage";
+import { WorkflowEditorPage } from "./workflow/WorkflowEditorPage";
 import { BffClient, readCsrfCookie } from "./bffClient";
 import { I18nProvider } from "./i18n/I18nContext";
 import type { MenuSection } from "./types/menu";
@@ -47,6 +48,10 @@ const DEMO_SECTIONS: MenuSection[] = [
     section: "Views",
     items: [{ label: "Views", link: "/views", icon: "table" }],
   },
+  {
+    section: "Workflows",
+    items: [{ label: "Workflows", link: "/workflows", icon: "table" }],
+  },
 ];
 
 // Mesmo padrão de baseUrl relativo de goClient.ts/BFF: em produção, o
@@ -62,6 +67,7 @@ export function App() {
   const [showBuilder, setShowBuilder] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
   const [showViews, setShowViews] = useState(false);
+  const [showWorkflows, setShowWorkflows] = useState(false);
   // "pt" até o bootstrap real responder — mesmo fallback final que o BFF
   // usa (defaultLocaleDefault, GO-047), nunca uma tela em branco
   // esperando a rede.
@@ -114,14 +120,18 @@ export function App() {
         <button type="button" className="btn btn-secondary mb-3 me-2" onClick={() => setShowEditor((s) => !s)}>
           {showEditor ? "Esconder editor conectado" : "Abrir editor (conectado ao BFF)"}
         </button>
-        <button type="button" className="btn btn-outline-primary mb-3" onClick={() => setShowViews((s) => !s)}>
+        <button type="button" className="btn btn-outline-primary mb-3 me-2" onClick={() => setShowViews((s) => !s)}>
           {showViews ? "Esconder views" : "Ver views (SB Admin 2)"}
+        </button>
+        <button type="button" className="btn btn-outline-secondary mb-3" onClick={() => setShowWorkflows((s) => !s)}>
+          {showWorkflows ? "Esconder workflows" : "Editor de workflows"}
         </button>
         {showBuilder && (
           <BuilderPanel layout={MOCK_BUILDER_LAYOUT} options={MOCK_BUILDER_OPTIONS} mode="page" />
         )}
         {showEditor && <EditorPage bffClient={bffClient} />}
         {showViews && <ViewsListPage bffClient={bffClient} />}
+        {showWorkflows && <WorkflowEditorPage bffClient={bffClient} />}
       </Shell>
     </I18nProvider>
   );

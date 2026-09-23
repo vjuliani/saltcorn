@@ -247,6 +247,113 @@ export function buildRouter(deps: AppDeps): Router {
     sendJSON(res, 200, updated);
   });
 
+  // Workflows (GO-048) — CRUD da definição persistida + execução ponta a
+  // ponta, mesmo padrão de idempotência de tables/views: o BFF calcula
+  // a Idempotency-Key a partir de (usuário, tenant, escopo, corpo), o
+  // editor visual nunca precisa gerar/gerenciar uma chave própria.
+  router.get("/api/bff/workflows", async (req, res) => {
+    const { data } = await requireSession(req, sessionStore);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const list = await goClient.listWorkflows(token, data.tenant);
+    sendJSON(res, 200, list);
+  });
+
+  router.post("/api/bff/workflows", async (req, res) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const idempotencyKey = computeIdempotencyKey(data.userId, data.tenant, "workflows", body);
+    const created = await goClient.createWorkflow(token, idempotencyKey, data.tenant, body as { name: string });
+    sendJSON(res, 201, created);
+  });
+
+  router.get("/api/bff/workflows/:id", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const wf = await goClient.getWorkflow(token, data.tenant, Number(params.id));
+    sendJSON(res, 200, wf);
+  });
+
+  router.patch("/api/bff/workflows/:id", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const idempotencyKey = computeIdempotencyKey(data.userId, data.tenant, "workflows/" + params.id, body);
+    const updated = await goClient.updateWorkflow(
+      token,
+      idempotencyKey,
+      data.tenant,
+      Number(params.id),
+      body as { _version: string; name?: string; initial_step?: string }
+    );
+    sendJSON(res, 200, updated);
+  });
+
+  router.delete("/api/bff/workflows/:id", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    await goClient.deleteWorkflow(token, data.tenant, Number(params.id));
+    res.writeHead(204);
+    res.end();
+  });
+
+  router.post("/api/bff/workflows/:id/steps", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const idempotencyKey = computeIdempotencyKey(data.userId, data.tenant, "workflows/" + params.id + "/steps", body);
+    const created = await goClient.createWorkflowStep(
+      token,
+      idempotencyKey,
+      data.tenant,
+      Number(params.id),
+      body as { name: string; action_name: string }
+    );
+    sendJSON(res, 201, created);
+  });
+
+  router.patch("/api/bff/workflows/:id/steps/:stepId", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const idempotencyKey = computeIdempotencyKey(data.userId, data.tenant, "workflows/" + params.id + "/steps/" + params.stepId, body);
+    const updated = await goClient.updateWorkflowStep(
+      token,
+      idempotencyKey,
+      data.tenant,
+      Number(params.id),
+      Number(params.stepId),
+      body as { _version: string }
+    );
+    sendJSON(res, 200, updated);
+  });
+
+  router.delete("/api/bff/workflows/:id/steps/:stepId", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    await goClient.deleteWorkflowStep(token, data.tenant, Number(params.id), Number(params.stepId));
+    res.writeHead(204);
+    res.end();
+  });
+
+  // runWorkflow (GO-048) — a chamada síncrona do botão "Executar" do
+  // editor visual, a prova ponta a ponta do critério de aceite da task.
+  router.post("/api/bff/workflows/:id/run", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const body = await readJSONBody(req);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const idempotencyKey = computeIdempotencyKey(data.userId, data.tenant, "workflows/" + params.id + "/run", body);
+    const run = await goClient.runWorkflow(token, idempotencyKey, data.tenant, Number(params.id), body as { context?: Record<string, unknown> });
+    sendJSON(res, 200, run);
+  });
+
   // Administração de usuário (GO-044) — a UI de `auth/admin.ts` do
   // legado. Autorização "é admin?" fica quase toda do lado Go
   // (identity.requireAdmin, 403 se não for) — o BFF só propaga; a única

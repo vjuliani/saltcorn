@@ -149,3 +149,20 @@ fluxo futuro sem usuário logado). Detalhes completos, incluindo o
 levantamento de escopo do mecanismo do legado, em
 `migracao/backend/README.md` §"Internacionalização (i18n) da interface"
 e `docs/migracao-go/execucoes/GO-047.md`.
+
+## Workflows — proxy tipado (GO-048)
+
+`goClient.ts` ganhou `listWorkflows`/`createWorkflow`/`getWorkflow`/
+`updateWorkflow`/`deleteWorkflow`/`createWorkflowStep`/
+`updateWorkflowStep`/`deleteWorkflowStep`/`runWorkflow`, e `app.ts`
+registrou as rotas `/api/bff/workflows*` correspondentes — mesmo padrão
+de idempotência de `tables`/`views` (`computeIdempotencyKey` a partir de
+ator+tenant+escopo+corpo, calculada aqui, nunca pelo cliente). `runWorkflow`
+merece nota: a chave de idempotência protege só a etapa de INICIAR o run
+(`workflows/{id}/run`) — um duplo-clique no botão "Executar" do editor
+visual nunca cria dois runs, confirmado por teste dedicado em
+`test/app.test.ts` (criar → rodar duas vezes com o mesmo corpo → mesmo
+`run.id` de volta). Detalhes completos, incluindo por que o motor Go só
+suporta um catálogo restrito de ações (`set_context`/`count_rows`), em
+`migracao/backend/README.md` §"Editor visual de Workflow (GO-048)" e
+`docs/migracao-go/execucoes/GO-048.md`.

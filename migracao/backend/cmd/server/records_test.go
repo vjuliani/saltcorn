@@ -29,6 +29,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/shutdown"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/workflow"
 )
 
 const testServiceIdentitySecret = "01234567890123456789012345678901" // 32 bytes, piso de tenancy.NewVerifier
@@ -114,6 +115,9 @@ func newTestFixture(t *testing.T, db *database.DB, actorRole identity.RoleID) te
 			return err
 		}
 		if err := config.EnsureSchema(ctx, tx); err != nil {
+			return err
+		}
+		if err := workflow.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
 		hash, err := identity.HashPassword("hunter2")

@@ -30,6 +30,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/workflow"
 )
 
 type e2eSeedResult struct {
@@ -105,6 +106,14 @@ func e2eSeed(args []string) error {
 		if err := config.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
+		// workflow.EnsureSchema (GO-048): getWorkflowHandler/runWorkflowHandler
+		// consultam _sc_workflows/_sc_workflow_steps — mesma classe de achado
+		// de GO-040/045/047, corrigida aqui proativamente (por inspeção, antes
+		// de qualquer spec E2E de workflow existir) em vez de esperar uma
+		// falha revelar a lacuna.
+		if err := workflow.EnsureSchema(ctx, tx); err != nil {
+			return err
+		}
 		hash, err := identity.HashPassword(*password)
 		if err != nil {
 			return err
@@ -124,7 +133,7 @@ func e2eSeed(args []string) error {
 		if err := cutover.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
-		for _, capability := range []string{"tables.records", "tables.schema", "tables.views"} {
+		for _, capability := range []string{"tables.records", "tables.schema", "tables.views", "workflows"} {
 			if err := cutover.SetOwner(ctx, tx, tenant, capability, cutover.OwnerGo); err != nil {
 				return err
 			}

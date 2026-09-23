@@ -694,6 +694,320 @@ paths:
         "502":
           $ref: "#/components/responses/DomainUnavailable"
 
+  /api/bff/workflows:
+    get:
+      operationId: listWorkflows
+      summary: Lista workflows do tenant (GO-048)
+      security:
+        - SessionCookie: []
+      responses:
+        "200":
+          description: workflows do tenant, em ordem de criação
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Workflow"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+    post:
+      operationId: createWorkflow
+      summary: Cria um workflow, sem passo inicial (GO-048)
+      description: >
+        O BFF gera e propaga a Idempotency-Key para a chamada interna,
+        mesmo padrão de createView.
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "201":
+          description: workflow criado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+  /api/bff/workflows/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    get:
+      operationId: getWorkflow
+      summary: Reabre um workflow, com todos os seus passos (GO-048)
+      security:
+        - SessionCookie: []
+      responses:
+        "200":
+          description: workflow encontrado, com seus passos
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          description: workflow não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+    patch:
+      operationId: updateWorkflow
+      summary: Renomeia e/ou muda o passo inicial de um workflow (GO-048)
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [_version]
+              properties:
+                _version:
+                  type: string
+                name:
+                  type: string
+                initial_step:
+                  type: string
+      responses:
+        "200":
+          description: workflow atualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "409":
+          description: "Negativo: conflito de edição concorrente — o workflow mudou desde a leitura"
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+    delete:
+      operationId: deleteWorkflow
+      summary: Remove um workflow e seus passos (GO-048)
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      responses:
+        "204":
+          description: workflow removido
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "404":
+          description: workflow não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+  /api/bff/workflows/{id}/steps:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    post:
+      operationId: createWorkflowStep
+      summary: Cria um passo novo no workflow (GO-048)
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowStepInput"
+      responses:
+        "201":
+          description: passo criado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowStep"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "404":
+          description: workflow não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "409":
+          description: nome de passo duplicado neste workflow
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+  /api/bff/workflows/{id}/steps/{stepId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+      - name: stepId
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    patch:
+      operationId: updateWorkflowStep
+      summary: "Reconfigura um passo, ou só reposiciona no canvas (GO-048)"
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowStepUpdateInput"
+      responses:
+        "200":
+          description: passo atualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowStep"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "404":
+          description: passo não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "409":
+          description: conflito de edição concorrente
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+    delete:
+      operationId: deleteWorkflowStep
+      summary: Remove um passo (GO-048)
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      responses:
+        "204":
+          description: passo removido
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "404":
+          description: passo não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+  /api/bff/workflows/{id}/run:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Id"
+    post:
+      operationId: runWorkflow
+      summary: Compila, inicia e roda o workflow até o fim (GO-048)
+      description: >
+        A prova ponta a ponta do critério de aceite de GO-048 — devolve o
+        estado final síncrono (sem fila, sem polling). O BFF gera e
+        propaga a Idempotency-Key: um duplo-clique no botão "Executar" do
+        editor visual nunca inicia dois runs.
+      security:
+        - SessionCookie: []
+          CsrfToken: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                context:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: >
+            execução concluída (status "finished" ou "error" — um erro de
+            domínio durante um passo aparece aqui, nunca como falha HTTP)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRun"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/CsrfInvalid"
+        "404":
+          description: workflow não encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "422":
+          description: workflow sem passo inicial, ou definição com ação/passo desconhecido
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
 components:
   securitySchemes:
     SessionCookie:
@@ -802,6 +1116,121 @@ components:
           type: object
           additionalProperties: true
         _version:
+          type: string
+
+    Workflow:
+      type: object
+      required: [id, name, initial_step, _version]
+      properties:
+        id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        name:
+          type: string
+        initial_step:
+          type: string
+        _version:
+          type: string
+        steps:
+          type: array
+          description: Presente apenas em getWorkflow.
+          items:
+            $ref: "#/components/schemas/WorkflowStep"
+
+    WorkflowStepInput:
+      type: object
+      required: [name, action_name]
+      properties:
+        name:
+          type: string
+        action_name:
+          type: string
+        configuration:
+          type: object
+          additionalProperties: true
+        only_if:
+          type: string
+        next_step:
+          type: string
+        else_step:
+          type: string
+        error_step:
+          type: string
+        position_x:
+          type: number
+        position_y:
+          type: number
+
+    WorkflowStepUpdateInput:
+      type: object
+      required: [_version]
+      properties:
+        _version:
+          type: string
+        action_name:
+          type: string
+        configuration:
+          type: object
+          additionalProperties: true
+        only_if:
+          type: string
+        next_step:
+          type: string
+        else_step:
+          type: string
+        error_step:
+          type: string
+        position_x:
+          type: number
+        position_y:
+          type: number
+
+    WorkflowStep:
+      type: object
+      required: [id, name, action_name, configuration, only_if, next_step, else_step, error_step, position_x, position_y, _version]
+      properties:
+        id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        name:
+          type: string
+        action_name:
+          type: string
+        configuration:
+          type: object
+          additionalProperties: true
+        only_if:
+          type: string
+        next_step:
+          type: string
+        else_step:
+          type: string
+        error_step:
+          type: string
+        position_x:
+          type: number
+        position_y:
+          type: number
+        _version:
+          type: string
+
+    WorkflowRun:
+      type: object
+      required: [id, name, status, current_step, step_seq, context]
+      properties:
+        id:
+          $ref: "./common.yaml#/components/schemas/Id"
+        name:
+          type: string
+        status:
+          type: string
+          enum: [running, finished, error]
+        current_step:
+          type: string
+        step_seq:
+          type: integer
+        context:
+          type: object
+          additionalProperties: true
+        error:
           type: string
 
     ViewRenderColumn:

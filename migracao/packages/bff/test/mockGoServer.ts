@@ -73,6 +73,21 @@ export class MockGoServer {
   private nextRecordId = 4;
   private readonly submitKeys = new Map<string, { payloadHash: string; status: number; body: unknown }>();
 
+  // GO-048: réplica mínima do CRUD de workflow + a semântica de
+  // execução (set_context/count_rows, ramificação por next_step — o
+  // mock não simula only_if/else_step, o suficiente só para o BFF
+  // exercitar a proxy, não reimplementar internal/workflow).
+  private nextWorkflowId = 1;
+  private nextStepId = 1;
+  private readonly workflows = new Map<number, { id: number; name: string; initial_step: string; _version: string }>();
+  private readonly steps = new Map<number, Record<string, unknown>>();
+  private readonly workflowCreateKeys = new Map<string, IdempotentEntry>();
+  private readonly workflowUpdateKeys = new Map<string, IdempotentEntry>();
+  private readonly stepCreateKeys = new Map<string, IdempotentEntry>();
+  private readonly stepUpdateKeys = new Map<string, IdempotentEntry>();
+  private readonly runKeys = new Map<string, IdempotentEntry>();
+  private nextRunId = 1;
+
   constructor(private readonly opts: MockGoServerOptions) {
     this.server = createServer((req, res) => {
       void this.handle(req, res);
@@ -489,6 +504,171 @@ export class MockGoServer {
         this.views.set(id, updated);
         this.viewUpdateKeys.set(idempotencyKey, { payloadHash, body: updated });
         sendJSON(res, 200, updated);
+        return;
+      }
+    }
+
+    // GO-048: workflows — CRUD + run, mesma disciplina de idempotência
+    // via Idempotency-Key das rotas de views acima.
+    if (req.method === "GET" && url.pathname.endsWith("/workflows")) {
+      sendJSON(res, 200, Array.from(this.workflows.values()));
+      return;
+    }
+    if (req.method === "POST" && url.pathname.endsWith("/workflows")) {
+      await this.handleIdempotentCreate(req, res, this.workflowCreateKeys, () => 0, (body) => {
+        const id = this.nextWorkflowId++;
+        const wf = { id, name: body.name as string, initial_step: "", _version: "1" };
+        this.workflows.set(id, wf);
+        return wf;
+      });
+      return;
+    }
+    const runMatch = url.pathname.match(/\/workflows\/(\d+)\/run$/);
+    if (runMatch && req.method === "POST") {
+      const idempotencyKey = req.headers["idempotency-key"];
+      if (!idempotencyKey || Array.isArray(idempotencyKey)) {
+        sendJSON(res, 400, { error: { code: "idempotency_key_required", message: "cabeçalho Idempotency-Key é obrigatório" } });
+        return;
+      }
+      const workflowId = Number(runMatch[1]);
+      const wf = this.workflows.get(workflowId);
+      if (!wf) { sendJSON(res, 404, { error: { code: "not_found", message: "workflow não encontrado" } }); return; }
+      const body = (await readBody(req)) as { context?: Record<string, unknown> };
+      const payloadHash = hashPayload(body);
+      const existing = this.runKeys.get(idempotencyKey);
+      if (existing) {
+        if (existing.payloadHash !== payloadHash) {
+          sendJSON(res, 409, { error: { code: "idempotency_key_conflict", message: "Idempotency-Key já foi usada com um payload diferente" } });
+          return;
+        }
+        sendJSON(res, 200, existing.body);
+        return;
+      }
+      if (!wf.initial_step) {
+        sendJSON(res, 422, { error: { code: "workflow_unrunnable", message: "workflow: definição sem passo inicial" } });
+        return;
+      }
+      const workflowSteps = Array.from(this.steps.values()).filter((s) => s.workflow_id === workflowId);
+      let context: Record<string, unknown> = { ...(body.context ?? {}) };
+      let currentStep = wf.initial_step;
+      let stepSeq = 0;
+      const visited = new Set<string>();
+      while (currentStep && !visited.has(currentStep)) {
+        visited.add(currentStep);
+        const step = workflowSteps.find((s) => s.name === currentStep);
+        if (!step) break;
+        stepSeq++;
+        const config = (step.configuration ?? {}) as { values?: Record<string, unknown>; table?: string; output?: string };
+        if (step.action_name === "set_context") {
+          context = { ...context, ...(config.values ?? {}) };
+        } else if (step.action_name === "count_rows" && config.output) {
+          context = { ...context, [config.output]: this.records.size };
+        }
+        currentStep = (step.next_step as string) ?? "";
+      }
+      const runId = this.nextRunId++;
+      const runBody = { id: runId, name: wf.name, status: "finished", current_step: currentStep, step_seq: stepSeq, context };
+      this.runKeys.set(idempotencyKey, { payloadHash, body: runBody });
+      sendJSON(res, 200, runBody);
+      return;
+    }
+    const stepsMatch = url.pathname.match(/\/workflows\/(\d+)\/steps$/);
+    if (stepsMatch && req.method === "POST") {
+      const workflowId = Number(stepsMatch[1]);
+      if (!this.workflows.has(workflowId)) { sendJSON(res, 404, { error: { code: "not_found", message: "workflow não encontrado" } }); return; }
+      await this.handleIdempotentCreate(req, res, this.stepCreateKeys, () => 0, (body) => {
+        const id = this.nextStepId++;
+        const step = {
+          id, workflow_id: workflowId, name: body.name, action_name: body.action_name,
+          configuration: body.configuration ?? {}, only_if: body.only_if ?? "",
+          next_step: body.next_step ?? "", else_step: body.else_step ?? "", error_step: body.error_step ?? "",
+          position_x: body.position_x ?? 0, position_y: body.position_y ?? 0, _version: "1",
+        };
+        this.steps.set(id, step);
+        return step;
+      });
+      return;
+    }
+    const stepIdMatch = url.pathname.match(/\/workflows\/(\d+)\/steps\/(\d+)$/);
+    if (stepIdMatch && req.method === "PATCH") {
+      const stepId = Number(stepIdMatch[2]);
+      const idempotencyKey = req.headers["idempotency-key"];
+      if (!idempotencyKey || Array.isArray(idempotencyKey)) {
+        sendJSON(res, 400, { error: { code: "idempotency_key_required", message: "cabeçalho Idempotency-Key é obrigatório" } });
+        return;
+      }
+      const body = (await readBody(req)) as Record<string, unknown>;
+      const payloadHash = hashPayload(body);
+      const existing = this.stepUpdateKeys.get(idempotencyKey);
+      if (existing) {
+        if (existing.payloadHash !== payloadHash) {
+          sendJSON(res, 409, { error: { code: "idempotency_key_conflict", message: "Idempotency-Key já foi usada com um payload diferente" } });
+          return;
+        }
+        sendJSON(res, 200, existing.body);
+        return;
+      }
+      const current = this.steps.get(stepId);
+      if (!current) { sendJSON(res, 404, { error: { code: "not_found", message: "passo não encontrado" } }); return; }
+      if (current._version !== body._version) { sendJSON(res, 409, { error: { code: "version_conflict", message: "o passo foi modificado por outra transação" } }); return; }
+      const updated = { ...current, ...body, _version: String(Number(current._version as string) + 1) };
+      this.steps.set(stepId, updated);
+      this.stepUpdateKeys.set(idempotencyKey, { payloadHash, body: updated });
+      sendJSON(res, 200, updated);
+      return;
+    }
+    if (stepIdMatch && req.method === "DELETE") {
+      const stepId = Number(stepIdMatch[2]);
+      if (!this.steps.has(stepId)) { sendJSON(res, 404, { error: { code: "not_found", message: "passo não encontrado" } }); return; }
+      this.steps.delete(stepId);
+      res.writeHead(204); res.end();
+      return;
+    }
+    const workflowIdMatch = url.pathname.match(/\/workflows\/(\d+)$/);
+    if (workflowIdMatch) {
+      const id = Number(workflowIdMatch[1]);
+      if (req.method === "GET") {
+        const wf = this.workflows.get(id);
+        if (!wf) { sendJSON(res, 404, { error: { code: "not_found", message: "workflow não encontrado" } }); return; }
+        const wfSteps = Array.from(this.steps.values()).filter((s) => s.workflow_id === id);
+        sendJSON(res, 200, { ...wf, steps: wfSteps });
+        return;
+      }
+      if (req.method === "PATCH") {
+        const idempotencyKey = req.headers["idempotency-key"];
+        if (!idempotencyKey || Array.isArray(idempotencyKey)) {
+          sendJSON(res, 400, { error: { code: "idempotency_key_required", message: "cabeçalho Idempotency-Key é obrigatório" } });
+          return;
+        }
+        const body = (await readBody(req)) as Record<string, unknown>;
+        const payloadHash = hashPayload(body);
+        const existing = this.workflowUpdateKeys.get(idempotencyKey);
+        if (existing) {
+          if (existing.payloadHash !== payloadHash) {
+            sendJSON(res, 409, { error: { code: "idempotency_key_conflict", message: "Idempotency-Key já foi usada com um payload diferente" } });
+            return;
+          }
+          sendJSON(res, 200, existing.body);
+          return;
+        }
+        const current = this.workflows.get(id);
+        if (!current) { sendJSON(res, 404, { error: { code: "not_found", message: "workflow não encontrado" } }); return; }
+        if (current._version !== body._version) { sendJSON(res, 409, { error: { code: "version_conflict", message: "o workflow foi modificado por outra transação" } }); return; }
+        const updated = {
+          ...current,
+          ...(body.name !== undefined ? { name: body.name as string } : {}),
+          ...(body.initial_step !== undefined ? { initial_step: body.initial_step as string } : {}),
+          _version: String(Number(current._version) + 1),
+        };
+        this.workflows.set(id, updated);
+        this.workflowUpdateKeys.set(idempotencyKey, { payloadHash, body: updated });
+        sendJSON(res, 200, updated);
+        return;
+      }
+      if (req.method === "DELETE") {
+        if (!this.workflows.has(id)) { sendJSON(res, 404, { error: { code: "not_found", message: "workflow não encontrado" } }); return; }
+        this.workflows.delete(id);
+        res.writeHead(204); res.end();
         return;
       }
     }

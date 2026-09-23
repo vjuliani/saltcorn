@@ -247,6 +247,110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bff/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Lista workflows do tenant (GO-048) */
+        get: operations["listWorkflows"];
+        put?: never;
+        /**
+         * Cria um workflow, sem passo inicial (GO-048)
+         * @description O BFF gera e propaga a Idempotency-Key para a chamada interna, mesmo padrão de createView.
+         */
+        post: operations["createWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bff/workflows/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Reabre um workflow, com todos os seus passos (GO-048) */
+        get: operations["getWorkflow"];
+        put?: never;
+        post?: never;
+        /** Remove um workflow e seus passos (GO-048) */
+        delete: operations["deleteWorkflow"];
+        options?: never;
+        head?: never;
+        /** Renomeia e/ou muda o passo inicial de um workflow (GO-048) */
+        patch: operations["updateWorkflow"];
+        trace?: never;
+    };
+    "/api/bff/workflows/{id}/steps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cria um passo novo no workflow (GO-048) */
+        post: operations["createWorkflowStep"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bff/workflows/{id}/steps/{stepId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+                stepId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove um passo (GO-048) */
+        delete: operations["deleteWorkflowStep"];
+        options?: never;
+        head?: never;
+        /** Reconfigura um passo, ou só reposiciona no canvas (GO-048) */
+        patch: operations["updateWorkflowStep"];
+        trace?: never;
+    };
+    "/api/bff/workflows/{id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compila, inicia e roda o workflow até o fim (GO-048)
+         * @description A prova ponta a ponta do critério de aceite de GO-048 — devolve o estado final síncrono (sem fila, sem polling). O BFF gera e propaga a Idempotency-Key: um duplo-clique no botão "Executar" do editor visual nunca inicia dois runs.
+         */
+        post: operations["runWorkflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -272,6 +376,67 @@ export interface components {
                 [key: string]: unknown;
             };
             _version: string;
+        };
+        Workflow: {
+            id: components["schemas"]["Id"];
+            name: string;
+            initial_step: string;
+            _version: string;
+            /** @description Presente apenas em getWorkflow. */
+            steps?: components["schemas"]["WorkflowStep"][];
+        };
+        WorkflowStepInput: {
+            name: string;
+            action_name: string;
+            configuration?: {
+                [key: string]: unknown;
+            };
+            only_if?: string;
+            next_step?: string;
+            else_step?: string;
+            error_step?: string;
+            position_x?: number;
+            position_y?: number;
+        };
+        WorkflowStepUpdateInput: {
+            _version: string;
+            action_name?: string;
+            configuration?: {
+                [key: string]: unknown;
+            };
+            only_if?: string;
+            next_step?: string;
+            else_step?: string;
+            error_step?: string;
+            position_x?: number;
+            position_y?: number;
+        };
+        WorkflowStep: {
+            id: components["schemas"]["Id"];
+            name: string;
+            action_name: string;
+            configuration: {
+                [key: string]: unknown;
+            };
+            only_if: string;
+            next_step: string;
+            else_step: string;
+            error_step: string;
+            position_x: number;
+            position_y: number;
+            _version: string;
+        };
+        WorkflowRun: {
+            id: components["schemas"]["Id"];
+            name: string;
+            /** @enum {string} */
+            status: "running" | "finished" | "error";
+            current_step: string;
+            step_seq: number;
+            context: {
+                [key: string]: unknown;
+            };
+            error?: string;
         };
         /** @description Três variantes discriminadas por `kind`: "field" (campo direto), "join_field" (campo trazido por join — `field_name` é a chave composta "<campo_local>__<campo_remoto>", a MESMA chave usada em `rows`), "action" (ação de coluna — só `action_name`, sem `field_name`). */
         ViewRenderColumn: {
@@ -1134,6 +1299,343 @@ export interface operations {
                 };
             };
             /** @description view existe, mas não declara uma ação de coluna "Delete" */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    listWorkflows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description workflows do tenant, em ordem de criação */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"][];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    createWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description workflow criado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    getWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description workflow encontrado, com seus passos */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            /** @description workflow não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    deleteWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description workflow removido */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            /** @description workflow não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    updateWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    _version: string;
+                    name?: string;
+                    initial_step?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description workflow atualizado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            /** @description Negativo: conflito de edição concorrente — o workflow mudou desde a leitura */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    createWorkflowStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepInput"];
+            };
+        };
+        responses: {
+            /** @description passo criado */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowStep"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            /** @description workflow não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description nome de passo duplicado neste workflow */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    deleteWorkflowStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+                stepId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description passo removido */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            /** @description passo não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    updateWorkflowStep: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+                stepId: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description passo atualizado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowStep"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            /** @description passo não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description conflito de edição concorrente */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    runWorkflow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    context?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description execução concluída (status "finished" ou "error" — um erro de domínio durante um passo aparece aqui, nunca como falha HTTP) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            /** @description workflow não encontrado */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description workflow sem passo inicial, ou definição com ação/passo desconhecido */
             422: {
                 headers: {
                     [name: string]: unknown;

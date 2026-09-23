@@ -23,6 +23,18 @@ type GetViewResponse = paths["/api/bff/views/{id}"]["get"]["responses"]["200"]["
 type UpdateViewResponse = paths["/api/bff/views/{id}"]["patch"]["responses"]["200"]["content"]["application/json"];
 type RenderViewResponse = paths["/api/bff/views/{id}/render"]["get"]["responses"]["200"]["content"]["application/json"];
 type SubmitViewResponse = paths["/api/bff/views/{id}/submit"]["post"]["responses"]["200"]["content"]["application/json"];
+type ListWorkflowsResponse = paths["/api/bff/workflows"]["get"]["responses"]["200"]["content"]["application/json"];
+type CreateWorkflowResponse = paths["/api/bff/workflows"]["post"]["responses"]["201"]["content"]["application/json"];
+type GetWorkflowResponse = paths["/api/bff/workflows/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
+type UpdateWorkflowResponse = paths["/api/bff/workflows/{id}"]["patch"]["responses"]["200"]["content"]["application/json"];
+type CreateWorkflowStepResponse =
+  paths["/api/bff/workflows/{id}/steps"]["post"]["responses"]["201"]["content"]["application/json"];
+type UpdateWorkflowStepResponse =
+  paths["/api/bff/workflows/{id}/steps/{stepId}"]["patch"]["responses"]["200"]["content"]["application/json"];
+type RunWorkflowResponse = paths["/api/bff/workflows/{id}/run"]["post"]["responses"]["200"]["content"]["application/json"];
+export type WorkflowStep = paths["/api/bff/workflows/{id}/steps"]["post"]["responses"]["201"]["content"]["application/json"];
+export type Workflow = GetWorkflowResponse;
+export type WorkflowRun = RunWorkflowResponse;
 type ErrorResponse = { error: { code: string; message: string } };
 
 /**
@@ -49,6 +61,29 @@ export class ViewConflictError extends Error {
  * sistema atual.
  */
 export class ViewUnsupportedError extends Error {
+  constructor(reason: string) {
+    super(reason);
+  }
+}
+
+/**
+ * WorkflowConflictError distingue o 409 `version_conflict` de
+ * updateWorkflow/updateWorkflowStep (GO-048) de qualquer outro erro —
+ * mesmo espírito de ViewConflictError.
+ */
+export class WorkflowConflictError extends Error {
+  constructor() {
+    super("o workflow foi modificado por outra transação — releia e tente novamente");
+  }
+}
+
+/**
+ * WorkflowUnrunnableError distingue o 422 `workflow_unrunnable` de
+ * runWorkflow (workflow sem passo inicial, ou ação/passo desconhecido)
+ * de qualquer outro erro — a UI usa isso para desabilitar/explicar o
+ * botão "Executar" em vez de mostrar um erro genérico.
+ */
+export class WorkflowUnrunnableError extends Error {
   constructor(reason: string) {
     super(reason);
   }
@@ -244,6 +279,124 @@ export class BffClient {
       }
       if (err instanceof BffClientError && err.status === 422 && err.code === "view_unsupported") {
         throw new ViewUnsupportedError(err.message);
+      }
+      throw err;
+    }
+  }
+
+  // Workflows (GO-048) — CRUD da definição persistida + execução ponta a
+  // ponta, mesmo padrão de erro específico (Conflict/Unrunnable) de
+  // updateView/renderView acima.
+  async listWorkflows(): Promise<ListWorkflowsResponse> {
+    return this.request<ListWorkflowsResponse>("/api/bff/workflows", { method: "GET" });
+  }
+
+  async createWorkflow(input: { name: string }): Promise<CreateWorkflowResponse> {
+    return this.request<CreateWorkflowResponse>("/api/bff/workflows", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+      body: JSON.stringify(input),
+    });
+  }
+
+  async getWorkflow(id: number): Promise<GetWorkflowResponse> {
+    return this.request<GetWorkflowResponse>(`/api/bff/workflows/${id}`, { method: "GET" });
+  }
+
+  async updateWorkflow(
+    id: number,
+    input: { _version: string; name?: string; initial_step?: string }
+  ): Promise<UpdateWorkflowResponse> {
+    try {
+      return await this.request<UpdateWorkflowResponse>(`/api/bff/workflows/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+        body: JSON.stringify(input),
+      });
+    } catch (err) {
+      if (err instanceof BffClientError && err.status === 409 && err.code === "version_conflict") {
+        throw new WorkflowConflictError();
+      }
+      throw err;
+    }
+  }
+
+  async deleteWorkflow(id: number): Promise<void> {
+    await this.request<void>(`/api/bff/workflows/${id}`, { method: "DELETE", headers: { "X-CSRF-Token": this.requireCsrf() } });
+  }
+
+  async createWorkflowStep(
+    workflowId: number,
+    input: {
+      name: string;
+      action_name: string;
+      configuration?: Record<string, unknown>;
+      only_if?: string;
+      next_step?: string;
+      else_step?: string;
+      error_step?: string;
+      position_x?: number;
+      position_y?: number;
+    }
+  ): Promise<CreateWorkflowStepResponse> {
+    return this.request<CreateWorkflowStepResponse>(`/api/bff/workflows/${workflowId}/steps`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+      body: JSON.stringify(input),
+    });
+  }
+
+  async updateWorkflowStep(
+    workflowId: number,
+    stepId: number,
+    input: {
+      _version: string;
+      action_name?: string;
+      configuration?: Record<string, unknown>;
+      only_if?: string;
+      next_step?: string;
+      else_step?: string;
+      error_step?: string;
+      position_x?: number;
+      position_y?: number;
+    }
+  ): Promise<UpdateWorkflowStepResponse> {
+    try {
+      return await this.request<UpdateWorkflowStepResponse>(`/api/bff/workflows/${workflowId}/steps/${stepId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+        body: JSON.stringify(input),
+      });
+    } catch (err) {
+      if (err instanceof BffClientError && err.status === 409 && err.code === "version_conflict") {
+        throw new WorkflowConflictError();
+      }
+      throw err;
+    }
+  }
+
+  async deleteWorkflowStep(workflowId: number, stepId: number): Promise<void> {
+    await this.request<void>(`/api/bff/workflows/${workflowId}/steps/${stepId}`, {
+      method: "DELETE",
+      headers: { "X-CSRF-Token": this.requireCsrf() },
+    });
+  }
+
+  /**
+   * runWorkflow (GO-048) — compila+inicia+roda até o fim, devolvendo o
+   * estado final síncrono. Lança WorkflowUnrunnableError especificamente
+   * em 422 `workflow_unrunnable`.
+   */
+  async runWorkflow(id: number, input: { context?: Record<string, unknown> } = {}): Promise<RunWorkflowResponse> {
+    try {
+      return await this.request<RunWorkflowResponse>(`/api/bff/workflows/${id}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": this.requireCsrf() },
+        body: JSON.stringify(input),
+      });
+    } catch (err) {
+      if (err instanceof BffClientError && err.status === 422 && err.code === "workflow_unrunnable") {
+        throw new WorkflowUnrunnableError(err.message);
       }
       throw err;
     }

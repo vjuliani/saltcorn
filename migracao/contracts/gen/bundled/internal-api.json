@@ -982,6 +982,583 @@
         }
       }
     },
+    "/v1/tenants/{tenant}/workflows": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "listWorkflows",
+        "summary": "Query: lista workflows do tenant",
+        "description": "Adicionado por GO-048 — o editor visual de workflow precisa enumerar o que existe antes de abrir um específico. Só um ator admin pode listar (workflow é um artefato de automação interno, sem o conceito de \"publicado\" que View tem).\n",
+        "responses": {
+          "200": {
+            "description": "workflows do tenant, em ordem de criação",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Workflow"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createWorkflow",
+        "summary": "Command: cria um workflow (sem passo inicial)",
+        "description": "Adicionado por GO-048 — nasce vazio; o editor visual cria passos (createWorkflowStep) e depois marca um deles como `initial_step` (updateWorkflow) antes de o workflow poder ser executado. Idempotente por Idempotency-Key.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "workflow criado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workflow"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflict"
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenant}/workflows/{id}": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Id"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getWorkflow",
+        "summary": "Query: reabre um workflow, com todos os seus passos",
+        "description": "Devolve o workflow COM `steps` preenchido — o editor visual desenha o grafo inteiro a partir de uma única chamada, sem uma segunda requisição por passo.\n",
+        "responses": {
+          "200": {
+            "description": "workflow encontrado, com seus passos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workflow"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "workflow não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateWorkflow",
+        "summary": "Command: renomeia e/ou muda o passo inicial de um workflow",
+        "description": "Exige `_version` (controle de concorrência otimista, mesma disciplina de updateView) — 409 se o workflow mudou desde a leitura. Definir `initial_step` para um nome que ainda não existe como passo é permitido aqui; a checagem de que o passo existe de fato só acontece ao rodar (runWorkflow devolve 422 nesse caso). Idempotente por Idempotency-Key.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowUpdateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "workflow atualizado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Workflow"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "description": "conflito de versão otimista ou de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteWorkflow",
+        "summary": "Command: remove um workflow e seus passos",
+        "description": "Remove `_sc_workflow_steps` em cascata; NUNCA as execuções já feitas (`_sc_workflow_runs`/trace são histórico independente, sobrevivem à remoção do workflow que os originou).\n",
+        "responses": {
+          "204": {
+            "description": "workflow removido"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "workflow não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenant}/workflows/{id}/steps": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Id"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "createWorkflowStep",
+        "summary": "Command: cria um passo novo no workflow",
+        "description": "O editor visual chama isto quando o usuário solta um nó novo no canvas. Não valida se `action_name` está registrada em nenhum catálogo — essa checagem só acontece ao rodar (runWorkflow devolve 422 para uma ação desconhecida). Idempotente por Idempotency-Key.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowStepInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "passo criado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowStep"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "workflow não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "nome de passo duplicado neste workflow, ou conflito de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenant}/workflows/{id}/steps/{stepId}": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Id"
+          }
+        },
+        {
+          "name": "stepId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Id"
+          }
+        }
+      ],
+      "patch": {
+        "operationId": "updateWorkflowStep",
+        "summary": "Command: reconfigura um passo, ou só reposiciona no canvas",
+        "description": "A mesma operação serve para reconfigurar a ação/condição de um passo E para só persistir `position_x`/`position_y` — o editor visual chama isto a cada drag-and-drop solto no canvas, com só as posições no corpo. Exige `_version`. Idempotente por Idempotency-Key.\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowStepUpdateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "passo atualizado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowStep"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "passo não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "conflito de versão otimista ou de idempotência",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteWorkflowStep",
+        "summary": "Command: remove um passo",
+        "description": "Não reescreve automaticamente `next_step`/`else_step` de outros passos que apontavam para este — o editor visual é responsável por atualizar essas arestas antes/depois de remover um nó.\n",
+        "responses": {
+          "204": {
+            "description": "passo removido"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "passo não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tenants/{tenant}/workflows/{id}/run": {
+      "parameters": [
+        {
+          "name": "tenant",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Tenant"
+          }
+        },
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "$ref": "#/components/schemas/Id"
+          }
+        }
+      ],
+      "post": {
+        "operationId": "runWorkflow",
+        "summary": "Command: compila, inicia e roda o workflow até o fim",
+        "description": "A prova ponta a ponta do critério de aceite de GO-048: compila a definição persistida (`_sc_workflow_steps`), inicia um run (`_sc_workflow_runs`) e roda até o fim (ou um limite de segurança de passos, contra um grafo com ciclo infinito), devolvendo o estado final síncrono — sem fila, sem polling. Idempotente por Idempotency-Key: um retry de rede da MESMA chamada nunca inicia um SEGUNDO run, devolve o run já criado (possivelmente já concluído). `context` inicial é opcional (default `{}`).\n",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowRunInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "execução concluída (Status \"finished\" ou \"error\" — um erro de DOMÍNIO durante um passo, ex. tabela inexistente em count_rows, aparece aqui como Status \"error\" + `error`, nunca como falha HTTP).\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowRun"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "description": "workflow não encontrado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/IdempotencyConflict"
+          },
+          "422": {
+            "description": "workflow sem passo inicial, ou definição com ação/passo desconhecido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "o grafo não terminou dentro do limite de segurança de passos (provável ciclo sem condição de parada)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tenants/{tenant}/users": {
       "parameters": [
         {
@@ -2318,6 +2895,249 @@
             "additionalProperties": true
           },
           "_version": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowInput": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowUpdateInput": {
+        "type": "object",
+        "required": [
+          "_version"
+        ],
+        "properties": {
+          "_version": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "initial_step": {
+            "type": "string",
+            "description": "Nome de um passo já existente neste workflow (não validado aqui — só ao rodar)."
+          }
+        }
+      },
+      "Workflow": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "initial_step",
+          "_version"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "initial_step": {
+            "type": "string",
+            "description": "Nome do passo por onde a execução começa — vazio (\"\") significa que o workflow ainda não pode ser rodado (422 em runWorkflow)."
+          },
+          "_version": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "description": "Presente apenas em getWorkflow (ausente em createWorkflow/updateWorkflow/listWorkflows).",
+            "items": {
+              "$ref": "#/components/schemas/WorkflowStep"
+            }
+          }
+        }
+      },
+      "WorkflowStepInput": {
+        "type": "object",
+        "required": [
+          "name",
+          "action_name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "action_name": {
+            "type": "string",
+            "description": "Nome de uma ação do catálogo nativo (ex.: \"set_context\", \"count_rows\") — não validado na criação, só ao rodar."
+          },
+          "configuration": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Parâmetros próprios da ação (ex.: `values` para set_context; `table`/`output` para count_rows)."
+          },
+          "only_if": {
+            "type": "string",
+            "description": "Fórmula opcional — \"\" significa \"sempre roda\"."
+          },
+          "next_step": {
+            "type": "string",
+            "description": "Nome do próximo passo quando este RODA — \"\" marca o último passo."
+          },
+          "else_step": {
+            "type": "string",
+            "description": "Nome do próximo passo quando `only_if` está presente e é falso — \"\" finaliza o run (nunca \"segue para next_step mesmo assim\")."
+          },
+          "error_step": {
+            "type": "string",
+            "description": "Para onde desviar se a ação falhar — \"\" marca o run inteiro como erro."
+          },
+          "position_x": {
+            "type": "number"
+          },
+          "position_y": {
+            "type": "number"
+          }
+        }
+      },
+      "WorkflowStepUpdateInput": {
+        "type": "object",
+        "required": [
+          "_version"
+        ],
+        "properties": {
+          "_version": {
+            "type": "string"
+          },
+          "action_name": {
+            "type": "string"
+          },
+          "configuration": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "only_if": {
+            "type": "string"
+          },
+          "next_step": {
+            "type": "string"
+          },
+          "else_step": {
+            "type": "string"
+          },
+          "error_step": {
+            "type": "string"
+          },
+          "position_x": {
+            "type": "number"
+          },
+          "position_y": {
+            "type": "number"
+          }
+        }
+      },
+      "WorkflowStep": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "action_name",
+          "configuration",
+          "only_if",
+          "next_step",
+          "else_step",
+          "error_step",
+          "position_x",
+          "position_y",
+          "_version"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "action_name": {
+            "type": "string"
+          },
+          "configuration": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "only_if": {
+            "type": "string"
+          },
+          "next_step": {
+            "type": "string"
+          },
+          "else_step": {
+            "type": "string"
+          },
+          "error_step": {
+            "type": "string"
+          },
+          "position_x": {
+            "type": "number"
+          },
+          "position_y": {
+            "type": "number"
+          },
+          "_version": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkflowRunInput": {
+        "type": "object",
+        "properties": {
+          "context": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Contexto inicial do run — default {} quando ausente."
+          }
+        }
+      },
+      "WorkflowRun": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "status",
+          "current_step",
+          "step_seq",
+          "context"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "finished",
+              "error"
+            ],
+            "description": "Numa resposta 200 é sempre \"finished\" ou \"error\" — um run que não termina dentro do limite de passos vira 502, nunca um 200 com status \"running\"."
+          },
+          "current_step": {
+            "type": "string"
+          },
+          "step_seq": {
+            "type": "integer"
+          },
+          "context": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Contexto final — números passam por um round-trip JSON (ver docs/migracao-go/execucoes/GO-048.md), nunca presuma um tipo Go específico no cliente."
+          },
+          "error": {
             "type": "string"
           }
         }
