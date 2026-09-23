@@ -22,7 +22,7 @@ func validateValue(field metadata.Field, value any) error {
 		if _, ok := value.(string); !ok {
 			return fmt.Errorf("%w: campo %q (text) recebeu %T", ErrTypeMismatch, field.Name, value)
 		}
-	case metadata.FieldInteger, metadata.FieldKey:
+	case metadata.FieldInteger, metadata.FieldKey, metadata.FieldFile:
 		switch value.(type) {
 		case int, int32, int64:
 		default:

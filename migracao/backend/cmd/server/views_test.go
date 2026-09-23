@@ -20,6 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/files"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
@@ -60,8 +61,8 @@ func newEditorFixture(t *testing.T, db *database.DB) editorFixture {
 			return err
 		})
 		_ = db.WithTenant(context.Background(), "public", func(ctx context.Context, tx pgx.Tx) error {
-			_, err := tx.Exec(ctx, "DELETE FROM _sc_capability_ownership WHERE tenant = $1 AND capability IN ($2, $3)",
-				string(tenant), tablesSchemaCapability, viewsCapability)
+			_, err := tx.Exec(ctx, "DELETE FROM _sc_capability_ownership WHERE tenant = $1 AND capability IN ($2, $3, $4)",
+				string(tenant), tablesSchemaCapability, viewsCapability, filesCapability)
 			return err
 		})
 	})
@@ -78,6 +79,9 @@ func newEditorFixture(t *testing.T, db *database.DB) editorFixture {
 			return err
 		}
 		if err := views.EnsureSchema(ctx, tx); err != nil {
+			return err
+		}
+		if err := files.EnsureSchema(ctx, tx); err != nil {
 			return err
 		}
 		hash, err := identity.HashPassword("hunter2")
@@ -105,6 +109,9 @@ func newEditorFixture(t *testing.T, db *database.DB) editorFixture {
 	}
 	if err := cutover.SwitchOwner(ctx, db, guard, tenant, viewsCapability, cutover.OwnerGo, 2*time.Second); err != nil {
 		t.Fatalf("cutover.SwitchOwner (views): %v", err)
+	}
+	if err := cutover.SwitchOwner(ctx, db, guard, tenant, filesCapability, cutover.OwnerGo, 2*time.Second); err != nil {
+		t.Fatalf("cutover.SwitchOwner (files): %v", err)
 	}
 
 	return editorFixture{tenant: tenant, adminID: adminID, publicID: publicID, guard: guard, tracker: shutdown.NewTracker()}

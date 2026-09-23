@@ -143,7 +143,7 @@ func validateFieldValues(fieldsByName map[string]metadata.Field, values map[stri
 // passam inalterados.
 func coerceJSONValue(field metadata.Field, value any) any {
 	switch field.Type {
-	case metadata.FieldInteger, metadata.FieldKey:
+	case metadata.FieldInteger, metadata.FieldKey, metadata.FieldFile:
 		if f, ok := value.(float64); ok && f == math.Trunc(f) {
 			return int64(f)
 		}

@@ -235,17 +235,24 @@ func TestClassifyEditColumns_SubmitWithAjaxAlsoAccepted(t *testing.T) {
 	}
 }
 
-func TestClassifyEditColumns_UploadFieldviewRejected(t *testing.T) {
+// TestClassifyEditColumns_UploadFieldviewAccepted (GO-051): "upload" era
+// bloqueada em GO-039 por exigir um FieldFile que internal/metadata ainda
+// não tinha (ver git history desta função) — agora que FieldFile existe
+// (GO-051), a fieldview passa a ser aceita como qualquer outra.
+func TestClassifyEditColumns_UploadFieldviewAccepted(t *testing.T) {
+	fields := []metadata.Field{{ID: 1, Name: "photo", Type: metadata.FieldFile}}
 	conf := map[string]any{
 		"columns": []any{
-			map[string]any{"type": "Field", "field_name": "name", "fieldview": "upload"},
+			map[string]any{"type": "Field", "field_name": "photo", "fieldview": "upload"},
 			map[string]any{"type": "Action", "action_name": "Save"},
 		},
 	}
-	_, err := classifyEditColumns(conf, fieldsByNameMap(editFieldsFixture()))
-	var target *UnsupportedLayoutError
-	if !errors.As(err, &target) {
-		t.Fatalf("classifyEditColumns() erro = %v, esperado *UnsupportedLayoutError (upload fora de escopo, GO-051)", err)
+	fieldNames, err := classifyEditColumns(conf, fieldsByNameMap(fields))
+	if err != nil {
+		t.Fatalf("classifyEditColumns() erro inesperado: %v", err)
+	}
+	if len(fieldNames) != 1 || fieldNames[0] != "photo" {
+		t.Fatalf("classifyEditColumns() campos = %v, esperado [\"photo\"]", fieldNames)
 	}
 }
 
@@ -268,11 +275,31 @@ func TestClassifyEditColumns_NoActionRejected(t *testing.T) {
 }
 
 func TestClassifyView_UnsupportedTemplate(t *testing.T) {
-	v := View{Template: "Feed", Configuration: compatibleConfiguration()}
+	v := View{Template: "Page", Configuration: compatibleConfiguration()}
 	err := ClassifyView(v, fieldsFixture())
 	var target *UnsupportedLayoutError
 	if !errors.As(err, &target) {
-		t.Fatalf("ClassifyView() erro = %v, esperado *UnsupportedLayoutError (Feed fica para GO-051)", err)
+		t.Fatalf("ClassifyView() erro = %v, esperado *UnsupportedLayoutError (template nunca implementado neste runtime)", err)
+	}
+}
+
+// TestClassifyView_FeedDispatch (GO-051): Feed passou de "não suportado"
+// (GO-039) para dispatch real — mesma checagem estrutural de show_view
+// que classifyFeedConfig faz (a resolução cruzada de show_view/
+// view_to_create só acontece em CompileFeedPlan, que tem acesso a tx).
+func TestClassifyView_FeedDispatch(t *testing.T) {
+	v := View{Template: "Feed", Configuration: map[string]any{"show_view": "showguitar"}}
+	if err := ClassifyView(v, fieldsFixture()); err != nil {
+		t.Fatalf("ClassifyView() erro inesperado: %v", err)
+	}
+}
+
+func TestClassifyView_FeedDispatch_MissingShowView(t *testing.T) {
+	v := View{Template: "Feed", Configuration: map[string]any{}}
+	err := ClassifyView(v, fieldsFixture())
+	var target *UnsupportedLayoutError
+	if !errors.As(err, &target) {
+		t.Fatalf("ClassifyView() erro = %v, esperado *UnsupportedLayoutError (show_view ausente)", err)
 	}
 }
 

@@ -44,6 +44,8 @@ type UpdateTablePermissionsResponse =
   InternalPaths["/v1/tenants/{tenant}/tables/{table}/permissions"]["patch"]["responses"]["200"]["content"]["application/json"];
 type SubmitViewResponse =
   InternalPaths["/v1/tenants/{tenant}/views/{id}/submit"]["post"]["responses"]["200"]["content"]["application/json"];
+type UploadFileResponse =
+  InternalPaths["/v1/tenants/{tenant}/files"]["post"]["responses"]["201"]["content"]["application/json"];
 type ListWorkflowsResponse =
   InternalPaths["/v1/tenants/{tenant}/workflows"]["get"]["responses"]["200"]["content"]["application/json"];
 type CreateWorkflowResponse =
@@ -445,9 +447,74 @@ export class GoClient {
     return this.request<UpdateTablePermissionsResponse>(url, { method: "PATCH", serviceIdentityToken, body: input });
   }
 
+  // uploadFile (GO-051) — multipart/form-data, bytes REAIS (o mesmo
+  // arquivo que o navegador enviou ao BFF, repassado sem reinterpretar).
+  // Content-Type (com o boundary) é gerado automaticamente por
+  // `fetch` a partir do FormData — nunca forçado aqui, ao contrário de
+  // toda outra chamada JSON deste cliente.
+  async uploadFile(
+    serviceIdentityToken: string,
+    tenant: string,
+    filename: string,
+    mimeType: string,
+    content: Buffer
+  ): Promise<UploadFileResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/files`);
+    const form = new FormData();
+    form.append("file", new Blob([content], { type: mimeType }), filename);
+    return this.request<UploadFileResponse>(url, { method: "POST", serviceIdentityToken, rawBody: form });
+  }
+
+  // downloadFile (GO-051) — bytes crus, nunca JSON; por isso não
+  // reaproveita `request` (que sempre chama res.json() no caminho de
+  // sucesso). Buffer inteiro em memória — simplificação deliberada,
+  // suficiente para o piloto guitars (fotos, não arquivos grandes);
+  // documentado como limite de escala, mesmo espírito de
+  // editFieldOptionsLimit em internal/views.
+  async downloadFile(serviceIdentityToken: string, tenant: string, id: number): Promise<{ contentType: string; body: Buffer }> {
+    if (this.inFlight >= this.limit) {
+      this.rejected++;
+      throw domainUnavailableError();
+    }
+    this.inFlight++;
+    this.peak = Math.max(this.peak, this.inFlight);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.opts.timeoutMs);
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/files/${id}`);
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        signal: controller.signal,
+        headers: { Authorization: `Bearer ${serviceIdentityToken}` },
+      });
+      if (res.ok) {
+        const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+        const body = Buffer.from(await res.arrayBuffer());
+        return { contentType, body };
+      }
+      if (res.status >= 500) {
+        await res.body?.cancel();
+        throw domainUnavailableError();
+      }
+      let body: GoErrorBody | undefined;
+      try {
+        body = (await res.json()) as GoErrorBody;
+      } catch {
+        throw domainUnavailableError();
+      }
+      throw new BffError(res.status, body.error.code, body.error.message);
+    } catch (err) {
+      if (err instanceof BffError) throw err;
+      throw domainUnavailableError();
+    } finally {
+      clearTimeout(timeout);
+      this.inFlight--;
+    }
+  }
+
   private async request<T>(
     url: URL,
-    opts: { method: string; serviceIdentityToken: string; headers?: Record<string, string>; body?: unknown }
+    opts: { method: string; serviceIdentityToken: string; headers?: Record<string, string>; body?: unknown; rawBody?: FormData }
   ): Promise<T> {
     if (this.inFlight >= this.limit) {
       this.rejected++;
@@ -466,7 +533,7 @@ export class GoClient {
           ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}),
           ...opts.headers,
         },
-        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+        body: opts.rawBody ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
       });
 
       if (res.ok) {

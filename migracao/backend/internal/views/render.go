@@ -73,11 +73,30 @@ func ClassifyView(v View, fields []metadata.Field) error {
 	case "Edit":
 		_, err := classifyEditColumns(v.Configuration, fieldsByName)
 		return err
+	case "Feed":
+		return classifyFeedConfig(v.Configuration)
 	default:
 		return &UnsupportedLayoutError{
-			Reason: fmt.Sprintf("template %q não suportado neste runtime (só \"List\", \"Show\", \"Edit\")", v.Template),
+			Reason: fmt.Sprintf("template %q não suportado neste runtime (só \"List\", \"Show\", \"Edit\", \"Feed\")", v.Template),
 		}
 	}
+}
+
+// classifyFeedConfig valida a FORMA de configuration de uma view Feed —
+// só `show_view` presente (uma string não vazia). Diferente de
+// classifyListColumns/classifyEditColumns, não valida que a view
+// referenciada por `show_view` de fato existe nem que é do template
+// "Show": esta função roda no momento de PUBLICAR (ClassifyView, sem
+// acesso a transação/catálogo de views), só CompileFeedPlan — que roda
+// com tx — pode resolver a referência cruzada. Mesma limitação, mesmo
+// espírito, de uma coluna "Action" de Edit não confirmar aqui que a
+// view alvo existe.
+func classifyFeedConfig(configuration map[string]any) error {
+	showView, _ := configuration["show_view"].(string)
+	if showView == "" {
+		return &UnsupportedLayoutError{Reason: "configuration.show_view ausente ou vazio"}
+	}
+	return nil
 }
 
 func fieldsByNameMap(fields []metadata.Field) map[string]metadata.Field {

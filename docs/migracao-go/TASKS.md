@@ -994,7 +994,7 @@ Execute a task GO-050 — Decidir escopo dos achados de nicho da auditoria de co
 
 ### GO-051 — Portar renderização de view aninhada, viewtemplate Feed e campo de arquivo em Edit
 
-- [ ] **Status:** TODO
+- [x] **Status:** IN_REVIEW
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Backend + Frontend
 - **Depende de:** GO-039

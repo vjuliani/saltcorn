@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/expression"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/files"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/config"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
@@ -85,6 +86,12 @@ const realtimeRoute = "tenant_realtime_events"
 // viewsCapability, pelo mesmo motivo granular de GO-009/GO-019.
 const workflowsCapability = "workflows"
 const workflowsRoute = "tenant_workflows"
+
+// filesCapability (GO-051) identifica a capacidade de enviar/baixar
+// arquivos (internal/files, GO-026 — sem consumidor HTTP até esta
+// tarefa) — capacidade própria, pelo mesmo motivo granular de GO-009.
+const filesCapability = "files"
+const filesRoute = "tenant_files"
 
 func main() {
 	cfg, err := config.Load()
@@ -177,6 +184,20 @@ func main() {
 			dispatcher.RunJSCode = triggers.NewRunJSCode(evaluator)
 		} else {
 			logger.Warn("SALTCORN_GO_PLUGINHOST_SCRIPT não configurada — ação nativa run_js_code indisponível (ErrUnknownAction ao disparar)")
+		}
+
+		// filesBackend (GO-051) — PRIMEIRO ponto em que internal/files
+		// (mecanismo desde GO-026) é ligado a uma requisição HTTP real;
+		// até aqui só existia em teste/no worker (limpeza de órfãos).
+		// FilesRootDir vazio = feature indisponível (mesmo espírito de
+		// PluginHostScript/SMTPHost acima) — uploadFileHandler/
+		// downloadFileHandler devolvem 503 explícito, nunca tentam usar
+		// um backend nil.
+		var filesBackend *files.LocalBackend
+		if cfg.FilesRootDir != "" {
+			filesBackend = files.NewLocalBackend(cfg.FilesRootDir)
+		} else {
+			logger.Warn("SALTCORN_GO_FILES_ROOT_DIR não configurada — upload/download de arquivo indisponível (503 files_unavailable)")
 		}
 
 		// telemetry.Middleware envolve tenancy.Middleware e
@@ -317,6 +338,17 @@ func main() {
 		mux.Handle("POST /v1/tenants/{tenant}/workflows/{id}/run",
 			tenancy.Middleware(verifier, telemetry.Middleware(workflowsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, workflowsCapability, runWorkflowHandler(tracker, db, evaluator)))))
+
+		// GO-051: upload/download de arquivo — o consumidor HTTP que
+		// internal/files (GO-026) não tinha (decisão de escopo
+		// explícita daquela tarefa). Necessário para a fieldview
+		// "upload" do Edit funcionar de ponta a ponta.
+		mux.Handle("POST /v1/tenants/{tenant}/files",
+			tenancy.Middleware(verifier, telemetry.Middleware(filesRoute, httpMetrics,
+				cutover.RequireOwnership(guard, filesCapability, uploadFileHandler(tracker, db, filesBackend)))))
+		mux.Handle("GET /v1/tenants/{tenant}/files/{id}",
+			tenancy.Middleware(verifier, telemetry.Middleware(filesRoute, httpMetrics,
+				cutover.RequireOwnership(guard, filesCapability, downloadFileHandler(tracker, db, filesBackend)))))
 
 		// GO-044: administração de usuários — a superfície de
 		// auth/admin.ts do legado (ver docs/migracao-go/execucoes/GO-044.md

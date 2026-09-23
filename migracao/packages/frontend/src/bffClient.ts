@@ -22,6 +22,8 @@ type ListViewsResponse = paths["/api/bff/views"]["get"]["responses"]["200"]["con
 type GetViewResponse = paths["/api/bff/views/{id}"]["get"]["responses"]["200"]["content"]["application/json"];
 type UpdateViewResponse = paths["/api/bff/views/{id}"]["patch"]["responses"]["200"]["content"]["application/json"];
 type RenderViewResponse = paths["/api/bff/views/{id}/render"]["get"]["responses"]["200"]["content"]["application/json"];
+type UploadFileResponse = paths["/api/bff/files"]["post"]["responses"]["201"]["content"]["application/json"];
+export type FileMeta = UploadFileResponse;
 type SubmitViewResponse = paths["/api/bff/views/{id}/submit"]["post"]["responses"]["200"]["content"]["application/json"];
 type ListWorkflowsResponse = paths["/api/bff/workflows"]["get"]["responses"]["200"]["content"]["application/json"];
 type CreateWorkflowResponse = paths["/api/bff/workflows"]["post"]["responses"]["201"]["content"]["application/json"];
@@ -400,6 +402,34 @@ export class BffClient {
       }
       throw err;
     }
+  }
+
+  // Upload/download de arquivo (GO-051) — o consumidor que a fieldview
+  // "upload" do EditView precisa: enviar o arquivo PRIMEIRO (devolve um
+  // id), submeter o formulário Edit DEPOIS com esse id como valor do
+  // campo (mesmo fluxo do BFF/Go, ver goClient.ts).
+  async uploadFile(file: File): Promise<FileMeta> {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    // Sem "Content-Type" manual — fetch gera o boundary do multipart
+    // sozinho a partir do FormData (o mesmo motivo de não forçá-lo em
+    // goClient.ts do BFF).
+    return this.request<FileMeta>("/api/bff/files", {
+      method: "POST",
+      headers: { "X-CSRF-Token": this.requireCsrf() },
+      body: form,
+    });
+  }
+
+  /**
+   * fileDownloadUrl monta a URL de download (GET, sessão via cookie) —
+   * usada diretamente em `<a href>`/`<img src>`; o navegador busca os
+   * bytes sozinho (com credentials same-origin), o frontend nunca
+   * precisa buscar/bufferizar o conteúdo em JS só para exibir um link ou
+   * uma miniatura.
+   */
+  fileDownloadUrl(fileId: number): string {
+    return this.buildUrl(`/api/bff/files/${fileId}`).toString();
   }
 
   /**

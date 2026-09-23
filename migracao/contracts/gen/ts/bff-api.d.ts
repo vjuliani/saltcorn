@@ -193,7 +193,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Renderiza uma view List, Show ou Edit (GO-020, estendido em GO-039)
+         * Renderiza uma view List, Show, Edit ou Feed (GO-020, estendido em GO-039/GO-051)
          * @description Devolve o DTO de internal-api.yaml, sem reinterpretar nada — o shape exato depende do template da view. `record` é obrigatório para Show (400 sem ele), opcional para Edit (ausente = registro novo), ignorado por List.
          */
         get: operations["renderView"];
@@ -351,6 +351,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/bff/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Envia um arquivo (multipart/form-data) (GO-051)
+         * @description Repassa o multipart ao Go real, sem reinterpretar — o BFF só transporta a identidade delegada (mesmo padrão de todas as outras mutações). Upload PRIMEIRO (devolve um id), submissão do Edit DEPOIS (`updateView`-like `submit`, usando esse id como valor do campo).
+         */
+        post: operations["uploadFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bff/files/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Baixa os bytes de um arquivo (GO-051) */
+        get: operations["downloadFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -482,6 +521,14 @@ export interface components {
             value: unknown;
             options?: components["schemas"]["ViewEditFieldOption"][];
         };
+        ViewNestedEditPlan: {
+            view_id: components["schemas"]["Id"];
+            view_name: string;
+            child_table: string;
+            fk_field: string;
+            parent_id: components["schemas"]["Id"];
+            rows: components["schemas"]["ViewEditPlan"][];
+        };
         ViewEditPlan: {
             view_id: components["schemas"]["Id"];
             table: string;
@@ -489,6 +536,26 @@ export interface components {
             _version?: string;
             fields: components["schemas"]["ViewEditField"][];
             action_name: string;
+            nested?: components["schemas"]["ViewNestedEditPlan"][];
+        };
+        ViewFeedCard: {
+            record_id: components["schemas"]["Id"];
+            show: components["schemas"]["ViewShowPlan"];
+        };
+        ViewFeedPlan: {
+            view_id: components["schemas"]["Id"];
+            table: string;
+            cards: components["schemas"]["ViewFeedCard"][];
+            view_to_create_id?: components["schemas"]["Id"];
+            view_to_create_name?: string;
+            next_cursor?: string | null;
+        };
+        File: {
+            id: components["schemas"]["Id"];
+            filename: string;
+            mime_super: string;
+            mime_sub: string;
+            size_bytes: number;
         };
         ViewSubmitInput: {
             record_id?: components["schemas"]["Id"];
@@ -1140,7 +1207,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ViewRenderPlan"] | components["schemas"]["ViewShowPlan"] | components["schemas"]["ViewEditPlan"];
+                    "application/json": components["schemas"]["ViewRenderPlan"] | components["schemas"]["ViewShowPlan"] | components["schemas"]["ViewEditPlan"] | components["schemas"]["ViewFeedPlan"];
                 };
             };
             /** @description ?record= ausente (template Show) ou inválido */
@@ -1637,6 +1704,78 @@ export interface operations {
             };
             /** @description workflow sem passo inicial, ou definição com ação/passo desconhecido */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    uploadFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description arquivo salvo */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["File"];
+                };
+            };
+            /** @description corpo multipart inválido, maior que o limite permitido, ou campo "file" ausente */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            403: components["responses"]["CsrfInvalid"];
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    downloadFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description bytes do arquivo */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            /** @description arquivo não encontrado, ou ator sem acesso (deliberadamente indistinguíveis) */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

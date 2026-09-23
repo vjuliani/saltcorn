@@ -196,8 +196,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Query: renderiza uma view List, Show ou Edit
-         * @description Adicionado por GO-020 (só "List"), estendido por GO-039 ("Show" e "Edit"). Não devolve HTML; devolve o DTO que o BFF/React desenham — o shape exato depende do `template` da view (ver `ViewRenderPlan`/`ViewShowPlan`/`ViewEditPlan`). `?record=` é OBRIGATÓRIO para "Show" (400 sem ele), OPCIONAL para "Edit" (ausente = registro novo, formulário de criação em branco), e ignorado por "List". Qualquer view fora do subconjunto suportado (ver `docs/migracao-go/execucoes/GO-020.md`/`GO-039.md` — ex.: template "Feed", coluna de layout não reconhecida, fieldview "upload") devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
+         * Query: renderiza uma view List, Show, Edit ou Feed
+         * @description Adicionado por GO-020 (só "List"), estendido por GO-039 ("Show" e "Edit") e GO-051 ("Feed" + views Edit aninhadas). Não devolve HTML; devolve o DTO que o BFF/React desenham — o shape exato depende do `template` da view (ver `ViewRenderPlan`/`ViewShowPlan`/`ViewEditPlan`/`ViewFeedPlan`). `?record=` é OBRIGATÓRIO para "Show" (400 sem ele), OPCIONAL para "Edit" (ausente = registro novo, formulário de criação em branco, sem nenhuma view aninhada resolvida), e ignorado por "List"/"Feed" (que usam `?cursor=`/`?limit=` para paginação em vez disso). Qualquer view fora do subconjunto suportado (ver `docs/migracao-go/execucoes/GO-020.md`/`GO-039.md`/`GO-051.md` — ex.: coluna de layout não reconhecida, `show_view` de uma Feed que não existe ou não é "Show", `relation` de uma view aninhada malformada) devolve 422, nunca uma renderização parcial. A autorização da view (`min_role`) e da tabela por baixo (`min_role_read`, GO-015) são checagens independentes — publicar uma view não contorna o papel mínimo de leitura da própria tabela.
          */
         get: operations["renderView"];
         put?: never;
@@ -677,6 +677,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: envia um arquivo (multipart/form-data)
+         * @description Adicionado por GO-051 — o consumidor HTTP que internal/files (GO-026) não tinha (decisão de escopo explícita daquela tarefa). Necessário para a fieldview "upload" do Edit (`metadata.FieldFile`, GO-051) funcionar de ponta a ponta: o fluxo é upload PRIMEIRO (devolve um id de arquivo), submissão do formulário Edit DEPOIS (`submitView`, usando esse id como valor do campo) — não um upload multipart embutido em `submitView`, que continua só JSON. Qualquer ator autenticado pode enviar; o arquivo nasce com leitura restrita a admin (a autorização de ONDE um id de arquivo pode ser usado é decidida pelas regras normais de escrita da tabela/view que o referencia, não aqui).
+         */
+        post: operations["uploadFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/files/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Query: baixa os bytes de um arquivo
+         * @description Devolve o conteúdo bruto do arquivo (Content-Type resolvido do catálogo, nunca application/json) — ator sem papel suficiente NEM dono do arquivo recebe 404, nunca 403 ("nunca revelar existência", mesma disciplina documentada em internal/files.ErrNotAuthorized).
+         */
+        get: operations["downloadFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -891,7 +936,7 @@ export interface components {
         ViewEditField: {
             field_name: string;
             label: string;
-            /** @description Tipo do campo no catálogo (GO-011): text, integer, boolean, float, date, key. */
+            /** @description Tipo do campo no catálogo (GO-011/GO-051): text, integer, boolean, float, date, key, file. */
             field_type: string;
             /** @description Hint de widget do legado (ex.; "edit", "select", "flatpickr") — o backend não interpreta, só repassa. */
             fieldview: string;
@@ -905,6 +950,23 @@ export interface components {
             /** @description Presente só quando field_type=key e fieldview=select. */
             options?: components["schemas"]["ViewEditFieldOption"][];
         };
+        /** @description Entrada do catálogo _sc_files (GO-026) devolvida por uploadFile. */
+        File: {
+            id: components["schemas"]["Id"];
+            filename: string;
+            mime_super: string;
+            mime_sub: string;
+            size_bytes: number;
+        };
+        /** @description Uma view Edit embutida via nó de layout `type: "view"` (GO-051, ex.: create_guitar embute edit_processed_embed) — uma linha por registro FILHO já existente (relação 1:N filtrada por fk_field=parent_id). Ausente/vazio quando record_id=0 do ViewEditPlan pai (um registro que ainda não existe não tem filhos possíveis — o formulário embutido aparece a partir do primeiro salvamento do pai). Criar uma linha filha NOVA usa o MESMO endpoint `createWorkflowStep`-like de qualquer view Edit standalone: `POST .../views/{view_id}/submit` com `values[fk_field] = parent_id`. */
+        ViewNestedEditPlan: {
+            view_id: components["schemas"]["Id"];
+            view_name: string;
+            child_table: string;
+            fk_field: string;
+            parent_id: components["schemas"]["Id"];
+            rows: components["schemas"]["ViewEditPlan"][];
+        };
         /** @description DTO de renderização/edição de uma view "Edit" (GO-039) — record_id=0 é o plano de CRIAÇÃO (todos os campos em branco). */
         ViewEditPlan: {
             view_id: components["schemas"]["Id"];
@@ -915,6 +977,22 @@ export interface components {
             fields: components["schemas"]["ViewEditField"][];
             /** @description "Save" ou "SubmitWithAjax". */
             action_name: string;
+            /** @description Views Edit embutidas (GO-051) — ausente/vazio quando esta view não embute nenhuma outra. */
+            nested?: components["schemas"]["ViewNestedEditPlan"][];
+        };
+        ViewFeedCard: {
+            record_id: components["schemas"]["Id"];
+            show: components["schemas"]["ViewShowPlan"];
+        };
+        /** @description DTO de renderização de uma view "Feed" (GO-051) — para cada linha da tabela (paginada, mesma convenção de cursor de ViewRenderPlan), a view Show configurada em `show_view`, dentro de um card. */
+        ViewFeedPlan: {
+            view_id: components["schemas"]["Id"];
+            table: string;
+            cards: components["schemas"]["ViewFeedCard"][];
+            view_to_create_id?: components["schemas"]["Id"];
+            /** @description Ausente quando `view_to_create` não está configurado ou não é visível a este ator (o botão "+" fica ausente, o feed continua renderizando). */
+            view_to_create_name?: string;
+            next_cursor?: string | null;
         };
         ViewSubmitInput: {
             record_id?: components["schemas"]["Id"];
@@ -1613,7 +1691,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ViewRenderPlan"] | components["schemas"]["ViewShowPlan"] | components["schemas"]["ViewEditPlan"];
+                    "application/json": components["schemas"]["ViewRenderPlan"] | components["schemas"]["ViewShowPlan"] | components["schemas"]["ViewEditPlan"] | components["schemas"]["ViewFeedPlan"];
                 };
             };
             /** @description ?record= ausente (template Show) ou inválido */
@@ -2938,6 +3016,97 @@ export interface operations {
             };
             /** @description tabela não é versionada, ou conflito de versão otimista no registro atual */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    uploadFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description arquivo salvo */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["File"];
+                };
+            };
+            /** @description corpo multipart inválido, maior que o limite permitido, ou campo "file" ausente */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    downloadFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+                id: components["schemas"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description bytes do arquivo */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description arquivo não encontrado, ou ator sem acesso (os dois casos, deliberadamente indistinguíveis) */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

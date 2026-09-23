@@ -24,6 +24,7 @@ SERVICE_IDENTITY_SECRET="e2e-harness-secret-32-bytes-min!"
 
 GO_BIN=$(mktemp)
 BFF_OUT=$(mktemp)
+FILES_ROOT_DIR=$(mktemp -d)
 GO_PID=""
 BFF_PID=""
 FRONTEND_PID=""
@@ -47,6 +48,7 @@ JS
 
 cleanup() {
   rm -f "$GO_BIN" "$BFF_OUT"
+  rm -rf "$FILES_ROOT_DIR"
   # `-PID` mata o GRUPO inteiro criado pelo setsid correspondente (server
   # Go, ou BFF, ou vite preview, incluindo qualquer processo filho que
   # cada um tenha spawnado) — não só o processo imediato.
@@ -82,6 +84,7 @@ echo "==> Iniciando backend Go na porta $GO_PORT..."
 SALTCORN_GO_HTTP_ADDR=":$GO_PORT" \
   SALTCORN_GO_DATABASE_URL="$SALTCORN_GO_TEST_DATABASE_URL" \
   SALTCORN_GO_SERVICE_IDENTITY_SECRET="$SERVICE_IDENTITY_SECRET" \
+  SALTCORN_GO_FILES_ROOT_DIR="$FILES_ROOT_DIR" \
   setsid "$GO_BIN" &
 GO_PID=$!
 wait_for_port "$GO_PORT"

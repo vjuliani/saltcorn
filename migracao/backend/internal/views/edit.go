@@ -7,18 +7,25 @@
 // `tryUpdateRow` em base-plugin/actions.ts) mais o redirecionamento
 // pós-ação (`navigate`).
 //
-// Fora de escopo nesta entrega (ver docs/migracao-go/execucoes/GO-039.md,
-// decisões de escopo 2-4): fieldview "upload" (exige um FieldFile que
-// internal/metadata ainda não tem) e qualquer nó de layout `type: "view"`
-// (view aninhada, ex.: create_guitar embute edit_processed_embed) — a
-// segunda nem aparece em `columns[]`, então o classificador nem sabe que
-// ela existe; a view aninhada simplesmente não é desenhada, um limite de
-// apresentação, não um erro de classificação. Ambas ficam para GO-051.
+// GO-051 completa duas lacunas que GO-039 deixou deliberadamente de fora
+// (ver docs/migracao-go/execucoes/GO-039.md, decisões de escopo 2-4):
+// fieldview "upload" (agora que internal/metadata tem FieldFile, GO-051)
+// e o nó de layout `type: "view"` (view aninhada, ex.: create_guitar
+// embute edit_processed_embed via `.guitars.processed$guitar`) — a
+// ÚNICA representação desse nó é `configuration.layout`, nunca
+// `columns[]` (confirmado lendo o pack.json real do piloto guitars:
+// create_guitar's columns só lista description/name/Save), por isso a
+// resolução de view aninhada é a ÚNICA leitura de `layout` para fins de
+// DADOS neste pacote — uma exceção deliberada à regra geral de GO-039
+// ("layout é só a árvore de arranjo visual, nunca a fonte de dados"),
+// justificada porque não existe outra representação possível para essa
+// capacidade específica.
 package views
 
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -35,11 +42,11 @@ import (
 var editSupportedActions = map[string]bool{"Save": true, "SubmitWithAjax": true}
 
 // unsupportedEditFieldviews são fieldviews cujo campo exige uma
-// capacidade que este runtime ainda não tem — ver decisão de escopo 4
-// (GO-051, FieldFile).
-var unsupportedEditFieldviews = map[string]string{
-	"upload": "exige um tipo de campo de arquivo (FieldFile) que este runtime ainda não tem — ver GO-051",
-}
+// capacidade que este runtime ainda não tem. "upload" foi portada em
+// GO-051 (metadata.FieldFile + internal/files) — mantido vazio, não
+// removido, para o padrão de erro explícito continuar disponível se uma
+// fieldview futura precisar dele.
+var unsupportedEditFieldviews = map[string]string{}
 
 // EditFieldOption é uma opção de um campo FieldKey (fieldview "select") —
 // um registro candidato da tabela referenciada, com um rótulo legível.
@@ -82,6 +89,10 @@ type EditPlan struct {
 	Version    string
 	Fields     []EditField
 	ActionName string // "Save" ou "SubmitWithAjax"
+	// Nested (GO-051) são as views Edit embutidas via nó de layout
+	// `type: "view"` — vazio quando RecordID == 0 (ver
+	// resolveNestedEditPlans) ou quando a view não embute nenhuma outra.
+	Nested []NestedEditPlan
 }
 
 // NavigateDecision é o resultado do mecanismo `navigate` do legado —
@@ -249,11 +260,242 @@ func loadEditFieldOptions(ctx context.Context, tx pgx.Tx, actorRole identity.Rol
 	return options, nil
 }
 
+// buildEditFields monta os EditField de uma view Edit já classificada,
+// para um registro já lido (existing == nil para criação) — extraído de
+// CompileEditPlan para ser reaproveitado também na construção do
+// EditPlan de cada linha FILHA de uma view aninhada (mesma lógica,
+// tabela/view diferentes).
+func buildEditFields(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, raw []any, fieldsByName map[string]metadata.Field, existing map[string]any) ([]EditField, error) {
+	editFields := make([]EditField, 0, len(raw))
+	for _, item := range raw {
+		col, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, _ := col["type"].(string); t != "Field" {
+			continue
+		}
+		fieldName, _ := col["field_name"].(string)
+		f := fieldsByName[fieldName]
+		fieldview, _ := col["fieldview"].(string)
+		fieldConfig, _ := col["configuration"].(map[string]any)
+
+		ef := EditField{
+			FieldName:   fieldName,
+			Label:       fieldName,
+			FieldType:   f.Type,
+			Fieldview:   fieldview,
+			Required:    f.Required,
+			FieldConfig: fieldConfig,
+		}
+		if existing != nil {
+			ef.Value = existing[fieldName]
+		}
+		if f.Type == metadata.FieldKey && fieldview == "select" {
+			refTable, err := metadata.GetTableByID(ctx, database.AsTx(tx), f.ReferencesTable)
+			if err != nil {
+				return nil, err
+			}
+			options, err := loadEditFieldOptions(ctx, tx, actorRole, *refTable)
+			if err != nil {
+				return nil, err
+			}
+			ef.Options = options
+		}
+		editFields = append(editFields, ef)
+	}
+	return editFields, nil
+}
+
+// NestedEditPlan (GO-051) é uma view Edit embutida dentro de OUTRA view
+// Edit via um nó de layout `type: "view"` com `relation` (ex.:
+// create_guitar embute edit_processed_embed via
+// `.guitars.processed$guitar`) — uma linha por registro FILHO já
+// existente (relação 1:N filtrada pelo id do registro PAI). ViewID/
+// FKField/ParentID são expostos para o frontend montar a submissão de
+// uma linha filha NOVA: `POST .../views/{ViewID}/submit` com
+// `values[FKField] = ParentID` mais os campos próprios da view filha —
+// o mesmo endpoint `submitView` que qualquer view Edit standalone já
+// usa, nenhuma rota nova para "criar uma linha filha".
+type NestedEditPlan struct {
+	ViewID     int
+	ViewName   string
+	ChildTable string
+	FKField    string
+	ParentID   int
+	Rows       []EditPlan
+}
+
+// parseRelation decodifica a sintaxe de relação do legado
+// `.{tabelaPai}.{tabelaFilha}${campoFK}` (ex.: `.guitars.processed$guitar`
+// — "para cada linha de guitars, as linhas de processed cujo campo
+// guitar aponta para ela"). Formato confirmado lendo o pack.json real do
+// piloto guitars (GO-051, preflight) — nenhuma outra variante de sintaxe
+// de relação (ex.: many-to-many) aparece nesse pack, então só esta é
+// suportada; qualquer outra devolve ok=false, tratado como
+// UnsupportedLayoutError pelo chamador.
+func parseRelation(relation string) (parentTable, childTable, fkField string, ok bool) {
+	if !strings.HasPrefix(relation, ".") {
+		return "", "", "", false
+	}
+	rest := strings.TrimPrefix(relation, ".")
+	parts := strings.SplitN(rest, ".", 2)
+	if len(parts) != 2 {
+		return "", "", "", false
+	}
+	parentTable = parts[0]
+	dollarIdx := strings.Index(parts[1], "$")
+	if dollarIdx < 0 {
+		return "", "", "", false
+	}
+	childTable = parts[1][:dollarIdx]
+	fkField = parts[1][dollarIdx+1:]
+	if parentTable == "" || childTable == "" || fkField == "" {
+		return "", "", "", false
+	}
+	return parentTable, childTable, fkField, true
+}
+
+// findViewNodes percorre `configuration.layout` recursivamente
+// procurando nós `{"type": "view", "view": ..., "relation": ...}` — a
+// ÚNICA representação de uma view aninhada (nunca aparece em
+// `columns[]`, ver comentário do pacote). Percorre o formato genérico
+// que `encoding/json` produz (map[string]any / []any), sem assumir uma
+// posição fixa na árvore (o nó pode estar em `above`, `besides` de
+// qualquer profundidade) — mais simples e mais robusto do que replicar a
+// forma exata do layout do builder.
+func findViewNodes(node any) []map[string]any {
+	var out []map[string]any
+	switch v := node.(type) {
+	case map[string]any:
+		if t, _ := v["type"].(string); t == "view" {
+			out = append(out, v)
+		}
+		for _, val := range v {
+			out = append(out, findViewNodes(val)...)
+		}
+	case []any:
+		for _, item := range v {
+			out = append(out, findViewNodes(item)...)
+		}
+	}
+	return out
+}
+
+// maxNestedViewDepth limita a recursão de views aninhadas a UM nível —
+// uma view aninhada não pode, por sua vez, embutir outra view (orçamento
+// de recursão que o preflight de GO-039 já identificou como necessário
+// antes de implementar a capacidade; nenhuma view do pack piloto guitars
+// aninha mais de um nível, então este limite não corta nenhum uso real
+// conhecido). Excedê-lo é um erro explícito, nunca uma recursão
+// silenciosa.
+const maxNestedViewDepth = 1
+
+// resolveNestedEditPlans resolve cada nó `type: "view"` encontrado em
+// `configuration.layout` para um NestedEditPlan — só quando parentID != 0
+// (um registro-pai que ainda não existe não tem linhas filhas possíveis;
+// documentado como limitação, não uma falha: o formulário embutido
+// aparece a partir do primeiro salvamento do pai, nunca antes).
+func resolveNestedEditPlans(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, parentTableName string, parentID int, layout map[string]any, depth int) ([]NestedEditPlan, error) {
+	if parentID == 0 {
+		return nil, nil
+	}
+	nodes := findViewNodes(layout)
+	if len(nodes) == 0 {
+		return nil, nil
+	}
+	if depth >= maxNestedViewDepth {
+		return nil, &UnsupportedLayoutError{Reason: "view aninhada dentro de outra view aninhada não é suportado (limite de recursão)"}
+	}
+
+	var out []NestedEditPlan
+	for _, node := range nodes {
+		viewName, _ := node["view"].(string)
+		relation, _ := node["relation"].(string)
+		if viewName == "" || relation == "" {
+			return nil, &UnsupportedLayoutError{Reason: "nó de view aninhada sem \"view\" ou \"relation\""}
+		}
+		relParent, childTableName, fkField, ok := parseRelation(relation)
+		if !ok {
+			return nil, &UnsupportedLayoutError{Reason: fmt.Sprintf("relation %q não reconhecida (formato esperado: .tabelaPai.tabelaFilha$campoFK)", relation)}
+		}
+		if relParent != parentTableName {
+			return nil, &UnsupportedLayoutError{Reason: fmt.Sprintf("relation %q não corresponde à tabela desta view (%q)", relation, parentTableName)}
+		}
+
+		childView, err := GetViewByName(ctx, tx, actorRole, viewName)
+		if err != nil {
+			return nil, err
+		}
+		if childView.Template != "Edit" {
+			return nil, &UnsupportedLayoutError{Reason: fmt.Sprintf("view aninhada %q usa template %q — só \"Edit\" é suportado nesta entrega", viewName, childView.Template)}
+		}
+		childTable, err := metadata.GetTableByID(ctx, database.AsTx(tx), childView.TableID)
+		if err != nil {
+			return nil, err
+		}
+		if childTable.Name != childTableName {
+			return nil, &UnsupportedLayoutError{Reason: fmt.Sprintf("relation %q aponta para a tabela %q, mas a view %q é da tabela %q", relation, childTableName, viewName, childTable.Name)}
+		}
+		childFields, err := metadata.ListFields(ctx, database.AsTx(tx), childTable.ID)
+		if err != nil {
+			return nil, err
+		}
+		childFieldsByName := fieldsByNameMap(childFields)
+		if _, ok := childFieldsByName[fkField]; !ok {
+			return nil, &UnsupportedLayoutError{Reason: fmt.Sprintf("relation %q: campo de chave estrangeira %q não existe na tabela %q", relation, fkField, childTableName)}
+		}
+		if _, err := classifyEditColumns(childView.Configuration, childFieldsByName); err != nil {
+			return nil, err
+		}
+		childRaw, _ := childView.Configuration["columns"].([]any)
+
+		childRows, err := records.Rows(ctx, tx, actorRole, records.Query{
+			Table:   childTable.Name,
+			Where:   records.Eq{Field: fkField, Value: parentID},
+			OrderBy: []records.OrderTerm{{Field: "id"}},
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		rowPlans := make([]EditPlan, 0, len(childRows))
+		for _, row := range childRows {
+			version := ""
+			if ver, ok := row["_version"].(string); ok {
+				version = ver
+			}
+			editFields, err := buildEditFields(ctx, tx, actorRole, childRaw, childFieldsByName, row)
+			if err != nil {
+				return nil, err
+			}
+			rowPlans = append(rowPlans, EditPlan{
+				ViewID:     childView.ID,
+				Table:      childTable.Name,
+				RecordID:   idAsInt(row["id"]),
+				Version:    version,
+				Fields:     editFields,
+				ActionName: actionNameFromColumns(childRaw),
+			})
+		}
+
+		out = append(out, NestedEditPlan{
+			ViewID:     childView.ID,
+			ViewName:   viewName,
+			ChildTable: childTable.Name,
+			FKField:    fkField,
+			ParentID:   parentID,
+			Rows:       rowPlans,
+		})
+	}
+	return out, nil
+}
+
 // CompileEditPlan monta o EditPlan de uma view Edit compatível.
 // recordID == 0 monta o plano de CRIAÇÃO (todos os campos em branco);
 // recordID != 0 lê o registro existente (records.Rows, mesma dupla
 // checagem de autorização de CompileListPlan/CompileShowPlan) e preenche
-// Value/Version a partir dele.
+// Value/Version a partir dele, e resolve qualquer view aninhada (GO-051).
 func CompileEditPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, viewID int, recordID int) (*EditPlan, error) {
 	v, err := GetView(ctx, tx, actorRole, viewID)
 	if err != nil {
@@ -296,43 +538,17 @@ func CompileEditPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 		}
 	}
 
-	editFields := make([]EditField, 0, len(raw))
-	for _, item := range raw {
-		col, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if t, _ := col["type"].(string); t != "Field" {
-			continue
-		}
-		fieldName, _ := col["field_name"].(string)
-		f := fieldsByName[fieldName]
-		fieldview, _ := col["fieldview"].(string)
-		fieldConfig, _ := col["configuration"].(map[string]any)
+	editFields, err := buildEditFields(ctx, tx, actorRole, raw, fieldsByName, existing)
+	if err != nil {
+		return nil, err
+	}
 
-		ef := EditField{
-			FieldName:   fieldName,
-			Label:       fieldName,
-			FieldType:   f.Type,
-			Fieldview:   fieldview,
-			Required:    f.Required,
-			FieldConfig: fieldConfig,
+	var nested []NestedEditPlan
+	if layout, ok := v.Configuration["layout"].(map[string]any); ok {
+		nested, err = resolveNestedEditPlans(ctx, tx, actorRole, table.Name, recordID, layout, 0)
+		if err != nil {
+			return nil, err
 		}
-		if existing != nil {
-			ef.Value = existing[fieldName]
-		}
-		if f.Type == metadata.FieldKey && fieldview == "select" {
-			refTable, err := metadata.GetTableByID(ctx, database.AsTx(tx), f.ReferencesTable)
-			if err != nil {
-				return nil, err
-			}
-			options, err := loadEditFieldOptions(ctx, tx, actorRole, *refTable)
-			if err != nil {
-				return nil, err
-			}
-			ef.Options = options
-		}
-		editFields = append(editFields, ef)
 	}
 
 	return &EditPlan{
@@ -342,6 +558,7 @@ func CompileEditPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 		Version:    version,
 		Fields:     editFields,
 		ActionName: actionNameFromColumns(raw),
+		Nested:     nested,
 	}, nil
 }
 

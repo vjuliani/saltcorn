@@ -785,3 +785,104 @@ test("DELETE /api/bff/workflows/:id/steps/:stepId sem sessão retorna 401", asyn
     await mockGo.close();
   }
 });
+
+// GO-051: upload/download de arquivo — o corpo REAL é multipart
+// (FormData nativo do fetch global do Node), não JSON, ao contrário de
+// toda outra mutação testada acima.
+test("ciclo completo: upload de arquivo real via multipart, depois download com os mesmos bytes", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "42", "acme");
+    const form = new FormData();
+    form.append("file", new Blob([Buffer.from("conteúdo real do teste")], { type: "image/png" }), "photo.png");
+    const uploadRes = await fetch(`${baseUrl}/api/bff/files`, {
+      method: "POST",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: csrfToken },
+      body: form,
+    });
+    assert.equal(uploadRes.status, 201);
+    const uploaded = (await uploadRes.json()) as any;
+    assert.equal(uploaded.filename, "photo.png");
+    assert.equal(uploaded.mime_super, "image");
+    assert.equal(uploaded.mime_sub, "png");
+    assert.ok(uploaded.size_bytes > 0);
+
+    const downloadRes = await fetch(`${baseUrl}/api/bff/files/${uploaded.id}`, { headers: { Cookie: cookie } });
+    assert.equal(downloadRes.status, 200);
+    assert.equal(downloadRes.headers.get("content-type"), "image/png");
+    const text = await downloadRes.text();
+    assert.equal(text, "conteúdo real do teste");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/files sem CSRF é rejeitado (403 csrf_invalid)", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "42", "acme");
+    const form = new FormData();
+    form.append("file", new Blob([Buffer.from("x")], { type: "text/plain" }), "a.txt");
+    const res = await fetch(`${baseUrl}/api/bff/files`, { method: "POST", headers: { Cookie: cookie }, body: form });
+    assert.equal(res.status, 403);
+    const body = (await res.json()) as any;
+    assert.equal(body.error.code, "csrf_invalid");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/files sem campo \"file\" retorna 400 file_required", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie, csrfToken } = await withSession(sessionStore, "42", "acme");
+    const form = new FormData();
+    form.append("not_file", "algum texto");
+    const res = await fetch(`${baseUrl}/api/bff/files`, {
+      method: "POST",
+      headers: { Cookie: cookie, [CSRF_HEADER_NAME]: csrfToken },
+      body: form,
+    });
+    assert.equal(res.status, 400);
+    const body = (await res.json()) as any;
+    assert.equal(body.error.code, "file_required");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("GET /api/bff/files/:id sem sessão retorna 401", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, baseUrl } = await startBff(goUrl);
+  try {
+    const res = await fetch(`${baseUrl}/api/bff/files/1`);
+    assert.equal(res.status, 401);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("GET /api/bff/files/:id inexistente retorna 404", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "42", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/files/999999`, { headers: { Cookie: cookie } });
+    assert.equal(res.status, 404);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});

@@ -1044,3 +1044,97 @@ alimentando um ciclo `useMemo`→`useEffect`→`setState` sem fim — corrigido
 com uma constante `EMPTY_STEPS` estável). Detalhes completos, com
 comandos e evidência de falha genuína, em
 `docs/migracao-go/execucoes/GO-048.md`.
+
+## View aninhada, viewtemplate Feed e upload de arquivo (GO-051)
+
+Carve-out do preflight de GO-039: as três capacidades que `create_guitar`/
+`guitar_feed`/`upload_photo` (pack piloto `guitars`) exigiam e GO-039
+deixou de fora por não caberem com o rigor devido naquela entrega.
+
+- **View aninhada** (`internal/views/edit.go`) — um nó de layout
+  `{"type": "view", "view": ..., "relation": ...}` (sintaxe do legado
+  `.{tabelaPai}.{tabelaFilha}${campoFK}`, ex.:
+  `.guitars.processed$guitar`) embute uma view Edit inteira DENTRO de
+  outra, filtrada pelo id da linha pai. `configuration.layout` é a ÚNICA
+  representação possível desse nó (confirmado lendo o pack.json real —
+  `create_guitar` não lista `edit_processed_embed` em `columns[]`) — uma
+  exceção deliberada, documentada no cabeçalho do pacote, à regra geral
+  de GO-039 ("layout é só a árvore de arranjo visual, nunca a fonte de
+  dados"). `resolveNestedEditPlans` só resolve quando o registro pai já
+  existe (`recordID != 0`) — um pai ainda não salvo não tem como ter
+  linhas filhas, então o sub-formulário embutido só aparece a PARTIR do
+  primeiro salvamento, nunca antes (documentado, não um bug silencioso).
+  `maxNestedViewDepth = 1` limita a recursão a um nível — uma view
+  aninhada não pode, por sua vez, embutir outra (erro explícito, nunca
+  recursão silenciosa).
+- **Viewtemplate Feed** (`internal/views/feed.go`, novo) — renderiza um
+  card por linha via `show_view` (o mesmo mecanismo de uma view Show
+  standalone) mais `view_to_create`/`view_to_create_id` para o botão
+  "Criar". `classifyFeedConfig` só valida a presença de `show_view` em
+  `configuration` — a classificação, diferente de List/Show/Edit, não
+  depende de `columns[]` nem de campos da tabela (o Feed não tem colunas
+  próprias, delega tudo à view Show referenciada).
+- **`metadata.FieldFile`** (`internal/metadata/fieldtype.go`) — reaproveita
+  a mesma representação física/validação de `FieldKey` (inteiro,
+  `coerceJSONValue`/`validateValue`), mas aponta para a tabela FIXA do
+  sistema `_sc_files` (GO-026), nunca uma tabela dinâmica do tenant — por
+  isso não precisou estender `FieldDef.References`; a DDL gerada é
+  `REFERENCES _sc_files(id)`.
+- **HTTP de upload/download** (`cmd/server/files.go`, novo) — GO-026
+  entregou `internal/files.LocalBackend` deliberadamente sem consumidor
+  HTTP ("um consumidor HTTP real fica para uma tarefa futura dedicada",
+  comentário do próprio pacote) — esta é essa tarefa. `POST
+  .../files` (multipart, um campo `file`) devolve o id do arquivo criado;
+  `GET .../files/{id}` serve os bytes com o Content-Type original. O
+  fluxo do formulário Edit é upload-depois-referencia, não multipart do
+  formulário inteiro: o campo `file` é enviado primeiro (devolve um id),
+  a submissão do Edit é uma chamada JSON separada com esse id como valor
+  do campo — evita precisar de parsing multipart dentro de
+  `SubmitEditView`. `downloadFileHandler` mapeia tanto
+  `files.ErrNotFound` quanto `files.ErrNotAuthorized` para 404 (nunca
+  revela a existência de um arquivo a quem não tem acesso — recomendação
+  do próprio `internal/files.ErrNotAuthorized`). Simplificação de escala
+  deliberada: o download carrega o arquivo inteiro em memória (sem
+  streaming) — aceitável para o piloto (fotos, não arquivos grandes),
+  mesmo espírito de `editFieldOptionsLimit`.
+
+**Deliberadamente fora de escopo, documentado**: nenhuma UI para
+"adicionar uma linha filha nova" dentro de uma view aninhada — o backend
+só conhece o formato de campos de uma view filha a partir de linhas JÁ
+EXISTENTES (`NestedEditPlan.Rows`); com zero linhas não há formato para
+montar um formulário em branco. Editar/salvar linhas EXISTENTES já
+satisfaz o critério de aceite literal ("renderiza e salva... embutido").
+Nenhuma variante de relação além da sintaxe única confirmada no pack
+piloto (ex.: many-to-many) é suportada.
+
+**Achado real de bootstrap, mesma classe recorrente de GO-040/045/047/048**:
+`cmd/cli/e2eseed.go` e as fixtures HTTP de `cmd/server`
+(`records_test.go`, `views_test.go`) não chamavam `files.EnsureSchema`,
+e `e2eseed.go` não registrava a capability `"files"` na lista de
+ownership — corrigido proativamente por inspeção, aplicando a mesma
+lição já documentada nas tasks anteriores.
+
+**Achado real no harness de E2E**: `migracao/e2e/run.sh` não definia
+`SALTCORN_GO_FILES_ROOT_DIR` ao lançar o backend Go — confirmado por
+evidência de falha genuína (WARN no log do backend + `POST .../files`
+devolvendo 503 `files_unavailable` durante uma execução real do E2E, e
+o teste de upload falhando por receber um objeto de erro em vez de um
+id numérico no campo do registro). Corrigido acrescentando
+`FILES_ROOT_DIR=$(mktemp -d)` ao bloco de variáveis do backend, com
+limpeza no `cleanup()` existente.
+
+**Bug real de HTML encontrado e corrigido antes de rodar qualquer
+teste** (ver README do frontend para o detalhe): compor `<EditView>`
+recursivamente para as linhas filhas inicialmente as desenhava DENTRO do
+`<form>` da view pai — HTML inválido (`<form>` aninhado). Corrigido
+movendo o grupo de views aninhadas para fora do `<form>` pai, como
+irmão dentro de um `<div>` envolvente.
+
+**Verificação de regressão deliberada** (uma por camada, evidência
+completa em `docs/migracao-go/execucoes/GO-051.md`): Go — desativar a
+checagem de `relation` incompatível com a tabela pai em
+`resolveNestedEditPlans` (o teste de mismatch falha de verdade); BFF —
+quebrar o delimitador do parser multipart (`--${boundary}` →
+`${boundary}`, o teste de upload/download passa a comparar bytes
+diferentes dos enviados); frontend — reintroduzir o `<form>` aninhado
+(o teste dedicado que conta `<form>` irmãos falha de verdade).

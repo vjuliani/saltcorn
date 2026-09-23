@@ -11,7 +11,8 @@ import { mintServiceIdentity } from "./serviceIdentity.js";
 import { computeIdempotencyKey } from "./idempotency.js";
 import { langCookieHeader, resolveLocale } from "./locale.js";
 import { BffError, csrfInvalidError, forbiddenError, impersonationNotActiveError, sessionRequiredError } from "./errors.js";
-import { getHeader, readJSONBody, sendError, sendJSON } from "./httpHelpers.js";
+import { getHeader, readJSONBody, readRawBody, sendError, sendJSON } from "./httpHelpers.js";
+import { parseSingleFileMultipart } from "./multipart.js";
 import { Router } from "./router.js";
 
 export interface AppDeps {
@@ -352,6 +353,37 @@ export function buildRouter(deps: AppDeps): Router {
     const idempotencyKey = computeIdempotencyKey(data.userId, data.tenant, "workflows/" + params.id + "/run", body);
     const run = await goClient.runWorkflow(token, idempotencyKey, data.tenant, Number(params.id), body as { context?: Record<string, unknown> });
     sendJSON(res, 200, run);
+  });
+
+  // Upload/download de arquivo (GO-051) — o consumidor HTTP que
+  // internal/files (GO-026) não tinha. O corpo multipart do navegador é
+  // repassado sem reinterpretar o CONTEÚDO (parseSingleFileMultipart só
+  // extrai o campo "file"); o BFF monta um FormData PRÓPRIO para a
+  // chamada ao Go (goClient.uploadFile) — não é um proxy byte-a-byte do
+  // multipart original, mas o mesmo arquivo/nome/tipo chegam intactos.
+  router.post("/api/bff/files", async (req, res) => {
+    const { data } = await requireSession(req, sessionStore);
+    requireCsrf(req);
+    const contentType = getHeader(req, "content-type");
+    const rawBody = await readRawBody(req);
+    const parsed = parseSingleFileMultipart(contentType, rawBody, "file");
+    if (!parsed) {
+      throw new BffError(400, "file_required", "campo multipart \"file\" é obrigatório");
+    }
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const uploaded = await goClient.uploadFile(token, data.tenant, parsed.filename, parsed.contentType, parsed.content);
+    sendJSON(res, 201, uploaded);
+  });
+
+  // downloadFile — sem CSRF (é uma leitura, mesmo padrão de
+  // listRecords/getView); a autorização real (dono ou papel suficiente)
+  // é decidida pelo Go, o BFF só repassa os bytes e o Content-Type.
+  router.get("/api/bff/files/:id", async (req, res, params) => {
+    const { data } = await requireSession(req, sessionStore);
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const { contentType, body } = await goClient.downloadFile(token, data.tenant, Number(params.id));
+    res.writeHead(200, { "Content-Type": contentType });
+    res.end(body);
   });
 
   // Administração de usuário (GO-044) — a UI de `auth/admin.ts` do

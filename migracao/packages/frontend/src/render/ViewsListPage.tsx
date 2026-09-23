@@ -23,6 +23,7 @@ import { BffClient, ViewUnsupportedError, ViewConflictError, type BffClientError
 import { ListView, type ListViewPlan } from "./ListView";
 import { ShowView, type ShowViewPlan } from "./ShowView";
 import { EditView, type EditViewPlan } from "./EditView";
+import { FeedView, type FeedViewPlan } from "./FeedView";
 import { useT } from "../i18n/I18nContext";
 
 export interface ViewSummary {
@@ -36,7 +37,7 @@ export interface ViewsListPageProps {
   bffClient: BffClient;
 }
 
-type RenderPlan = ListViewPlan | ShowViewPlan | EditViewPlan;
+type RenderPlan = ListViewPlan | ShowViewPlan | EditViewPlan | FeedViewPlan;
 
 type PreviewState =
   | { status: "idle" }
@@ -53,6 +54,12 @@ function isShowPlan(plan: RenderPlan): plan is ShowViewPlan {
 }
 function isEditPlan(plan: RenderPlan): plan is EditViewPlan {
   return "fields" in plan;
+}
+// isFeedPlan (GO-051) — "cards" é o único campo que não colide com
+// nenhum dos outros três discriminadores (rows/values/fields), mesmo
+// espírito dos demais.
+function isFeedPlan(plan: RenderPlan): plan is FeedViewPlan {
+  return "cards" in plan;
 }
 
 export function ViewsListPage({ bffClient }: ViewsListPageProps) {
@@ -155,6 +162,42 @@ export function ViewsListPage({ bffClient }: ViewsListPageProps) {
     }
   }
 
+  // handleSubmitNested (GO-051) — submete uma linha FILHA (view/record_id
+  // próprios, diferentes da view pai em preview) pelo MESMO mecanismo de
+  // submitView de qualquer view Edit standalone; ao terminar, recarrega a
+  // pré-visualização da view PAI (não a filha) para refletir a mudança no
+  // grupo aninhado.
+  async function handleSubmitNested(childPlan: EditViewPlan, values: Record<string, unknown>) {
+    if (previewId === null) return;
+    try {
+      await bffClient.submitView(childPlan.view_id, {
+        record_id: childPlan.record_id || undefined,
+        _version: childPlan._version,
+        values,
+      });
+      const parentRecordId = preview.status === "ready" && isEditPlan(preview.plan) ? preview.plan.record_id : undefined;
+      await handlePreview(previewId, parentRecordId ? { record: parentRecordId } : {});
+    } catch (err) {
+      if (err instanceof ViewConflictError) {
+        setPreview({ status: "error", message: err.message });
+        return;
+      }
+      if (err instanceof ViewUnsupportedError) {
+        setPreview({ status: "unsupported", reason: err.message });
+        return;
+      }
+      setPreview({ status: "error", message: (err as BffClientError).message });
+    }
+  }
+
+  // handleUploadFile (GO-051) — repassado ao EditView como `onUploadFile`;
+  // devolve só o id (o formato que um valor de campo FieldFile precisa),
+  // nunca o objeto File inteiro de volta.
+  async function handleUploadFile(file: File): Promise<number> {
+    const uploaded = await bffClient.uploadFile(file);
+    return uploaded.id;
+  }
+
   if (error) return <p role="alert">{t("views.listError", { error })}</p>;
   if (views === null) return <p>{t("views.loading")}</p>;
 
@@ -206,7 +249,23 @@ export function ViewsListPage({ bffClient }: ViewsListPageProps) {
           )}
           {preview.status === "ready" && isShowPlan(preview.plan) && <ShowView plan={preview.plan} />}
           {preview.status === "ready" && isEditPlan(preview.plan) && (
-            <EditView plan={preview.plan} onSubmit={(values) => handleEditSubmit(preview.plan as EditViewPlan, values)} />
+            <EditView
+              plan={preview.plan}
+              onSubmit={(values) => handleEditSubmit(preview.plan as EditViewPlan, values)}
+              onSubmitNested={handleSubmitNested}
+              onUploadFile={handleUploadFile}
+              fileDownloadUrl={(fileId) => bffClient.fileDownloadUrl(fileId)}
+            />
+          )}
+          {preview.status === "ready" && isFeedPlan(preview.plan) && (
+            <FeedView
+              plan={preview.plan}
+              onNextPage={(cursor) => handlePreview(previewId, { cursor })}
+              onCreateClick={() => {
+                const createId = (preview.plan as FeedViewPlan).view_to_create_id;
+                if (createId) handlePreview(createId);
+              }}
+            />
           )}
           {preview.status === "unsupported" && (
             <p role="alert" data-testid="views-unsupported">

@@ -10,6 +10,7 @@
 import { createServer, type Server } from "node:http";
 import { createHash } from "node:crypto";
 import jwt from "jsonwebtoken";
+import { parseSingleFileMultipart } from "../src/multipart.js";
 
 export interface MockGoServerOptions {
   readonly secret: string;
@@ -87,6 +88,12 @@ export class MockGoServer {
   private readonly stepUpdateKeys = new Map<string, IdempotentEntry>();
   private readonly runKeys = new Map<string, IdempotentEntry>();
   private nextRunId = 1;
+
+  // GO-051: réplica mínima do catálogo de arquivo — só o suficiente para
+  // o BFF exercitar upload (multipart real)/download (bytes reais) via
+  // goClient.ts, não uma reimplementação de internal/files.
+  private readonly files = new Map<number, { filename: string; mimeSuper: string; mimeSub: string; content: Buffer }>();
+  private nextFileId = 1;
 
   constructor(private readonly opts: MockGoServerOptions) {
     this.server = createServer((req, res) => {
@@ -673,6 +680,29 @@ export class MockGoServer {
       }
     }
 
+    // GO-051: upload/download de arquivo.
+    if (req.method === "POST" && url.pathname.endsWith("/files")) {
+      const rawBody = await readRawBody(req);
+      const parsed = parseSingleFileMultipart(req.headers["content-type"], rawBody, "file");
+      if (!parsed) {
+        sendJSON(res, 400, { error: { code: "file_required", message: "campo multipart \"file\" é obrigatório" } });
+        return;
+      }
+      const id = this.nextFileId++;
+      const [mimeSuper, mimeSub] = parsed.contentType.split("/");
+      this.files.set(id, { filename: parsed.filename, mimeSuper: mimeSuper ?? "application", mimeSub: mimeSub ?? "octet-stream", content: parsed.content });
+      sendJSON(res, 201, { id, filename: parsed.filename, mime_super: mimeSuper ?? "application", mime_sub: mimeSub ?? "octet-stream", size_bytes: parsed.content.length });
+      return;
+    }
+    const downloadMatch = url.pathname.match(/\/files\/(\d+)$/);
+    if (downloadMatch && req.method === "GET") {
+      const f = this.files.get(Number(downloadMatch[1]));
+      if (!f) { sendJSON(res, 404, { error: { code: "not_found", message: "arquivo não encontrado" } }); return; }
+      res.writeHead(200, { "Content-Type": `${f.mimeSuper}/${f.mimeSub}` });
+      res.end(f.content);
+      return;
+    }
+
     sendJSON(res, 404, { error: { code: "not_found", message: "rota não encontrada no mock" } });
   }
 
@@ -727,5 +757,13 @@ function readBody(req: import("node:http").IncomingMessage): Promise<unknown> {
       const raw = Buffer.concat(chunks).toString("utf8");
       resolve(raw ? JSON.parse(raw) : {});
     });
+  });
+}
+
+function readRawBody(req: import("node:http").IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
   });
 }

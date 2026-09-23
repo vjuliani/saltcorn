@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/oapi-codegen/runtime"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // Defines values for MutationKind.
@@ -228,6 +229,17 @@ type Error struct {
 	} `json:"error"`
 }
 
+// File defines model for File.
+type File struct {
+	Filename string `json:"filename"`
+
+	// Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	Id        Id     `json:"id"`
+	MimeSub   string `json:"mime_sub"`
+	MimeSuper string `json:"mime_super"`
+	SizeBytes int    `json:"size_bytes"`
+}
+
 // Id Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
 type Id = int64
 
@@ -355,9 +367,10 @@ type ViewEditFieldOption struct {
 
 // ViewEditPlan defines model for ViewEditPlan.
 type ViewEditPlan struct {
-	UnderscoreVersion *string         `json:"_version,omitempty"`
-	ActionName        string          `json:"action_name"`
-	Fields            []ViewEditField `json:"fields"`
+	UnderscoreVersion *string               `json:"_version,omitempty"`
+	ActionName        string                `json:"action_name"`
+	Fields            []ViewEditField       `json:"fields"`
+	Nested            *[]ViewNestedEditPlan `json:"nested,omitempty"`
 
 	// RecordId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
 	RecordId Id     `json:"record_id"`
@@ -365,6 +378,27 @@ type ViewEditPlan struct {
 
 	// ViewId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
 	ViewId Id `json:"view_id"`
+}
+
+// ViewFeedCard defines model for ViewFeedCard.
+type ViewFeedCard struct {
+	// RecordId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	RecordId Id           `json:"record_id"`
+	Show     ViewShowPlan `json:"show"`
+}
+
+// ViewFeedPlan defines model for ViewFeedPlan.
+type ViewFeedPlan struct {
+	Cards      []ViewFeedCard `json:"cards"`
+	NextCursor *string        `json:"next_cursor,omitempty"`
+	Table      string         `json:"table"`
+
+	// ViewId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	ViewId Id `json:"view_id"`
+
+	// ViewToCreateId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	ViewToCreateId   *Id     `json:"view_to_create_id,omitempty"`
+	ViewToCreateName *string `json:"view_to_create_name,omitempty"`
 }
 
 // ViewNavigate defines model for ViewNavigate.
@@ -375,6 +409,20 @@ type ViewNavigate struct {
 
 // ViewNavigateType defines model for ViewNavigate.Type.
 type ViewNavigateType string
+
+// ViewNestedEditPlan defines model for ViewNestedEditPlan.
+type ViewNestedEditPlan struct {
+	ChildTable string `json:"child_table"`
+	FkField    string `json:"fk_field"`
+
+	// ParentId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	ParentId Id             `json:"parent_id"`
+	Rows     []ViewEditPlan `json:"rows"`
+
+	// ViewId Identificador de registro. Limitação explícita desta versão do contrato: assume chave primária inteira simples — chaves compostas (risco já sinalizado na matriz de capacidades GO-001) ficam fora de escopo até uma revisão dedicada do contrato.
+	ViewId   Id     `json:"view_id"`
+	ViewName string `json:"view_name"`
+}
 
 // ViewRenderColumn Três variantes discriminadas por `kind`: "field" (campo direto), "join_field" (campo trazido por join — `field_name` é a chave composta "<campo_local>__<campo_remoto>", a MESMA chave usada em `rows`), "action" (ação de coluna — só `action_name`, sem `field_name`).
 type ViewRenderColumn struct {
@@ -522,6 +570,11 @@ type SetActorLanguageJSONBody struct {
 	Language *string `json:"language,omitempty"`
 }
 
+// UploadFileMultipartBody defines parameters for UploadFile.
+type UploadFileMultipartBody struct {
+	File openapi_types.File `json:"file"`
+}
+
 // ExchangeOperatorTicketJSONBody defines parameters for ExchangeOperatorTicket.
 type ExchangeOperatorTicketJSONBody struct {
 	Ticket string `json:"ticket"`
@@ -619,6 +672,9 @@ type RunWorkflowJSONBody struct {
 
 // SetActorLanguageJSONRequestBody defines body for SetActorLanguage for application/json ContentType.
 type SetActorLanguageJSONRequestBody SetActorLanguageJSONBody
+
+// UploadFileMultipartRequestBody defines body for UploadFile for multipart/form-data ContentType.
+type UploadFileMultipartRequestBody UploadFileMultipartBody
 
 // ExchangeOperatorTicketJSONRequestBody defines body for ExchangeOperatorTicket for application/json ContentType.
 type ExchangeOperatorTicketJSONRequestBody ExchangeOperatorTicketJSONBody
@@ -816,6 +872,32 @@ func (t *RenderView200JSONResponseBody) MergeViewEditPlan(v ViewEditPlan) error 
 	return err
 }
 
+// AsViewFeedPlan returns the union data inside the RenderView200JSONResponseBody as a ViewFeedPlan
+func (t RenderView200JSONResponseBody) AsViewFeedPlan() (ViewFeedPlan, error) {
+	var body ViewFeedPlan
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromViewFeedPlan overwrites any union data inside the RenderView200JSONResponseBody as the provided ViewFeedPlan
+func (t *RenderView200JSONResponseBody) FromViewFeedPlan(v ViewFeedPlan) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeViewFeedPlan performs a merge with any union data inside the RenderView200JSONResponseBody, using the provided ViewFeedPlan
+func (t *RenderView200JSONResponseBody) MergeViewFeedPlan(v ViewFeedPlan) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t RenderView200JSONResponseBody) MarshalJSON() ([]byte, error) {
 	b, err := t.union.MarshalJSON()
 	return b, err
@@ -918,6 +1000,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 	GetBootstrap(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UploadFileWithBody Envia um arquivo (multipart/form-data) (GO-051)
+	//
+	// Repassa o multipart ao Go real, sem reinterpretar — o BFF só transporta a identidade delegada (mesmo padrão de todas as outras mutações). Upload PRIMEIRO (devolve um id), submissão do Edit DEPOIS (`updateView`-like `submit`, usando esse id como valor do campo).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/bff/files (the `UploadFile` operationId).
+	UploadFileWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DownloadFile Baixa os bytes de um arquivo (GO-051)
+	//
+	// Corresponds with GET /api/bff/files/{id} (the `DownloadFile` operationId).
+	DownloadFile(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ExchangeOperatorTicketWithBody Abre sessão administrativa com ticket emitido pela CLI local
 	//
@@ -1052,7 +1148,7 @@ type ClientInterface interface {
 	// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
 	UpdateView(ctx context.Context, id Id, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RenderView Renderiza uma view List, Show ou Edit (GO-020, estendido em GO-039)
+	// RenderView Renderiza uma view List, Show, Edit ou Feed (GO-020, estendido em GO-039/GO-051)
 	//
 	// Devolve o DTO de internal-api.yaml, sem reinterpretar nada — o shape exato depende do template da view. `record` é obrigatório para Show (400 sem ele), opcional para Edit (ausente = registro novo), ignorado por List.
 	//
@@ -1220,6 +1316,40 @@ func (c *Client) SetActorLanguage(ctx context.Context, body SetActorLanguageJSON
 // Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 func (c *Client) GetBootstrap(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetBootstrapRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UploadFileWithBody Envia um arquivo (multipart/form-data) (GO-051)
+//
+// Repassa o multipart ao Go real, sem reinterpretar — o BFF só transporta a identidade delegada (mesmo padrão de todas as outras mutações). Upload PRIMEIRO (devolve um id), submissão do Edit DEPOIS (`updateView`-like `submit`, usando esse id como valor do campo).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/bff/files (the `UploadFile` operationId).
+func (c *Client) UploadFileWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUploadFileRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DownloadFile Baixa os bytes de um arquivo (GO-051)
+//
+// Corresponds with GET /api/bff/files/{id} (the `DownloadFile` operationId).
+func (c *Client) DownloadFile(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDownloadFileRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -1533,7 +1663,7 @@ func (c *Client) UpdateView(ctx context.Context, id Id, body UpdateViewJSONReque
 	return c.Client.Do(req)
 }
 
-// RenderView Renderiza uma view List, Show ou Edit (GO-020, estendido em GO-039)
+// RenderView Renderiza uma view List, Show, Edit ou Feed (GO-020, estendido em GO-039/GO-051)
 //
 // Devolve o DTO de internal-api.yaml, sem reinterpretar nada — o shape exato depende do template da view. `record` é obrigatório para Show (400 sem ele), opcional para Edit (ausente = registro novo), ignorado por List.
 //
@@ -1891,6 +2021,69 @@ func NewGetBootstrapRequest(server string) (*http.Request, error) {
 	}
 
 	operationPath := fmt.Sprintf("/api/bff/bootstrap")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUploadFileRequestWithBody constructs an http.Request for the UploadFile method, with any body, and a specified content type
+func NewUploadFileRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/files")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDownloadFileRequest constructs an http.Request for the DownloadFile method
+func NewDownloadFileRequest(server string, id Id) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/files/%s", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -3022,6 +3215,22 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/bff/bootstrap (the `GetBootstrap` operationId).
 	GetBootstrapWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetBootstrapResponse, error)
 
+	// UploadFileWithBodyWithResponse Envia um arquivo (multipart/form-data) (GO-051)
+	//
+	// Repassa o multipart ao Go real, sem reinterpretar — o BFF só transporta a identidade delegada (mesmo padrão de todas as outras mutações). Upload PRIMEIRO (devolve um id), submissão do Edit DEPOIS (`updateView`-like `submit`, usando esse id como valor do campo).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/files (the `UploadFile` operationId).
+	UploadFileWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadFileResponse, error)
+
+	// DownloadFileWithResponse Baixa os bytes de um arquivo (GO-051)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/bff/files/{id} (the `DownloadFile` operationId).
+	DownloadFileWithResponse(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*DownloadFileResponse, error)
+
 	// ExchangeOperatorTicketWithBodyWithResponse Abre sessão administrativa com ticket emitido pela CLI local
 	//
 	// Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
@@ -3161,7 +3370,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PATCH /api/bff/views/{id} (the `UpdateView` operationId).
 	UpdateViewWithResponse(ctx context.Context, id Id, body UpdateViewJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateViewResponse, error)
 
-	// RenderViewWithResponse Renderiza uma view List, Show ou Edit (GO-020, estendido em GO-039)
+	// RenderViewWithResponse Renderiza uma view List, Show, Edit ou Feed (GO-020, estendido em GO-039/GO-051)
 	//
 	// Devolve o DTO de internal-api.yaml, sem reinterpretar nada — o shape exato depende do template da view. `record` é obrigatório para Show (400 sem ele), opcional para Edit (ausente = registro novo), ignorado por List.
 	//
@@ -3415,6 +3624,130 @@ func (r GetBootstrapResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetBootstrapResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UploadFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *File
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *CsrfInvalid
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r UploadFileResponse) GetJSON201() *File {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r UploadFileResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UploadFileResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UploadFileResponse) GetJSON403() *CsrfInvalid {
+	return r.JSON403
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r UploadFileResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r UploadFileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UploadFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UploadFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UploadFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DownloadFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DownloadFileResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DownloadFileResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r DownloadFileResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r DownloadFileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DownloadFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DownloadFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DownloadFileResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4954,6 +5287,34 @@ func (c *ClientWithResponses) GetBootstrapWithResponse(ctx context.Context, reqE
 	return ParseGetBootstrapResponse(rsp)
 }
 
+// UploadFileWithBodyWithResponse Envia um arquivo (multipart/form-data) (GO-051)
+//
+// Repassa o multipart ao Go real, sem reinterpretar — o BFF só transporta a identidade delegada (mesmo padrão de todas as outras mutações). Upload PRIMEIRO (devolve um id), submissão do Edit DEPOIS (`updateView`-like `submit`, usando esse id como valor do campo).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/files (the `UploadFile` operationId).
+func (c *ClientWithResponses) UploadFileWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadFileResponse, error) {
+	rsp, err := c.UploadFileWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUploadFileResponse(rsp)
+}
+
+// DownloadFileWithResponse Baixa os bytes de um arquivo (GO-051)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/bff/files/{id} (the `DownloadFile` operationId).
+func (c *ClientWithResponses) DownloadFileWithResponse(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*DownloadFileResponse, error) {
+	rsp, err := c.DownloadFile(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDownloadFileResponse(rsp)
+}
+
 // ExchangeOperatorTicketWithBodyWithResponse Abre sessão administrativa com ticket emitido pela CLI local
 //
 // Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
@@ -5195,7 +5556,7 @@ func (c *ClientWithResponses) UpdateViewWithResponse(ctx context.Context, id Id,
 	return ParseUpdateViewResponse(rsp)
 }
 
-// RenderViewWithResponse Renderiza uma view List, Show ou Edit (GO-020, estendido em GO-039)
+// RenderViewWithResponse Renderiza uma view List, Show, Edit ou Feed (GO-020, estendido em GO-039/GO-051)
 //
 // Devolve o DTO de internal-api.yaml, sem reinterpretar nada — o shape exato depende do template da view. `record` é obrigatório para Show (400 sem ele), opcional para Edit (ausente = registro novo), ignorado por List.
 //
@@ -5518,6 +5879,100 @@ func ParseGetBootstrapResponse(rsp *http.Response) (*GetBootstrapResponse, error
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUploadFileResponse parses an HTTP response from a UploadFileWithResponse call
+func ParseUploadFileResponse(rsp *http.Response) (*UploadFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UploadFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest File
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest CsrfInvalid
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDownloadFileResponse parses an HTTP response from a DownloadFileWithResponse call
+func ParseDownloadFileResponse(rsp *http.Response) (*DownloadFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DownloadFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
 
 	}
 
