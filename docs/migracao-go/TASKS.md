@@ -975,7 +975,7 @@ Execute a task GO-049 — Portar administração de ciclo de vida de tenants, de
 
 ### GO-050 — Decidir escopo dos achados de nicho da auditoria de completude
 
-- [ ] **Status:** TODO
+- [x] **Status:** IN_REVIEW
 - **Fase:** F4 · **Prioridade:** P2 · **Tamanho:** S
 - **Responsável sugerido:** Arquitetura
 - **Depende de:** GO-001
@@ -1028,4 +1028,42 @@ Execute a task GO-051 — Portar renderização de view aninhada, viewtemplate F
 
 ```text
 Execute a task GO-052 — Portar mecanismo de evento nomeado (emitEvent) e capacidade de escrita no host de plugins, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas (GO-040/GO-022 DONE) e o checkpoint; crie ou retome a branch task/go-052 a partir da base registrada. Escopo: Portar Trigger.emitEvent (evento nomeado genérico, desacoplado de escrita de registro, disparado por rota HTTP nova) estendendo internal/triggers.WhenTrigger; adicionar capacidade de escrita a internal/pluginhost com política própria de idempotência/autorização. Valide: Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-053 — Portar Web Share Target (PWA) reaproveitando o mecanismo de evento nomeado
+
+- [ ] **Status:** TODO
+- **Fase:** F5 · **Prioridade:** P2 · **Tamanho:** S
+- **Responsável sugerido:** Backend + BFF
+- **Depende de:** GO-047, GO-052
+- **Branch:** `task/go-053`
+- **Escopo:** Achado de nicho de GO-050 (`inventario/GO-001-matriz-capacidades.md` §6.5, item 5) — único achado que reaproveita DIRETAMENTE um mecanismo já pronto: o legado (`routes/notifications.ts`) expõe `GET /manifest.json` (Web App Manifest dinâmico, derivado de config já existente — `site_name`, ícones, cores) e `POST /share-handler` (Web Share Target — recebe conteúdo compartilhado via "Compartilhar com..." do navegador e chama `Trigger.emitEvent("ReceiveMobileShareData", null, user, {row: body})`, exatamente `internal/triggers.Dispatcher.EmitEvent` que GO-052 já portou). Portar as duas rotas equivalentes em Go/BFF, incluindo `install_progressive_web_app` (ação client-side de instalação, achado 9d de GO-050) como extensão natural desta mesma task.
+- **Aceite:** `GET .../manifest.json` devolve um manifesto PWA válido (name/icons/start_url/display, e um bloco `share_target` quando existir um trigger `ReceiveMobileShareData`); `POST .../share-handler` chama `Dispatcher.EmitEvent("ReceiveMobileShareData", ...)` de ponta a ponta (mesma prova de `receive_share_trigger` já validada em GO-052, agora acionável também por este caminho); validado em navegador real simulando o payload de compartilhamento.
+- **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
+- **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-053; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-053 — Portar Web Share Target (PWA) reaproveitando o mecanismo de evento nomeado, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas (GO-047/GO-052 DONE) e o checkpoint; crie ou retome a branch task/go-053 a partir da base registrada. Escopo: Portar GET .../manifest.json (Web App Manifest dinâmico) e POST .../share-handler (Web Share Target, chamando Dispatcher.EmitEvent("ReceiveMobileShareData", ...) já existente de GO-052), mais a ação client-side install_progressive_web_app. Valide: Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-054 — Portar catálogo estendido de ações nativas de trigger
+
+- [ ] **Status:** TODO
+- **Fase:** F5 · **Prioridade:** P2 · **Tamanho:** L
+- **Responsável sugerido:** Backend
+- **Depende de:** GO-029, GO-040, GO-047, GO-051, GO-052
+- **Branch:** `task/go-054`
+- **Escopo:** Achado de nicho de GO-050 (`inventario/GO-001-matriz-capacidades.md` §6.5, item 9a) — portar, como `ActionFunc`s nativas em `internal/triggers.BuiltinActions()` (ADR-0005, mesmo padrão de `send_email`/`webhook`), o subconjunto de ações de `base-plugin/actions.ts` do legado com valor de produto real e baixo custo marginal (várias reaproveitam mecanismos já portados por tasks anteriores): `loop_rows`, `duplicate_row`, `duplicate_row_prefill_edit`, `recalculate_stored_fields`, `sleep`, `notify_user`, `toast`, `step_control_flow`, `emit_event` (cascata — chama `Dispatcher.EmitEvent` já existente), `download_file_to_browser` (reaproveita `GET .../files/{id}` de GO-051), `reload_embedded_view`, `progress_bar`, `copy_to_clipboard`, `set_user_language` (reaproveita `PATCH .../actor` de GO-047), `refresh_user_session`. Fora de escopo, decisão já registrada em GO-050: `find_or_create_dm_room`/`train_model_instance`/`sync_table_from_external`/`convert_session_to_user`/`insert_joined_row` (dependem de capacidades-mãe não portadas) e `run_js_code_in_field` (bloqueador de segurança, mesma classe de CAP-072).
+- **Aceite:** Cada ação do subconjunto acima está registrada em `BuiltinActions()`, com pelo menos um teste de disparo real via trigger (Postgres real) provando o efeito colateral esperado; ações que reaproveitam um mecanismo já existente (arquivo, idioma, emitEvent) o fazem chamando o MESMO código já portado, nunca uma segunda implementação paralela.
+- **Rotina de validação:** Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões.
+- **Regra de retomada:** Inspecionar jobs, leases, eventos e efeitos externos; reconciliar resultados desconhecidos e preservar chaves de idempotência antes de reprocessar.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-054; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-054 — Portar catálogo estendido de ações nativas de trigger, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas (GO-029/GO-040/GO-047/GO-051/GO-052 DONE) e o checkpoint; crie ou retome a branch task/go-054 a partir da base registrada. Escopo: Portar como ActionFunc nativas em internal/triggers.BuiltinActions() o subconjunto de ações do legado com valor real e baixo custo marginal (loop_rows, duplicate_row, duplicate_row_prefill_edit, recalculate_stored_fields, sleep, notify_user, toast, step_control_flow, emit_event, download_file_to_browser, reload_embedded_view, progress_bar, copy_to_clipboard, set_user_language, refresh_user_session) — reaproveitando mecanismos já portados (emitEvent de GO-052, download de arquivo de GO-051, idioma de usuário de GO-047) onde aplicável. Valide: Executar fixtures da capacidade, autorização e cenários de falha/timeout/repetição; conferir ordem e atomicidade dos efeitos e compatibilidade das extensões. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
 ```
