@@ -994,7 +994,7 @@ Execute a task GO-050 — Decidir escopo dos achados de nicho da auditoria de co
 
 ### GO-051 — Portar renderização de view aninhada, viewtemplate Feed e campo de arquivo em Edit
 
-- [x] **Status:** IN_REVIEW
+- [x] **Status:** DONE — integrada via PR [#52](https://github.com/vjuliani/saltcorn/pull/52) (merge `d179855884b3`); histórico em [execucoes/GO-051.md](execucoes/GO-051.md)
 - **Fase:** F4 · **Prioridade:** P1 · **Tamanho:** M
 - **Responsável sugerido:** Backend + Frontend
 - **Depende de:** GO-039
