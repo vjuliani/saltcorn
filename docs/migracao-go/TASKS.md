@@ -800,7 +800,7 @@ Execute a task GO-040 — Ligar automação (triggers/ações) ao caminho HTTP r
 
 ### GO-041 — Completar adapter SQLite (identidade, views, worker e caminho web)
 
-- [~] **Status:** IN_REVIEW — PR aberto; escopo reduzido em relação ao Aceite original com decisão explícita do usuário registrada em [execucoes/GO-041.md](execucoes/GO-041.md) (triggers/scheduler/notify/files/config seguem `pgx.Tx`-only, deferidos para GO-055)
+- [x] **Status:** DONE — integrada via PR [#55](https://github.com/vjuliani/saltcorn/pull/55) (merge `92c5c7b4402b`); escopo reduzido em relação ao Aceite original com decisão explícita do usuário; histórico em [execucoes/GO-041.md](execucoes/GO-041.md) (triggers/scheduler/notify/files/config seguem `pgx.Tx`-only, deferidos para GO-055)
 - **Fase:** F5 · **Prioridade:** P0 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-030, GO-008, GO-019, GO-020, GO-025
