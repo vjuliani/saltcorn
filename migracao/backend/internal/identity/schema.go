@@ -2,8 +2,11 @@ package identity
 
 import (
 	"context"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // Tabelas de framework para identidade — distintas do catálogo de tabelas
@@ -51,14 +54,35 @@ CREATE TABLE IF NOT EXISTS _sc_impersonation_log (
 // transação (idempotente — seguro para chamar em todo teste/boot). Não é o
 // executor de migrations real do backend (GO-011); é o mínimo necessário
 // para esta tarefa ter onde persistir usuários e tokens.
+//
+// Convenção pgx.Tx mantida por compatibilidade com todos os chamadores
+// HTTP existentes (cmd/server/cmd/cli, exclusivamente Postgres até
+// GO-041) — delega para EnsureSchemaTx via database.AsTx, mesmo padrão
+// de internal/records/postgres.go.
 func EnsureSchema(ctx context.Context, tx pgx.Tx) error {
-	if _, err := tx.Exec(ctx, createUsersTableSQL); err != nil {
+	return EnsureSchemaTx(ctx, database.AsTx(tx))
+}
+
+// EnsureSchemaTx (GO-041) é a variante dialeto-neutra — chamada
+// diretamente por internal/platform/sqlite (cmd/server/cmd/worker
+// rodando contra um tenant em arquivo) e pelos testes de paridade.
+// dialectRewrite (GO-041, mesmo padrão de internal/platform/outbox.
+// EnsureSchemaTx) reescreve a MESMA string DDL Postgres para SQLite —
+// uma única fonte de verdade textual, nunca duas DDLs mantidas em
+// paralelo.
+func EnsureSchemaTx(ctx context.Context, tx database.Tx) error {
+	users, tokens, impersonation := createUsersTableSQL, createAPITokensTableSQL, createImpersonationLogTableSQL
+	if tx.Dialect() == database.DialectSQLite {
+		rewrite := strings.NewReplacer("serial PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT", "timestamptz", "timestamp", "now()", "CURRENT_TIMESTAMP")
+		users, tokens, impersonation = rewrite.Replace(users), rewrite.Replace(tokens), rewrite.Replace(impersonation)
+	}
+	if err := tx.Exec(ctx, users); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, createAPITokensTableSQL); err != nil {
+	if err := tx.Exec(ctx, tokens); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, createImpersonationLogTableSQL); err != nil {
+	if err := tx.Exec(ctx, impersonation); err != nil {
 		return err
 	}
 	return nil

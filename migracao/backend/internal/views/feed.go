@@ -13,8 +13,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
@@ -43,15 +41,15 @@ type FeedPlan struct {
 
 // CompileFeedPlan monta o FeedPlan de uma view Feed compatível — limit/
 // offset e o retorno hasMore espelham exatamente CompileListPlan.
-func CompileFeedPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, viewID int, limit, offset int) (*FeedPlan, bool, error) {
-	v, err := GetView(ctx, tx, actorRole, viewID)
+func CompileFeedPlanTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, viewID int, limit, offset int) (*FeedPlan, bool, error) {
+	v, err := GetViewTx(ctx, tx, actorRole, viewID)
 	if err != nil {
 		return nil, false, err
 	}
 	if v.Template != "Feed" {
 		return nil, false, &UnsupportedLayoutError{Reason: fmt.Sprintf("template %q não é \"Feed\"", v.Template)}
 	}
-	table, err := metadata.GetTableByID(ctx, database.AsTx(tx), v.TableID)
+	table, err := metadata.GetTableByID(ctx, tx, v.TableID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -60,14 +58,14 @@ func CompileFeedPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 	if showViewName == "" {
 		return nil, false, &UnsupportedLayoutError{Reason: "configuration.show_view ausente"}
 	}
-	showView, err := GetViewByName(ctx, tx, actorRole, showViewName)
+	showView, err := GetViewByNameTx(ctx, tx, actorRole, showViewName)
 	if err != nil {
 		return nil, false, err
 	}
 	if showView.Template != "Show" {
 		return nil, false, &UnsupportedLayoutError{Reason: fmt.Sprintf("show_view %q usa template %q — só \"Show\" é suportado", showViewName, showView.Template)}
 	}
-	showTable, err := metadata.GetTableByID(ctx, database.AsTx(tx), showView.TableID)
+	showTable, err := metadata.GetTableByID(ctx, tx, showView.TableID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -81,7 +79,7 @@ func CompileFeedPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 	}
 	descending, _ := v.Configuration["descending"].(bool)
 
-	rows, err := records.Rows(ctx, tx, actorRole, records.Query{
+	rows, err := records.RowsTx(ctx, tx, actorRole, records.Query{
 		Table:   table.Name,
 		OrderBy: []records.OrderTerm{{Field: orderField, Desc: descending}},
 		Limit:   limit + 1,
@@ -98,7 +96,7 @@ func CompileFeedPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 	cards := make([]FeedCard, 0, len(rows))
 	for _, row := range rows {
 		recordID := idAsInt(row["id"])
-		showPlan, err := CompileShowPlan(ctx, tx, actorRole, showView.ID, recordID)
+		showPlan, err := CompileShowPlanTx(ctx, tx, actorRole, showView.ID, recordID)
 		if err != nil {
 			return nil, false, err
 		}
@@ -108,7 +106,7 @@ func CompileFeedPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 	viewToCreateID := 0
 	viewToCreateName, _ := v.Configuration["view_to_create"].(string)
 	if viewToCreateName != "" {
-		createView, err := GetViewByName(ctx, tx, actorRole, viewToCreateName)
+		createView, err := GetViewByNameTx(ctx, tx, actorRole, viewToCreateName)
 		switch {
 		case err == nil:
 			viewToCreateID = createView.ID

@@ -267,7 +267,7 @@ func updateRecordTx(ctx context.Context, tx database.Tx, actorRole identity.Role
 	versionPos := len(args)
 
 	quotedTable := pgx.Identifier{table.Name}.Sanitize()
-	version := versionExpr(tx.Dialect(), "")
+	version := VersionExpr(tx.Dialect(), "")
 	if tx.Dialect() == database.DialectSQLite {
 		setClauses = append(setClauses, `"_version" = "_version" + 1`)
 	}
@@ -311,7 +311,7 @@ func DeleteRecordTx(ctx context.Context, tx database.Tx, actorRole identity.Role
 	}
 
 	quotedTable := pgx.Identifier{table.Name}.Sanitize()
-	version := versionExpr(tx.Dialect(), "")
+	version := VersionExpr(tx.Dialect(), "")
 	var deleted int
 	err = tx.QueryRow(ctx, fmt.Sprintf(`DELETE FROM %s WHERE id = $1 AND %s = $2 RETURNING id`, quotedTable, version), id, expectedVersion).Scan(&deleted)
 	if errors.Is(err, database.ErrNoRows) {
@@ -389,7 +389,7 @@ func classifyPgError(err error) error {
 }
 
 // SQLite mantém uma versão explícita; PostgreSQL preserva xmin.
-func versionExpr(d database.Dialect, prefix string) string {
+func VersionExpr(d database.Dialect, prefix string) string {
 	if d == database.DialectSQLite {
 		return `CAST(` + prefix + `"_version" AS TEXT)`
 	}
@@ -408,6 +408,6 @@ func returningColumns(fields map[string]metadata.Field, dialect database.Dialect
 	for _, name := range names {
 		columns = append(columns, pgx.Identifier{name}.Sanitize())
 	}
-	columns = append(columns, versionExpr(dialect, "")+` AS "_version"`)
+	columns = append(columns, VersionExpr(dialect, "")+` AS "_version"`)
 	return strings.Join(columns, ", ")
 }

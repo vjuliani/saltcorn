@@ -45,7 +45,7 @@ func CompileTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, q
 
 	// O token de concorrência vem de xmin no PostgreSQL e da coluna
 	// explícita _version no SQLite.
-	cols := []string{`t."id"`, versionExpr(tx.Dialect(), "t.") + ` AS "_version"`}
+	cols := []string{`t."id"`, VersionExpr(tx.Dialect(), "t.") + ` AS "_version"`}
 	names := make([]string, 0, len(fields))
 	for _, f := range fields {
 		names = append(names, f.Name)

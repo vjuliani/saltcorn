@@ -27,8 +27,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
@@ -232,13 +230,13 @@ func idAsInt(v any) int {
 // escala desta entrega (sem paginação/busca no dropdown).
 const editFieldOptionsLimit = 200
 
-func loadEditFieldOptions(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, refTable metadata.Table) ([]EditFieldOption, error) {
-	refFields, err := metadata.ListFields(ctx, database.AsTx(tx), refTable.ID)
+func loadEditFieldOptions(ctx context.Context, tx database.Tx, actorRole identity.RoleID, refTable metadata.Table) ([]EditFieldOption, error) {
+	refFields, err := metadata.ListFields(ctx, tx, refTable.ID)
 	if err != nil {
 		return nil, err
 	}
 	labelField := labelFieldFor(refFields)
-	rows, err := records.Rows(ctx, tx, actorRole, records.Query{
+	rows, err := records.RowsTx(ctx, tx, actorRole, records.Query{
 		Table:   refTable.Name,
 		OrderBy: []records.OrderTerm{{Field: "id"}},
 		Limit:   editFieldOptionsLimit,
@@ -265,7 +263,7 @@ func loadEditFieldOptions(ctx context.Context, tx pgx.Tx, actorRole identity.Rol
 // CompileEditPlan para ser reaproveitado também na construção do
 // EditPlan de cada linha FILHA de uma view aninhada (mesma lógica,
 // tabela/view diferentes).
-func buildEditFields(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, raw []any, fieldsByName map[string]metadata.Field, existing map[string]any) ([]EditField, error) {
+func buildEditFields(ctx context.Context, tx database.Tx, actorRole identity.RoleID, raw []any, fieldsByName map[string]metadata.Field, existing map[string]any) ([]EditField, error) {
 	editFields := make([]EditField, 0, len(raw))
 	for _, item := range raw {
 		col, ok := item.(map[string]any)
@@ -292,7 +290,7 @@ func buildEditFields(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 			ef.Value = existing[fieldName]
 		}
 		if f.Type == metadata.FieldKey && fieldview == "select" {
-			refTable, err := metadata.GetTableByID(ctx, database.AsTx(tx), f.ReferencesTable)
+			refTable, err := metadata.GetTableByID(ctx, tx, f.ReferencesTable)
 			if err != nil {
 				return nil, err
 			}
@@ -396,7 +394,7 @@ const maxNestedViewDepth = 1
 // (um registro-pai que ainda não existe não tem linhas filhas possíveis;
 // documentado como limitação, não uma falha: o formulário embutido
 // aparece a partir do primeiro salvamento do pai, nunca antes).
-func resolveNestedEditPlans(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, parentTableName string, parentID int, layout map[string]any, depth int) ([]NestedEditPlan, error) {
+func resolveNestedEditPlans(ctx context.Context, tx database.Tx, actorRole identity.RoleID, parentTableName string, parentID int, layout map[string]any, depth int) ([]NestedEditPlan, error) {
 	if parentID == 0 {
 		return nil, nil
 	}
@@ -423,21 +421,21 @@ func resolveNestedEditPlans(ctx context.Context, tx pgx.Tx, actorRole identity.R
 			return nil, &UnsupportedLayoutError{Reason: fmt.Sprintf("relation %q não corresponde à tabela desta view (%q)", relation, parentTableName)}
 		}
 
-		childView, err := GetViewByName(ctx, tx, actorRole, viewName)
+		childView, err := GetViewByNameTx(ctx, tx, actorRole, viewName)
 		if err != nil {
 			return nil, err
 		}
 		if childView.Template != "Edit" {
 			return nil, &UnsupportedLayoutError{Reason: fmt.Sprintf("view aninhada %q usa template %q — só \"Edit\" é suportado nesta entrega", viewName, childView.Template)}
 		}
-		childTable, err := metadata.GetTableByID(ctx, database.AsTx(tx), childView.TableID)
+		childTable, err := metadata.GetTableByID(ctx, tx, childView.TableID)
 		if err != nil {
 			return nil, err
 		}
 		if childTable.Name != childTableName {
 			return nil, &UnsupportedLayoutError{Reason: fmt.Sprintf("relation %q aponta para a tabela %q, mas a view %q é da tabela %q", relation, childTableName, viewName, childTable.Name)}
 		}
-		childFields, err := metadata.ListFields(ctx, database.AsTx(tx), childTable.ID)
+		childFields, err := metadata.ListFields(ctx, tx, childTable.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -450,7 +448,7 @@ func resolveNestedEditPlans(ctx context.Context, tx pgx.Tx, actorRole identity.R
 		}
 		childRaw, _ := childView.Configuration["columns"].([]any)
 
-		childRows, err := records.Rows(ctx, tx, actorRole, records.Query{
+		childRows, err := records.RowsTx(ctx, tx, actorRole, records.Query{
 			Table:   childTable.Name,
 			Where:   records.Eq{Field: fkField, Value: parentID},
 			OrderBy: []records.OrderTerm{{Field: "id"}},
@@ -496,19 +494,19 @@ func resolveNestedEditPlans(ctx context.Context, tx pgx.Tx, actorRole identity.R
 // recordID != 0 lê o registro existente (records.Rows, mesma dupla
 // checagem de autorização de CompileListPlan/CompileShowPlan) e preenche
 // Value/Version a partir dele, e resolve qualquer view aninhada (GO-051).
-func CompileEditPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, viewID int, recordID int) (*EditPlan, error) {
-	v, err := GetView(ctx, tx, actorRole, viewID)
+func CompileEditPlanTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, viewID int, recordID int) (*EditPlan, error) {
+	v, err := GetViewTx(ctx, tx, actorRole, viewID)
 	if err != nil {
 		return nil, err
 	}
 	if v.Template != "Edit" {
 		return nil, &UnsupportedLayoutError{Reason: fmt.Sprintf("template %q não é \"Edit\"", v.Template)}
 	}
-	table, err := metadata.GetTableByID(ctx, database.AsTx(tx), v.TableID)
+	table, err := metadata.GetTableByID(ctx, tx, v.TableID)
 	if err != nil {
 		return nil, err
 	}
-	fields, err := metadata.ListFields(ctx, database.AsTx(tx), table.ID)
+	fields, err := metadata.ListFields(ctx, tx, table.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -521,7 +519,7 @@ func CompileEditPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 	var existing map[string]any
 	version := ""
 	if recordID != 0 {
-		rows, err := records.Rows(ctx, tx, actorRole, records.Query{
+		rows, err := records.RowsTx(ctx, tx, actorRole, records.Query{
 			Table: table.Name,
 			Where: records.Eq{Field: "id", Value: recordID},
 			Limit: 1,
@@ -571,19 +569,19 @@ func CompileEditPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 // (recordID != 0, com o mesmo controle de concorrência otimista de
 // qualquer outra escrita). Devolve o registro resultante e a decisão de
 // navegação (`navigate`) calculada a partir de `destination_type`.
-func SubmitEditView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, viewID int, recordID int, expectedVersion string, values map[string]any) (*EditSubmitResult, error) {
-	v, err := GetView(ctx, tx, actorRole, viewID)
+func SubmitEditViewTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, viewID int, recordID int, expectedVersion string, values map[string]any) (*EditSubmitResult, error) {
+	v, err := GetViewTx(ctx, tx, actorRole, viewID)
 	if err != nil {
 		return nil, err
 	}
 	if v.Template != "Edit" {
 		return nil, &UnsupportedLayoutError{Reason: fmt.Sprintf("template %q não é \"Edit\"", v.Template)}
 	}
-	table, err := metadata.GetTableByID(ctx, database.AsTx(tx), v.TableID)
+	table, err := metadata.GetTableByID(ctx, tx, v.TableID)
 	if err != nil {
 		return nil, err
 	}
-	fields, err := metadata.ListFields(ctx, database.AsTx(tx), table.ID)
+	fields, err := metadata.ListFields(ctx, tx, table.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -603,9 +601,9 @@ func SubmitEditView(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, v
 
 	var record map[string]any
 	if recordID == 0 {
-		record, err = records.CreateRecord(ctx, tx, actorRole, table.Name, values, nil)
+		record, err = records.CreateRecordTx(ctx, tx, actorRole, table.Name, values, nil)
 	} else {
-		record, err = records.UpdateRecord(ctx, tx, actorRole, table.Name, recordID, expectedVersion, values, nil)
+		record, err = records.UpdateRecordTx(ctx, tx, actorRole, table.Name, recordID, expectedVersion, values, nil)
 	}
 	if err != nil {
 		return nil, err

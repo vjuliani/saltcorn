@@ -18,7 +18,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // ErrCannotImpersonateSelf é devolvido quando o admin tenta impersonar a
@@ -29,19 +29,19 @@ var ErrCannotImpersonateSelf = errors.New("identity: não é possível impersona
 // nenhum registro de auditoria de impersonação.
 var ErrImpersonationNotFound = errors.New("identity: registro de impersonação não encontrado")
 
-// StartImpersonation registra o início de uma impersonação — o admin
+// StartImpersonationTx registra o início de uma impersonação — o admin
 // (adminUserID, resolvido da identidade delegada, nunca de um campo de
 // formulário) assume a identidade de targetUserID. Falha se o ator não for
 // RoleAdmin, se o alvo não existir neste tenant, ou se admin e alvo forem o
 // mesmo usuário.
-func StartImpersonation(ctx context.Context, tx pgx.Tx, actorRole RoleID, adminUserID, targetUserID int) (logID int, err error) {
+func StartImpersonationTx(ctx context.Context, tx database.Tx, actorRole RoleID, adminUserID, targetUserID int) (logID int, err error) {
 	if err := requireAdmin(actorRole); err != nil {
 		return 0, err
 	}
 	if adminUserID == targetUserID {
 		return 0, ErrCannotImpersonateSelf
 	}
-	if _, err := FindUserByID(ctx, tx, targetUserID); err != nil {
+	if _, err := FindUserByIDTx(ctx, tx, targetUserID); err != nil {
 		return 0, err
 	}
 	err = tx.QueryRow(ctx,
@@ -51,16 +51,16 @@ func StartImpersonation(ctx context.Context, tx pgx.Tx, actorRole RoleID, adminU
 	return logID, err
 }
 
-// EndImpersonation marca o fim de uma impersonação — idempotente: encerrar
-// um registro já encerrado (ou inexistente) nunca é erro, mesma convenção
-// de DropField/RevokeAPIToken. Não exige papel de ator: quem chama isto é o
-// BFF encerrando sua PRÓPRIA sessão de impersonação (ver
+// EndImpersonationTx marca o fim de uma impersonação — idempotente:
+// encerrar um registro já encerrado (ou inexistente) nunca é erro, mesma
+// convenção de DropField/RevokeAPITokenTx. Não exige papel de ator: quem
+// chama isto é o BFF encerrando sua PRÓPRIA sessão de impersonação (ver
 // docs/migracao-go/execucoes/GO-044.md), não um endpoint diretamente
 // alcançável por um usuário final escolhendo um logID de outra pessoa — o
 // BFF nunca aceita um logID que não seja o que ele mesmo guardou na sessão.
-func EndImpersonation(ctx context.Context, tx pgx.Tx, logID int) error {
-	_, err := tx.Exec(ctx, "UPDATE _sc_impersonation_log SET ended_at = now() WHERE id = $1 AND ended_at IS NULL", logID)
-	return err
+// CURRENT_TIMESTAMP (não `now()`) — entendido pelos dois dialetos.
+func EndImpersonationTx(ctx context.Context, tx database.Tx, logID int) error {
+	return tx.Exec(ctx, "UPDATE _sc_impersonation_log SET ended_at = CURRENT_TIMESTAMP WHERE id = $1 AND ended_at IS NULL", logID)
 }
 
 // ImpersonationRecord é a projeção de uma linha de auditoria — usado por
@@ -74,19 +74,21 @@ type ImpersonationRecord struct {
 	StillActive  bool
 }
 
-// GetImpersonation lê um registro de auditoria por ID — usado pelo BFF para
-// validar, antes de encerrar, que o logID guardado na sessão corresponde
-// mesmo a uma impersonação ainda ativa (defesa contra um logID reaproveitado
-// por engano).
-func GetImpersonation(ctx context.Context, tx pgx.Tx, logID int) (*ImpersonationRecord, error) {
+// GetImpersonationTx lê um registro de auditoria por ID — usado pelo BFF
+// para validar, antes de encerrar, que o logID guardado na sessão
+// corresponde mesmo a uma impersonação ainda ativa (defesa contra um
+// logID reaproveitado por engano). `CAST(... AS TEXT)` (não `::text`) —
+// sintaxe ANSI entendida pelos dois dialetos, ao contrário do cast
+// abreviado do Postgres.
+func GetImpersonationTx(ctx context.Context, tx database.Tx, logID int) (*ImpersonationRecord, error) {
 	r := &ImpersonationRecord{ID: logID}
 	var endedAt *string
 	err := tx.QueryRow(ctx,
-		"SELECT admin_user_id, target_user_id, started_at::text, ended_at::text FROM _sc_impersonation_log WHERE id = $1",
+		"SELECT admin_user_id, target_user_id, CAST(started_at AS TEXT), CAST(ended_at AS TEXT) FROM _sc_impersonation_log WHERE id = $1",
 		logID,
 	).Scan(&r.AdminUserID, &r.TargetUserID, &r.StartedAt, &endedAt)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return nil, ErrImpersonationNotFound
 		}
 		return nil, err

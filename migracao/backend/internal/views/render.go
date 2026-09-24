@@ -26,8 +26,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
@@ -331,19 +329,19 @@ func joinsFromColumns(columns []ListColumn) []records.Join {
 // (listRecordsHandler): o chamador pede limit+1 linhas e usa o
 // "hasMore" retornado para decidir se há próxima página, sem uma consulta
 // de contagem separada.
-func CompileListPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, viewID int, limit, offset int) (*ListPlan, bool, error) {
-	v, err := GetView(ctx, tx, actorRole, viewID)
+func CompileListPlanTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, viewID int, limit, offset int) (*ListPlan, bool, error) {
+	v, err := GetViewTx(ctx, tx, actorRole, viewID)
 	if err != nil {
 		return nil, false, err
 	}
 	if v.Template != "List" {
 		return nil, false, &UnsupportedLayoutError{Reason: fmt.Sprintf("template %q não é \"List\"", v.Template)}
 	}
-	table, err := metadata.GetTableByID(ctx, database.AsTx(tx), v.TableID)
+	table, err := metadata.GetTableByID(ctx, tx, v.TableID)
 	if err != nil {
 		return nil, false, err
 	}
-	fields, err := metadata.ListFields(ctx, database.AsTx(tx), table.ID)
+	fields, err := metadata.ListFields(ctx, tx, table.ID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -358,7 +356,7 @@ func CompileListPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 	}
 	descending := descendingFromState(v.Configuration)
 
-	rows, err := records.Rows(ctx, tx, actorRole, records.Query{
+	rows, err := records.RowsTx(ctx, tx, actorRole, records.Query{
 		Table:   table.Name,
 		OrderBy: []records.OrderTerm{{Field: orderField, Desc: descending}},
 		Limit:   limit + 1,
@@ -391,19 +389,19 @@ func CompileListPlan(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, 
 // tabela que internal/records.DeleteRecordTx já confere por baixo), e
 // delega a exclusão de verdade a records.DeleteRecordTx — mesmo controle
 // de concorrência otimista (expectedVersion) de qualquer outra escrita.
-func DeleteListRow(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, viewID int, recordID int, expectedVersion string) error {
-	v, err := GetView(ctx, tx, actorRole, viewID)
+func DeleteListRowTx(ctx context.Context, tx database.Tx, actorRole identity.RoleID, viewID int, recordID int, expectedVersion string) error {
+	v, err := GetViewTx(ctx, tx, actorRole, viewID)
 	if err != nil {
 		return err
 	}
 	if v.Template != "List" {
 		return &UnsupportedLayoutError{Reason: fmt.Sprintf("template %q não é \"List\"", v.Template)}
 	}
-	table, err := metadata.GetTableByID(ctx, database.AsTx(tx), v.TableID)
+	table, err := metadata.GetTableByID(ctx, tx, v.TableID)
 	if err != nil {
 		return err
 	}
-	fields, err := metadata.ListFields(ctx, database.AsTx(tx), table.ID)
+	fields, err := metadata.ListFields(ctx, tx, table.ID)
 	if err != nil {
 		return err
 	}
@@ -424,5 +422,5 @@ func DeleteListRow(ctx context.Context, tx pgx.Tx, actorRole identity.RoleID, vi
 	if !identity.CanWrite(actorRole, deleteCol.ActionMinRole) {
 		return records.ErrNotAuthorized
 	}
-	return records.DeleteRecord(ctx, tx, actorRole, table.Name, recordID, expectedVersion, nil)
+	return records.DeleteRecordTx(ctx, tx, actorRole, table.Name, recordID, expectedVersion, nil)
 }
