@@ -14,4 +14,8 @@ async function walk(dir) {
   }
 }
 await walk(root);
-await writeFile(path.join(root,'release.json'), JSON.stringify({format:1,version:'0.1.0-go032',schema:2,internal_api:1,bff_api:1,node_major:22,sha256},null,2)+'\n');
+// version/schema devem bater exatamente com Release/SchemaVersion de
+// migracao/backend/internal/installation/config.go — CheckRelease rejeita
+// qualquer divergência. Sem fonte única compartilhada entre Go e este
+// script; atualizar os dois manualmente sempre que qualquer um mudar.
+await writeFile(path.join(root,'release.json'), JSON.stringify({format:1,version:'0.1.0-go046',schema:3,internal_api:1,bff_api:1,node_major:22,sha256},null,2)+'\n');
