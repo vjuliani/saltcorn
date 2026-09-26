@@ -17,6 +17,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/records"
 )
 
@@ -34,7 +35,7 @@ func TestValidate_AbortsWrite(t *testing.T) {
 	}
 
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
-		"reject": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		"reject": func(ctx context.Context, tx database.Tx, d *Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 			return errRejected
 		},
 	}}
@@ -74,7 +75,7 @@ func TestOnlyIf_GatesAction(t *testing.T) {
 
 	called := 0
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
-		"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		"mark": func(ctx context.Context, tx database.Tx, d *Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 			called++
 			return nil
 		},
@@ -116,7 +117,7 @@ func TestAfterInsert_RunsInSameTransaction(t *testing.T) {
 	}
 
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
-		"log": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		"log": func(ctx context.Context, tx database.Tx, d *Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 			return tx.Exec(ctx, `INSERT INTO post_log (title) VALUES ($1)`, row["title"])
 		},
 	}}
@@ -171,7 +172,7 @@ func TestAfterCommit_EnqueuesOutboxEvent_NeverRunsSynchronously(t *testing.T) {
 
 	calledSynchronously := false
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
-		"slow_effect": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		"slow_effect": func(ctx context.Context, tx database.Tx, d *Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 			calledSynchronously = true
 			return nil
 		},
@@ -227,7 +228,7 @@ func TestAfterCommit_RollbackNeverEnqueuesEvent(t *testing.T) {
 	}
 
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
-		"noop": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		"noop": func(ctx context.Context, tx database.Tx, d *Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 			return nil
 		},
 	}}
@@ -283,7 +284,7 @@ func TestAfterCommit_RetryDoesNotDuplicateEvent(t *testing.T) {
 	}
 
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
-		"noop": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		"noop": func(ctx context.Context, tx database.Tx, d *Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 			return nil
 		},
 	}}
@@ -363,7 +364,7 @@ func TestOnlyIf_LegacyOwner_FailsClosed(t *testing.T) {
 
 	d := &Dispatcher{
 		Expression: coldEvaluator,
-		Actions: map[string]ActionFuncTx{"noop": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		Actions: map[string]ActionFuncTx{"noop": func(ctx context.Context, tx database.Tx, d *Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 			return nil
 		}},
 	}

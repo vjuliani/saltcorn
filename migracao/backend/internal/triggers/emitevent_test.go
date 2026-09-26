@@ -14,6 +14,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 )
 
 func TestCreateTrigger_NamedEvent_TableIDZero_Succeeds(t *testing.T) {
@@ -81,7 +82,7 @@ func TestDispatcherEmitEvent_DispatchesOnlyMatchingNamedTriggers(t *testing.T) {
 
 	var fired []string
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
-		"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		"mark": func(ctx context.Context, tx database.Tx, d *Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 			name, _ := config["name"].(string)
 			fired = append(fired, name)
 			return nil
@@ -148,7 +149,7 @@ func TestDispatcherEmitEvent_OnlyIfFalse_NeverRuns(t *testing.T) {
 
 	ran := false
 	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
-		"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		"mark": func(ctx context.Context, tx database.Tx, d *Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 			ran = true
 			return nil
 		},

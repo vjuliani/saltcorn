@@ -34,6 +34,10 @@ func ListAll(ctx context.Context, tx pgx.Tx) ([]Trigger, error) {
 	return ListAllTx(ctx, database.AsTx(tx))
 }
 
+func GetTriggerByID(ctx context.Context, tx pgx.Tx, id int) (Trigger, error) {
+	return GetTriggerByIDTx(ctx, database.AsTx(tx), id)
+}
+
 // RunOne é o equivalente pgx.Tx de Dispatcher.RunOneTx — mesmo padrão de
 // wrapper, chamador Postgres existente (cmd/worker) não muda nenhuma
 // linha.

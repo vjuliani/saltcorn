@@ -977,7 +977,7 @@ func TestParityTriggers(t *testing.T) {
 
 		var fired []string
 		d := &triggers.Dispatcher{Actions: map[string]triggers.ActionFuncTx{
-			"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+			"mark": func(ctx context.Context, tx database.Tx, d *triggers.Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 				fired = append(fired, fmt.Sprint(row["title"]))
 				return nil
 			},
@@ -1015,7 +1015,7 @@ func TestParityTriggers(t *testing.T) {
 		// tornaria impossível distinguir "a ação síncrona rodou de novo" de
 		// "a ação adiada rodou fora de hora".
 		deferredFired := false
-		d.Actions["mark_deferred"] = func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		d.Actions["mark_deferred"] = func(ctx context.Context, tx database.Tx, d *triggers.Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 			deferredFired = true
 			return nil
 		}

@@ -22,7 +22,21 @@ import (
 // precisa de nenhum parâmetro simplesmente ignora config. Ver actions.go
 // para o catálogo de ações nativas reais (GO-029) — antes desta tarefa,
 // só o MECANISMO de registro/despacho por nome existia (GO-024).
-type ActionFuncTx func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error
+//
+// d/tenant/actorRole (GO-054): adicionados à assinatura original de
+// GO-029 — achado real de preflight, não hipotético, ao tentar portar
+// emit_event/loop_rows/duplicate_row do catálogo estendido do legado
+// (base-plugin/actions.ts): nenhum dos três cabia na assinatura antiga
+// (context+tx+table+row+config), que não dava a uma ação nenhum jeito de
+// (a) despachar OUTRA ação/trigger recursivamente (emit_event via
+// d.EmitEventTx, loop_rows via d.RunOneTx), nem (b) escrever pela via
+// autorizada de internal/records, que exige actorRole (duplicate_row via
+// records.CreateRecordTx). Mesmo precedente já usado por RunJSCodeFuncTx
+// (runjscode.go) para o mesmíssimo problema — em vez de repetir o
+// caso-especial por ação nova, a assinatura comum de ActionFuncTx é
+// alargada de uma vez, já que agora são VÁRIAS ações (não uma) que
+// precisam do mesmo acesso.
+type ActionFuncTx func(ctx context.Context, tx database.Tx, d *Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error
 
 // Dispatcher liga o catálogo de triggers (_sc_triggers) à avaliação de
 // condição (internal/expression, GO-023) e a um registro de ações
@@ -66,7 +80,7 @@ func (d *Dispatcher) RunOneTx(ctx context.Context, tx database.Tx, tenant tenanc
 	if !ok {
 		return fmt.Errorf("%w: %q (trigger %d)", ErrUnknownAction, trig.Action, trig.ID)
 	}
-	return action(ctx, tx, table, row, trig.Configuration)
+	return action(ctx, tx, d, tenant, actorRole, table, row, trig.Configuration)
 }
 
 // HooksForTx constrói um *records.TxHooks (o ponto de extensão reservado

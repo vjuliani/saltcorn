@@ -21,4 +21,8 @@ var (
 	// Dispatcher.enqueueAfterCommit), que não existe para um evento sem
 	// registro associado.
 	ErrAfterCommitRequiresTable = errors.New("triggers: after_commit exige um trigger ligado a tabela (table_id != 0)")
+	// ErrTriggerNotFound (GO-054) é devolvido por GetTriggerByID quando o
+	// id referenciado (ex.: configuration.trigger_id da ação loop_rows) não
+	// existe neste tenant.
+	ErrTriggerNotFound = errors.New("triggers: trigger não encontrado")
 )

@@ -843,7 +843,7 @@ Execute a task GO-055 — Portar internal/triggers, internal/scheduler e interna
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-055
 - **Branch:** `task/go-056`
-- **Escopo:** Follow-up do escopo deferido em GO-055 (achado real de preflight, ver [execucoes/GO-055.md](execucoes/GO-055.md)) — `internal/realtime.Publish` (dependência de `internal/notify.Create`, que publica eventos em tempo real de notificação) permanece inteiramente `pgx.Tx`-only, uma dependência transitiva NÃO nomeada no escopo original de GO-055. Estender `database.Tx` a `internal/realtime` (preservando wrappers `pgx.Tx`, mesmo padrão já estabelecido), o que desbloqueia `notify.CreateTx` (hoje só `MarkReadTx`/`ListForUserTx` são `database.Tx`-based). Além disso, `internal/files` já é `database.Tx` desde GO-055, mas nenhuma rota HTTP de `cmd/server` liga upload/download de arquivo a um tenant SQLite ainda — ligar `sqliteUploadFileHandler`/`sqliteDownloadFileHandler` ao caminho SQLite, mesmo padrão de `cmd/server/sqlite.go`.
+- **Escopo:** Follow-up do escopo deferido em GO-055 (achado real de preflight, ver [execucoes/GO-055.md](execucoes/GO-055.md)) — `internal/realtime.Publish` (dependência de `internal/notify.Create`, que publica eventos em tempo real de notificação) permanece inteiramente `pgx.Tx`-only, uma dependência transitiva NÃO nomeada no escopo original de GO-055. Estender `database.Tx` a `internal/realtime` (preservando wrappers `pgx.Tx`, mesmo padrão já estabelecido), o que desbloqueia `notify.CreateTx` (hoje só `MarkReadTx`/`ListForUserTx` são `database.Tx`-based). Além disso, `internal/files` já é `database.Tx` desde GO-055, mas nenhuma rota HTTP de `cmd/server` liga upload/download de arquivo a um tenant SQLite ainda — ligar `sqliteUploadFileHandler`/`sqliteDownloadFileHandler` ao caminho SQLite, mesmo padrão de `cmd/server/sqlite.go`. **Achado adicional de GO-054** (ver [execucoes/GO-054.md](execucoes/GO-054.md)): a ação nativa `notify_user` (catálogo estendido de ações de trigger, GO-050 §6.5 item 9a) ficou deliberadamente FORA do escopo de GO-054 exatamente por essa mesma razão — `notify.Create` sendo `pgx.Tx`-only. Assim que `notify.CreateTx` existir aqui, registrar `notify_user` em `internal/triggers.BuiltinActions()` (config `user_spec`/`title`/`body`/`link`, narrowed para email/id explícito — sem suporte a `"*"`/where-object, ver GO-054.md) é uma extensão natural e barata desta mesma task, não uma terceira tentativa.
 - **Aceite:** Uma notificação com evento de tempo real real (`internal/realtime.PublishTx`) funciona contra um tenant SQLite, testado via `internal/platform/sqlite/parity_test.go`; upload e download de arquivo funcionam via HTTP real contra um tenant SQLite (`cmd/server`), testado via `httptest`; GO-033 (CAP-021, CAP-023) reclassificado de PASS PARCIAL para PASS completo.
 - **Rotina de validação:** Mesmas fixtures de domínio nos dois adapters; prova HTTP real (não só unitária) de upload/download e de notificação com evento de tempo real contra SQLite.
 - **Regra de retomada:** Identificar versões e checkpoints de banco, cliente e artefatos; retomar a partir de estado consistente comprovado, sem apagar dados locais pendentes.
@@ -1089,7 +1089,7 @@ Execute a task GO-053 — Portar Web Share Target (PWA) reaproveitando o mecanis
 
 ### GO-054 — Portar catálogo estendido de ações nativas de trigger
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW
 - **Fase:** F5 · **Prioridade:** P2 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-029, GO-040, GO-047, GO-051, GO-052
