@@ -819,7 +819,7 @@ Execute a task GO-041 — Completar adapter SQLite (identidade, views, worker e 
 
 ### GO-055 — Portar internal/triggers, internal/scheduler e internal/notify para database.Tx (completar adapter SQLite)
 
-- [~] **Status:** IN_REVIEW — PR a abrir; achado real de escopo (dependência transitiva nova, `internal/realtime`) registrado em [execucoes/GO-055.md](execucoes/GO-055.md); CAP-021/CAP-023 seguem PASS PARCIAL (não PASS completo), GO-056 aberta como follow-up
+- [~] **Status:** IN_REVIEW — PR [#57](https://github.com/vjuliani/saltcorn/pull/57) aberto; achado real de escopo (dependência transitiva nova, `internal/realtime`) registrado em [execucoes/GO-055.md](execucoes/GO-055.md); CAP-021/CAP-023 seguem PASS PARCIAL (não PASS completo), GO-056 aberta como follow-up
 - **Fase:** F5 · **Prioridade:** P1 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-041
