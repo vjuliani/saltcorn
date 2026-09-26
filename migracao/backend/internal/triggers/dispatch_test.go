@@ -33,8 +33,8 @@ func TestValidate_AbortsWrite(t *testing.T) {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
 
-	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"reject": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
+		"reject": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			return errRejected
 		},
 	}}
@@ -73,8 +73,8 @@ func TestOnlyIf_GatesAction(t *testing.T) {
 	}
 
 	called := 0
-	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"mark": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
+		"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			called++
 			return nil
 		},
@@ -115,10 +115,9 @@ func TestAfterInsert_RunsInSameTransaction(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 
-	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"log": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
-			_, err := tx.Exec(ctx, `INSERT INTO post_log (title) VALUES ($1)`, row["title"])
-			return err
+	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
+		"log": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+			return tx.Exec(ctx, `INSERT INTO post_log (title) VALUES ($1)`, row["title"])
 		},
 	}}
 
@@ -171,8 +170,8 @@ func TestAfterCommit_EnqueuesOutboxEvent_NeverRunsSynchronously(t *testing.T) {
 	}
 
 	calledSynchronously := false
-	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"slow_effect": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
+		"slow_effect": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			calledSynchronously = true
 			return nil
 		},
@@ -227,8 +226,8 @@ func TestAfterCommit_RollbackNeverEnqueuesEvent(t *testing.T) {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
 
-	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"noop": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
+		"noop": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			return nil
 		},
 	}}
@@ -283,8 +282,8 @@ func TestAfterCommit_RetryDoesNotDuplicateEvent(t *testing.T) {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
 
-	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"noop": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
+		"noop": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			return nil
 		},
 	}}
@@ -295,12 +294,12 @@ func TestAfterCommit_RetryDoesNotDuplicateEvent(t *testing.T) {
 			return err
 		}
 		record := map[string]any{"id": float64(999), "title": "retry"}
-		if err := d.enqueueAfterCommit(ctx, tx, identity.RoleAdmin, trig, *tbl, record); err != nil {
+		if err := d.enqueueAfterCommitTx(ctx, database.AsTx(tx), identity.RoleAdmin, trig, *tbl, record); err != nil {
 			return err
 		}
 		// Repetição deliberada da MESMA chamada (mesmo trigger, mesmo
 		// registro) — simula um retry de nível superior.
-		return d.enqueueAfterCommit(ctx, tx, identity.RoleAdmin, trig, *tbl, record)
+		return d.enqueueAfterCommitTx(ctx, database.AsTx(tx), identity.RoleAdmin, trig, *tbl, record)
 	}); err != nil {
 		t.Fatalf("enqueueAfterCommit (x2): %v", err)
 	}
@@ -330,7 +329,7 @@ func TestUnknownAction_ReturnsExplicitError(t *testing.T) {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
 
-	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{}}
+	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{}}
 
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "x"}, d.HooksFor(tenant, identity.RoleAdmin, nil))
@@ -364,7 +363,7 @@ func TestOnlyIf_LegacyOwner_FailsClosed(t *testing.T) {
 
 	d := &Dispatcher{
 		Expression: coldEvaluator,
-		Actions: map[string]ActionFunc{"noop": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		Actions: map[string]ActionFuncTx{"noop": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			return nil
 		}},
 	}

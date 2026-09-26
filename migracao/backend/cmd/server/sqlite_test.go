@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -25,6 +26,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/sqlite"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/records"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 )
 
@@ -57,6 +59,9 @@ func newSQLiteFixture(t *testing.T, actorRole identity.RoleID) sqliteFixture {
 			return err
 		}
 		if err := views.EnsureSchemaTx(ctx, tx); err != nil {
+			return err
+		}
+		if err := triggers.EnsureSchemaTx(ctx, tx); err != nil {
 			return err
 		}
 		id, err := identity.CreateUserTx(ctx, tx, "ator@example.com", "hash", actorRole)
@@ -143,7 +148,7 @@ func TestSQLite_TablesFieldsRecordsViewsEndToEnd(t *testing.T) {
 	}
 
 	// 3. Registro: create, list, update, delete — via HTTP real.
-	createRecH := buildSQLiteHandler(t, verifier, sqliteCreateRecordHandler(fx.tracker, fx.db))
+	createRecH := buildSQLiteHandler(t, verifier, sqliteCreateRecordHandler(fx.tracker, fx.db, &triggers.Dispatcher{}))
 	rec = doJSON(createRecH, http.MethodPost, "/v1/tenants/"+string(fx.tenant)+"/tables/notes/records", map[string]string{"table": "notes"},
 		map[string]string{"Idempotency-Key": "create-1"}, map[string]any{"title": "primeira nota"})
 	if rec.Code != http.StatusCreated {
@@ -167,7 +172,7 @@ func TestSQLite_TablesFieldsRecordsViewsEndToEnd(t *testing.T) {
 		t.Fatalf("listRecords: %+v", page)
 	}
 
-	updateRecH := buildSQLiteHandler(t, verifier, sqliteUpdateRecordHandler(fx.tracker, fx.db))
+	updateRecH := buildSQLiteHandler(t, verifier, sqliteUpdateRecordHandler(fx.tracker, fx.db, &triggers.Dispatcher{}))
 	rec = doJSON(updateRecH, http.MethodPatch, "/v1/tenants/"+string(fx.tenant)+"/tables/notes/records/"+strconv.Itoa(recordID),
 		map[string]string{"table": "notes", "id": strconv.Itoa(recordID)}, map[string]string{"Idempotency-Key": "update-1"},
 		map[string]any{"title": "nota atualizada", "_version": version})
@@ -181,7 +186,7 @@ func TestSQLite_TablesFieldsRecordsViewsEndToEnd(t *testing.T) {
 	}
 	newVersion, _ := updated["_version"].(string)
 
-	deleteRecH := buildSQLiteHandler(t, verifier, sqliteDeleteRecordHandler(fx.tracker, fx.db))
+	deleteRecH := buildSQLiteHandler(t, verifier, sqliteDeleteRecordHandler(fx.tracker, fx.db, &triggers.Dispatcher{}))
 	rec = doJSON(deleteRecH, http.MethodDelete, "/v1/tenants/"+string(fx.tenant)+"/tables/notes/records/"+strconv.Itoa(recordID)+"?version="+newVersion,
 		map[string]string{"table": "notes", "id": strconv.Itoa(recordID)}, nil, nil)
 	if rec.Code != http.StatusNoContent {
@@ -297,7 +302,7 @@ func TestSQLite_SameIdempotencyKey_DoesNotDuplicate(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 
-	handler := buildSQLiteHandler(t, verifier, sqliteCreateRecordHandler(fx.tracker, fx.db))
+	handler := buildSQLiteHandler(t, verifier, sqliteCreateRecordHandler(fx.tracker, fx.db, &triggers.Dispatcher{}))
 	do := func() *httptest.ResponseRecorder {
 		body, _ := json.Marshal(map[string]any{"label": "gizmo"})
 		req := httptest.NewRequest(http.MethodPost, "/v1/tenants/"+string(fx.tenant)+"/tables/widgets/records", bytes.NewReader(body))
@@ -329,5 +334,60 @@ func TestSQLite_SameIdempotencyKey_DoesNotDuplicate(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatalf("verificação de não-duplicação: %v", err)
+	}
+}
+
+// TestSQLite_CreateRecordHandler_DispatchesRealTrigger prova o Aceite de
+// GO-055 literalmente: "cmd/server em modo SQLite dispara triggers reais
+// (Dispatcher.HooksFor) a partir de uma escrita HTTP de registro, sem
+// hooks=nil" — uma escrita HTTP real via sqliteCreateRecordHandler,
+// nunca uma chamada direta a HooksForTx/RunOneTx.
+func TestSQLite_CreateRecordHandler_DispatchesRealTrigger(t *testing.T) {
+	fx := newSQLiteFixture(t, identity.RoleAdmin)
+	verifier, err := tenancy.NewVerifier([]byte(testServiceIdentitySecret))
+	if err != nil {
+		t.Fatalf("NewVerifier: %v", err)
+	}
+	token := mintServiceIdentity(t, testServiceIdentitySecret, strconv.Itoa(fx.userID), fx.tenant, time.Minute)
+
+	var tableID int
+	if err := fx.db.WithTenant(context.Background(), fx.tenant, func(ctx context.Context, tx database.Tx) error {
+		table, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "posts", metadata.TableOptions{})
+		if err != nil {
+			return err
+		}
+		tableID = table.ID
+		if _, err := metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true}); err != nil {
+			return err
+		}
+		_, err = triggers.CreateTriggerTx(ctx, tx, triggers.Trigger{TableID: tableID, When: triggers.WhenInsert, Action: "mark"})
+		return err
+	}); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	var fired []string
+	dispatcher := &triggers.Dispatcher{Actions: map[string]triggers.ActionFuncTx{
+		"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+			fired = append(fired, fmt.Sprint(row["title"]))
+			return nil
+		},
+	}}
+
+	handler := buildSQLiteHandler(t, verifier, sqliteCreateRecordHandler(fx.tracker, fx.db, dispatcher))
+	body, _ := json.Marshal(map[string]any{"title": "disparado via HTTP"})
+	req := httptest.NewRequest(http.MethodPost, "/v1/tenants/"+string(fx.tenant)+"/tables/posts/records", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Idempotency-Key", "trigger-http-1")
+	req.SetPathValue("tenant", string(fx.tenant))
+	req.SetPathValue("table", "posts")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("createRecord: status = %d, corpo = %s", rec.Code, rec.Body.String())
+	}
+
+	if len(fired) != 1 || fired[0] != "disparado via HTTP" {
+		t.Fatalf("trigger não disparou a partir da escrita HTTP: %v", fired)
 	}
 }

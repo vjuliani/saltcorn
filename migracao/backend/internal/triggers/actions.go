@@ -19,10 +19,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/notify"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // Nomes das ações nativas — mesmos nomes do catálogo do legado
@@ -39,8 +38,8 @@ const (
 // fica para uma tarefa futura, ver nota de escopo em
 // docs/migracao-go/execucoes/GO-029.md) decide se usa este catálogo
 // sozinho ou mesclado com ações próprias da aplicação.
-func BuiltinActions() map[string]ActionFunc {
-	return map[string]ActionFunc{
+func BuiltinActions() map[string]ActionFuncTx {
+	return map[string]ActionFuncTx{
 		ActionSendEmail: sendEmailAction,
 		ActionWebhook:   webhookAction,
 	}
@@ -57,7 +56,7 @@ func BuiltinActions() map[string]ActionFunc {
 // configurações (destinatário, assunto) são o que os distingue; dois
 // disparos com a configuração IDÊNTICA sobre a mesma linha são,
 // razoavelmente, o MESMO evento.
-func sendEmailAction(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+func sendEmailAction(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 	to := configStringSlice(config, "to")
 	if len(to) == 0 {
 		return fmt.Errorf("%w: ação %q exige configuration.to", ErrActionConfigInvalid, ActionSendEmail)
@@ -69,12 +68,12 @@ func sendEmailAction(ctx context.Context, tx pgx.Tx, table metadata.Table, row m
 	if err != nil {
 		return err
 	}
-	return notify.EnqueueEmail(ctx, tx, key, notify.EmailMessage{To: to, Subject: subject, Body: body})
+	return notify.EnqueueEmailTx(ctx, tx, key, notify.EmailMessage{To: to, Subject: subject, Body: body})
 }
 
 // webhookAction posta a linha que disparou o trigger, como JSON, para a
 // URL configurada — idempotência pelo mesmo raciocínio de sendEmailAction.
-func webhookAction(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+func webhookAction(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 	url := configString(config, "url")
 	if url == "" {
 		return fmt.Errorf("%w: ação %q exige configuration.url", ErrActionConfigInvalid, ActionWebhook)
@@ -87,7 +86,7 @@ func webhookAction(ctx context.Context, tx pgx.Tx, table metadata.Table, row map
 	if err != nil {
 		return err
 	}
-	return notify.EnqueueWebhook(ctx, tx, key, notify.WebhookRequest{
+	return notify.EnqueueWebhookTx(ctx, tx, key, notify.WebhookRequest{
 		Method:  "POST",
 		URL:     url,
 		Headers: map[string]string{"Content-Type": "application/json"},

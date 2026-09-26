@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // ScheduledTrigger é uma entrada de _sc_scheduled_triggers. Ao contrário
@@ -32,7 +32,7 @@ type ScheduledTrigger struct {
 // ambíguo do processo do legado (models/internal/cron.ts: "evaluated in
 // the server's local timezone" — comportamento que este pacote
 // deliberadamente NÃO replica, ver README).
-func CreateScheduledTrigger(ctx context.Context, tx pgx.Tx, name, action, cronExpr, timezone string) (ScheduledTrigger, error) {
+func CreateScheduledTriggerTx(ctx context.Context, tx database.Tx, name, action, cronExpr, timezone string) (ScheduledTrigger, error) {
 	if timezone == "" {
 		timezone = "UTC"
 	}
@@ -60,19 +60,24 @@ func CreateScheduledTrigger(ctx context.Context, tx pgx.Tx, name, action, cronEx
 	return st, nil
 }
 
-// DueTriggers lê os triggers agendados cujo NextRunAt já passou (<= now),
-// travando as linhas escolhidas com `FOR UPDATE SKIP LOCKED` — defesa em
-// profundidade além do lease por tenant (internal/platform/lease) que já
-// serializa Dispatcher.RunDue entre workers concorrentes: mesmo que dois
-// workers de alguma forma processassem o MESMO tenant ao mesmo tempo (ex.:
-// um bug futuro na checagem de lease), nenhum dos dois pegaria a MESMA
-// linha de trigger agendado.
-func DueTriggers(ctx context.Context, tx pgx.Tx, now time.Time) ([]ScheduledTrigger, error) {
-	rows, err := tx.Query(ctx,
-		`SELECT id, name, action, cron_expr, timezone, next_run_at, last_run_at, COALESCE(last_error, '')
-		 FROM _sc_scheduled_triggers WHERE next_run_at <= $1 ORDER BY id FOR UPDATE SKIP LOCKED`,
-		now,
-	)
+// DueTriggersTx lê os triggers agendados cujo NextRunAt já passou (<=
+// now). No Postgres, trava as linhas escolhidas com `FOR UPDATE SKIP
+// LOCKED` — defesa em profundidade além do lease por tenant
+// (internal/platform/lease) que já serializa Dispatcher.RunDueTx entre
+// workers concorrentes: mesmo que dois workers de alguma forma
+// processassem o MESMO tenant ao mesmo tempo (ex.: um bug futuro na
+// checagem de lease), nenhum dos dois pegaria a MESMA linha de trigger
+// agendado. SQLite não tem (nem precisa d)o equivalente — seu modelo de
+// escritor único por arquivo (BEGIN IMMEDIATE, internal/platform/sqlite)
+// já serializa qualquer transação de escrita concorrente no nível do
+// próprio arquivo.
+func DueTriggersTx(ctx context.Context, tx database.Tx, now time.Time) ([]ScheduledTrigger, error) {
+	query := `SELECT id, name, action, cron_expr, timezone, next_run_at, last_run_at, COALESCE(last_error, '')
+		 FROM _sc_scheduled_triggers WHERE next_run_at <= $1 ORDER BY id`
+	if tx.Dialect() == database.DialectPostgres {
+		query += ` FOR UPDATE SKIP LOCKED`
+	}
+	rows, err := tx.Query(ctx, query, now)
 	if err != nil {
 		return nil, err
 	}
@@ -89,10 +94,10 @@ func DueTriggers(ctx context.Context, tx pgx.Tx, now time.Time) ([]ScheduledTrig
 	return out, rows.Err()
 }
 
-// ListAll lê TODOS os triggers agendados do tenant, em ordem de criação —
-// usado por internal/pack (GO-027) para exportar a aplicação inteira
-// (nunca filtrando por "está na hora", ao contrário de DueTriggers).
-func ListAll(ctx context.Context, tx pgx.Tx) ([]ScheduledTrigger, error) {
+// ListAllTx lê TODOS os triggers agendados do tenant, em ordem de criação
+// — usado por internal/pack (GO-027) para exportar a aplicação inteira
+// (nunca filtrando por "está na hora", ao contrário de DueTriggersTx).
+func ListAllTx(ctx context.Context, tx database.Tx) ([]ScheduledTrigger, error) {
 	rows, err := tx.Query(ctx,
 		`SELECT id, name, action, cron_expr, timezone, next_run_at, last_run_at, COALESCE(last_error, '')
 		 FROM _sc_scheduled_triggers ORDER BY id`,
@@ -113,14 +118,17 @@ func ListAll(ctx context.Context, tx pgx.Tx) ([]ScheduledTrigger, error) {
 	return out, rows.Err()
 }
 
-func advanceSchedule(ctx context.Context, tx pgx.Tx, id int, nextRunAt time.Time, lastErr string) error {
+// advanceScheduleTx grava last_run_at como now (passado pelo chamador,
+// nunca `now()` do SQL — now() não existe no SQLite, e um parâmetro
+// vinculado é portável nos dois dialetos sem precisar de dialect-rewrite
+// nenhum, já que isto é uma query viva, não DDL).
+func advanceScheduleTx(ctx context.Context, tx database.Tx, id int, now, nextRunAt time.Time, lastErr string) error {
 	var errArg any
 	if lastErr != "" {
 		errArg = lastErr
 	}
-	_, err := tx.Exec(ctx,
-		`UPDATE _sc_scheduled_triggers SET next_run_at = $1, last_run_at = now(), last_error = $2 WHERE id = $3`,
-		nextRunAt, errArg, id,
+	return tx.Exec(ctx,
+		`UPDATE _sc_scheduled_triggers SET next_run_at = $1, last_run_at = $2, last_error = $3 WHERE id = $4`,
+		nextRunAt, now, errArg, id,
 	)
-	return err
 }

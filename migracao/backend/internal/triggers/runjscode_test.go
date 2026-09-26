@@ -183,7 +183,7 @@ func TestRunJSCode_UnregisteredOnDispatcher_ReturnsErrUnknownAction(t *testing.T
 	// Dispatcher SEM RunJSCode configurado — mesmo comportamento de uma
 	// ação nativa desconhecida (ErrUnknownAction), nunca um no-op
 	// silencioso.
-	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{}}
+	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{}}
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := records.CreateRecord(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "x"}, d.HooksFor(tenant, identity.RoleAdmin, nil))
 		return err

@@ -1452,3 +1452,95 @@ registrado silenciosamente); ignorar o erro de autenticação do AES-GCM em
 `decryptFile` (senha errada e ciphertext adulterado deixam de ser
 detectados). Todas restauradas com sucesso confirmado. Detalhes completos
 em `docs/migracao-go/execucoes/GO-046.md`.
+
+## Completar adapter SQLite: triggers, scheduler e notify (GO-055)
+
+Follow-up de GO-041 — `database.Tx` (GO-030) estendido a
+`internal/triggers`, `internal/scheduler`, `internal/notify` (parcial) e,
+como quick wins recomendados no preflight, `internal/config` e
+`internal/files`. `cmd/server`/`cmd/worker` passam a ter automação REAL
+contra um tenant SQLite, não só CRUD.
+
+- **`internal/triggers`**: `Dispatcher` inteiro convertido — `ActionFuncTx`,
+  `RunOneTx`, `HooksForTx` (devolve `*records.TxHooks` DIRETAMENTE, sem
+  adaptador — `TxHooks` já existia desde GO-030 com o formato exato
+  necessário, mais simples do que o preflight de GO-041 fazia parecer),
+  `EmitEventTx`, `enqueueAfterCommitTx` (via `outbox.DoTx`).
+  `RunJSCodeFuncTx` foi quase de graça: o corpo do callback de escrita já
+  chamava `database.AsTx(tx)`/`records.CreateRecordTx` internamente antes
+  desta task (a assinatura externa só era `pgx.Tx` porque o CHAMADOR,
+  `Dispatcher.RunOne`, era `pgx.Tx`). `internal/pluginhost` confirmado
+  totalmente agnóstico de Tx (zero referências a `pgx` no pacote inteiro)
+  — nenhum bloqueio nessa direção.
+- **`internal/scheduler`**: dois problemas reais de portabilidade,
+  específicos deste pacote:
+  - `DueTriggersTx` usava `FOR UPDATE SKIP LOCKED` (sintaxe Postgres-only)
+    — corrigido com o mesmo padrão condicional-por-dialeto de
+    `internal/platform/outbox`; SQLite não precisa do lock (seu modelo de
+    escritor único por arquivo já serializa).
+  - `runInSavepoint` usava a API NATIVA `pgx.Tx.Begin()`/`Commit()`/
+    `Rollback()` — sem equivalente em `database.Tx` (a interface não tem
+    `Begin`). Corrigido reproduzindo o padrão de
+    `internal/platform/outbox.runInSavepoint`: `SAVEPOINT`/`ROLLBACK TO
+    SAVEPOINT`/`RELEASE SAVEPOINT` via SQL cru, portável nos dois dialetos
+    (SQLite suporta `SAVEPOINT` nativamente), com um nome de savepoint
+    PRÓPRIO (`sc_scheduler_attempt`, nunca `sc_outbox_attempt`).
+  - `advanceScheduleTx` passou a receber `now` como PARÂMETRO em vez de
+    usar `now()` do SQL (que não existe no SQLite) — mais simples do que
+    o truque de dialect-rewrite de DDL, já que isto é uma query VIVA, não
+    schema.
+- **`internal/notify`**: `EnqueueEmailTx`/`EnqueueWebhookTx`/`HandlerTx`
+  (delegam a `outbox.DoTx`/consumidos por `outbox.ProcessPendingTx`),
+  `MarkReadTx`/`ListForUserTx`. **`Create` (o caminho de notificação
+  IN-APP) permanece deliberadamente `pgx.Tx`-only** — depende de
+  `internal/realtime.Publish`, ele mesmo inteiramente `pgx.Tx`-only, uma
+  dependência transitiva NOVA descoberta só no preflight desta task
+  (fora do escopo nomeado). Nenhuma rota hoje conecta esse caminho a um
+  tenant SQLite — GO-056 aberta para fechar isso.
+  **Achado real corrigido durante a conversão:** `EnqueueEmail`/
+  `EnqueueEmailTx` nunca incluía `HTMLBody` (adicionado em GO-046) no
+  payload enfileirado — o ÚNICO caminho real de envio em produção (via
+  outbox; `cmd/server`/`cmd/worker` nunca chamam `SendEmail` diretamente)
+  perdia o HTML silenciosamente. Corrigido; teste dedicado
+  (`TestHandler_DeliversEmailEvent_PreservesHTMLBody`) confirmado
+  falhando genuinamente antes da correção.
+- **`internal/config`/`internal/files`**: convertidos por completo (quick
+  wins recomendados no preflight, sem bloqueio cruzado) — nunca mais
+  adiados pela terceira vez.
+- **`cmd/server/sqlite.go`**: `sqliteCreateRecordHandler`/
+  `sqliteUpdateRecordHandler`/`sqliteDeleteRecordHandler` recebem agora
+  um `*triggers.Dispatcher` e chamam `dispatcher.HooksForTx(...)` de
+  verdade — nunca mais `hooks=nil`. MESMO `Dispatcher`/catálogo de ações
+  que o caminho Postgres usa, nunca uma segunda instância por dialeto.
+  Provado via HTTP real (`httptest`): um trigger `WhenInsert` de verdade
+  criado e disparado por um POST real via `sqliteCreateRecordHandler`.
+- **`cmd/worker/main.go`**: `sqliteMode` (mesmo nome/padrão de
+  `cmd/server`), `runCycleSQLite`/`runOutboxJobSQLite`/
+  `runScheduledTriggersJobSQLite`/`triggerOutboxHandlerTx` — dois jobs
+  reais (outbox e triggers agendados) contra tenants SQLite. **Sem
+  `cutover.Acquire`/`lease.Acquire`** para tenants SQLite — mesma decisão
+  de GO-041 para as rotas HTTP: o conceito de corte gradual Node→Go e de
+  arrendamento multi-processo não têm análogo num deploy "modo desktop"
+  desde o primeiro dia; a serialização real vem do próprio arquivo SQLite
+  (`BEGIN IMMEDIATE`, escritor único). Provado de ponta a ponta: um
+  trigger `AfterCommit` de `send_email` é executado de verdade por
+  `runOutboxJobSQLite` (assunto interpolado a partir da linha real
+  confirmado); um trigger agendado vencido dispara via
+  `runScheduledTriggersJobSQLite` e `next_run_at`/`last_run_at` avançam —
+  as MESMAS funções que o processo worker real chama a cada ciclo, não
+  uma chamada direta a `internal/scheduler`/`internal/triggers` que
+  contornaria o wiring de `cmd/worker` em si.
+
+**Verificação de regressão deliberada** (uma por mecanismo de segurança/
+portabilidade realmente construído): remover o `ROLLBACK TO SAVEPOINT` de
+`runInSavepoint` (scheduler) — nenhum teste PRÉ-EXISTENTE detectava a
+regressão (achado real de lacuna de teste, nenhum teste anterior escrevia
+no banco de dentro da própria ação que falha); um teste novo
+(`TestRunDue_ActionFailure_RollsBackPartialWrite`) confirmou a falha
+genuína antes da correção. Reverter `dispatcher.HooksForTx(...)` para
+`nil` em `sqliteCreateRecordHandler` (o teste de disparo real falha de
+verdade). Remover a condição de dialeto de `FOR UPDATE SKIP LOCKED`
+em `DueTriggersTx` (o teste de parity contra SQLite falha de verdade com
+um erro de sintaxe SQL genuíno). Todas restauradas com sucesso
+confirmado. Detalhes completos em
+`docs/migracao-go/execucoes/GO-055.md`.

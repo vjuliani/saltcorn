@@ -22,6 +22,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/cutover"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 )
@@ -42,8 +43,8 @@ func buildEventsHandler(t *testing.T, verifier *tenancy.Verifier, guard *cutover
 // profunda em internal/triggers/emitevent_test.go, com Postgres E host
 // reais).
 func dispatcherWithMarkAction(fired *[]string) *triggers.Dispatcher {
-	return &triggers.Dispatcher{Actions: map[string]triggers.ActionFunc{
-		"mark": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, cfg map[string]any) error {
+	return &triggers.Dispatcher{Actions: map[string]triggers.ActionFuncTx{
+		"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, cfg map[string]any) error {
 			name, _ := cfg["name"].(string)
 			*fired = append(*fired, name)
 			return nil

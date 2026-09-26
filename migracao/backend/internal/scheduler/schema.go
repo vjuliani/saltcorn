@@ -2,8 +2,9 @@ package scheduler
 
 import (
 	"context"
+	"strings"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // _sc_scheduled_triggers substitui os cinco mecanismos sem estado do
@@ -27,13 +28,21 @@ CREATE TABLE IF NOT EXISTS _sc_scheduled_triggers (
 const createScheduledTriggersDueIndexSQL = `
 CREATE INDEX IF NOT EXISTS idx_sc_scheduled_triggers_due ON _sc_scheduled_triggers (next_run_at)`
 
-// EnsureSchema cria o catálogo de triggers agendados, idempotente —
+// EnsureSchemaTx cria o catálogo de triggers agendados, idempotente —
 // chamar dentro de db.WithTenant, uma vez por tenant (mesmo padrão de
-// internal/triggers, internal/platform/outbox).
-func EnsureSchema(ctx context.Context, tx pgx.Tx) error {
-	if _, err := tx.Exec(ctx, createScheduledTriggersTableSQL); err != nil {
+// internal/triggers, internal/platform/outbox). Dialect-rewrite (GO-055)
+// igual ao já usado por internal/platform/outbox desde GO-030.
+func EnsureSchemaTx(ctx context.Context, tx database.Tx) error {
+	ddl := createScheduledTriggersTableSQL
+	if tx.Dialect() == database.DialectSQLite {
+		ddl = strings.NewReplacer(
+			"serial PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT",
+			"timestamptz", "timestamp",
+			"now()", "CURRENT_TIMESTAMP",
+		).Replace(ddl)
+	}
+	if err := tx.Exec(ctx, ddl); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, createScheduledTriggersDueIndexSQL)
-	return err
+	return tx.Exec(ctx, createScheduledTriggersDueIndexSQL)
 }

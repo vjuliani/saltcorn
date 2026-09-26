@@ -80,8 +80,8 @@ func TestDispatcherEmitEvent_DispatchesOnlyMatchingNamedTriggers(t *testing.T) {
 	ctx := context.Background()
 
 	var fired []string
-	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"mark": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
+		"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			name, _ := config["name"].(string)
 			fired = append(fired, name)
 			return nil
@@ -126,7 +126,7 @@ func TestDispatcherEmitEvent_NoMatchingTrigger_FiredZero_NoError(t *testing.T) {
 	db, tenant, _, evaluator := triggerFixture(t)
 	ctx := context.Background()
 
-	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{}}
+	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{}}
 	err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
 		firedCount, err := d.EmitEvent(ctx, tx, tenant, identity.RoleAdmin, "NuncaRegistrado", nil, map[string]any{})
 		if err != nil {
@@ -147,8 +147,8 @@ func TestDispatcherEmitEvent_OnlyIfFalse_NeverRuns(t *testing.T) {
 	ctx := context.Background()
 
 	ran := false
-	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFunc{
-		"mark": func(ctx context.Context, tx pgx.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+	d := &Dispatcher{Expression: evaluator, Actions: map[string]ActionFuncTx{
+		"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
 			ran = true
 			return nil
 		},

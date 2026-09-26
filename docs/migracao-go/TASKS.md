@@ -819,7 +819,7 @@ Execute a task GO-041 — Completar adapter SQLite (identidade, views, worker e 
 
 ### GO-055 — Portar internal/triggers, internal/scheduler e internal/notify para database.Tx (completar adapter SQLite)
 
-- [ ] **Status:** TODO
+- [~] **Status:** IN_REVIEW — PR a abrir; achado real de escopo (dependência transitiva nova, `internal/realtime`) registrado em [execucoes/GO-055.md](execucoes/GO-055.md); CAP-021/CAP-023 seguem PASS PARCIAL (não PASS completo), GO-056 aberta como follow-up
 - **Fase:** F5 · **Prioridade:** P1 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-041
@@ -834,6 +834,25 @@ Execute a task GO-041 — Completar adapter SQLite (identidade, views, worker e 
 
 ```text
 Execute a task GO-055 — Portar internal/triggers, internal/scheduler e internal/notify para database.Tx (completar adapter SQLite), de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas (GO-041 DONE/IN_REVIEW) e o checkpoint; crie ou retome a branch task/go-055 a partir da base registrada. Escopo: Estender internal/platform/database.Tx a internal/triggers (incluindo Dispatcher.HooksFor, hoje pgx.Tx-only), internal/scheduler e internal/notify, preservando os wrappers pgx.Tx existentes; avaliar internal/files/internal/config para a mesma conversão ou follow-up próprio. Valide: mesmas fixtures de domínio nos dois adapters; testar concorrência/rollback SQLite sem depender de sintaxe exclusiva de PG; prova HTTP/job real de trigger e job de worker contra SQLite. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
+```
+
+### GO-056 — Portar internal/realtime para database.Tx e ligar upload/download de arquivo ao caminho SQLite
+
+- [ ] **Status:** TODO
+- **Fase:** F5 · **Prioridade:** P2 · **Tamanho:** M
+- **Responsável sugerido:** Backend
+- **Depende de:** GO-055
+- **Branch:** `task/go-056`
+- **Escopo:** Follow-up do escopo deferido em GO-055 (achado real de preflight, ver [execucoes/GO-055.md](execucoes/GO-055.md)) — `internal/realtime.Publish` (dependência de `internal/notify.Create`, que publica eventos em tempo real de notificação) permanece inteiramente `pgx.Tx`-only, uma dependência transitiva NÃO nomeada no escopo original de GO-055. Estender `database.Tx` a `internal/realtime` (preservando wrappers `pgx.Tx`, mesmo padrão já estabelecido), o que desbloqueia `notify.CreateTx` (hoje só `MarkReadTx`/`ListForUserTx` são `database.Tx`-based). Além disso, `internal/files` já é `database.Tx` desde GO-055, mas nenhuma rota HTTP de `cmd/server` liga upload/download de arquivo a um tenant SQLite ainda — ligar `sqliteUploadFileHandler`/`sqliteDownloadFileHandler` ao caminho SQLite, mesmo padrão de `cmd/server/sqlite.go`.
+- **Aceite:** Uma notificação com evento de tempo real real (`internal/realtime.PublishTx`) funciona contra um tenant SQLite, testado via `internal/platform/sqlite/parity_test.go`; upload e download de arquivo funcionam via HTTP real contra um tenant SQLite (`cmd/server`), testado via `httptest`; GO-033 (CAP-021, CAP-023) reclassificado de PASS PARCIAL para PASS completo.
+- **Rotina de validação:** Mesmas fixtures de domínio nos dois adapters; prova HTTP real (não só unitária) de upload/download e de notificação com evento de tempo real contra SQLite.
+- **Regra de retomada:** Identificar versões e checkpoints de banco, cliente e artefatos; retomar a partir de estado consistente comprovado, sem apagar dados locais pendentes.
+- **Controle de execução:** Aplicar EXECUCAO.md; criar/retomar task/go-056; validar e registrar evidências; fazer commit/push e abrir/atualizar PR; IN_REVIEW até revisão, checks e merge, então DONE.
+
+**Comando de execução para o agente:**
+
+```text
+Execute a task GO-056 — Portar internal/realtime para database.Tx e ligar upload/download de arquivo ao caminho SQLite, de docs/migracao-go/TASKS.md, seguindo docs/migracao-go/EXECUCAO.md. Verifique dependências integradas (GO-055 DONE/IN_REVIEW) e o checkpoint; crie ou retome a branch task/go-056 a partir da base registrada. Escopo: Estender internal/platform/database.Tx a internal/realtime (desbloqueando notify.CreateTx), preservando os wrappers pgx.Tx existentes; ligar upload/download de arquivo (internal/files, já database.Tx) a rotas HTTP SQLite em cmd/server. Valide: mesmas fixtures de domínio nos dois adapters; prova HTTP real de upload/download e de notificação com evento de tempo real contra SQLite. Comprove todos os critérios de aceite, atualize o histórico e sincronize CSV/Markdown. Faça commit apenas dos arquivos da task, publique a branch em vjuliani/saltcorn e abra ou atualize o PR para a base registrada. Termine informando URL do PR, validações e pendências; mantenha IN_REVIEW até revisão, checks obrigatórios e merge. Se bloqueado, registre causa e próximo passo sem declarar conclusão.
 ```
 
 ### GO-042 — Validar substituição de plugins de terceiro do piloto ponta a ponta

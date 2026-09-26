@@ -6,17 +6,14 @@
 // render.go/tables.go) — nenhum deles é modificado por esta task, risco
 // zero de regressão no caminho Postgres já testado e em uso.
 //
-// Escopo desta entrega, deliberadamente NARROW (ver
-// docs/migracao-go/execucoes/GO-041.md para a decisão completa): tabelas/
-// campos, registros (CRUD, SEM disparo de trigger) e views (CRUD +
-// renderização List/Show/Edit + submit) — o mínimo real para "identidade
-// e views funcionam via HTTP contra um tenant SQLite". `internal/triggers`,
-// `internal/scheduler`, `internal/notify` e `internal/files` continuam
-// 100% pgx.Tx (nunca convertidos para database.Tx) — nenhum destes é
-// alcançável por nenhuma rota nesta entrega; os handlers de registro
-// abaixo passam hooks=nil explicitamente, nunca fingem que um trigger
-// dispararia. Ver GO-055 (a task de continuação já registrada) para
-// fechar essa lacuna.
+// Escopo original desta entrega (GO-041) era deliberadamente NARROW (ver
+// docs/migracao-go/execucoes/GO-041.md): tabelas/campos, registros (CRUD,
+// SEM disparo de trigger) e views. GO-055 fecha essa lacuna —
+// `internal/triggers` foi estendido a `database.Tx`, e os handlers de
+// registro abaixo agora disparam triggers reais via
+// `dispatcher.HooksForTx`, o MESMO Dispatcher/catálogo de ações que o
+// caminho Postgres usa. `internal/files` segue fora do escopo desta
+// rota (upload/download não têm handler SQLite ainda).
 package main
 
 import (
@@ -35,6 +32,7 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/sqlite"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/records"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 )
 
@@ -281,11 +279,11 @@ func sqliteListRecordsHandler(tracker *shutdown.Tracker, db *sqlite.DB) http.Han
 	}
 }
 
-// sqliteCreateRecordHandler NUNCA passa hooks (nil) — internal/triggers
-// continua pgx.Tx-only (fora de escopo desta task, ver cabeçalho do
-// arquivo); um trigger real do tenant SQLite simplesmente não dispara
-// aqui, documentado, nunca um comportamento fingido.
-func sqliteCreateRecordHandler(tracker *shutdown.Tracker, db *sqlite.DB) http.HandlerFunc {
+// sqliteCreateRecordHandler dispara triggers reais via
+// dispatcher.HooksForTx (GO-055) — MESMO Dispatcher/catálogo de ações que
+// o caminho Postgres usa, nunca uma segunda instância/configuração por
+// dialeto.
+func sqliteCreateRecordHandler(tracker *shutdown.Tracker, db *sqlite.DB, dispatcher *triggers.Dispatcher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		end, err := tracker.Begin()
 		if err != nil {
@@ -318,9 +316,10 @@ func sqliteCreateRecordHandler(tracker *shutdown.Tracker, db *sqlite.DB) http.Ha
 			if !ok {
 				return errHandled
 			}
+			hooks := dispatcher.HooksForTx(tenant, role, actorUserContext(ctx, role))
 			result, _, doErr := outbox.DoTx(ctx, tx, idempotencyKey, input,
 				func(ctx context.Context, tx database.Tx) (any, []outbox.Event, error) {
-					rec, err := records.CreateRecordTx(ctx, tx, role, table, input, nil)
+					rec, err := records.CreateRecordTx(ctx, tx, role, table, input, hooks)
 					if err != nil {
 						return nil, nil, err
 					}
@@ -347,7 +346,7 @@ func sqliteCreateRecordHandler(tracker *shutdown.Tracker, db *sqlite.DB) http.Ha
 	}
 }
 
-func sqliteUpdateRecordHandler(tracker *shutdown.Tracker, db *sqlite.DB) http.HandlerFunc {
+func sqliteUpdateRecordHandler(tracker *shutdown.Tracker, db *sqlite.DB, dispatcher *triggers.Dispatcher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		end, err := tracker.Begin()
 		if err != nil {
@@ -397,9 +396,10 @@ func sqliteUpdateRecordHandler(tracker *shutdown.Tracker, db *sqlite.DB) http.Ha
 			if !ok {
 				return errHandled
 			}
+			hooks := dispatcher.HooksForTx(tenant, role, actorUserContext(ctx, role))
 			result, _, doErr := outbox.DoTx(ctx, tx, idempotencyKey, input,
 				func(ctx context.Context, tx database.Tx) (any, []outbox.Event, error) {
-					rec, err := records.UpdateRecordTx(ctx, tx, role, table, id, expectedVersion, values, nil)
+					rec, err := records.UpdateRecordTx(ctx, tx, role, table, id, expectedVersion, values, hooks)
 					if err != nil {
 						return nil, nil, err
 					}
@@ -426,7 +426,7 @@ func sqliteUpdateRecordHandler(tracker *shutdown.Tracker, db *sqlite.DB) http.Ha
 	}
 }
 
-func sqliteDeleteRecordHandler(tracker *shutdown.Tracker, db *sqlite.DB) http.HandlerFunc {
+func sqliteDeleteRecordHandler(tracker *shutdown.Tracker, db *sqlite.DB, dispatcher *triggers.Dispatcher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		end, err := tracker.Begin()
 		if err != nil {
@@ -453,7 +453,8 @@ func sqliteDeleteRecordHandler(tracker *shutdown.Tracker, db *sqlite.DB) http.Ha
 			if !ok {
 				return errHandled
 			}
-			return records.DeleteRecordTx(ctx, tx, role, table, id, expectedVersion, nil)
+			hooks := dispatcher.HooksForTx(tenant, role, actorUserContext(ctx, role))
+			return records.DeleteRecordTx(ctx, tx, role, table, id, expectedVersion, hooks)
 		})
 		if err != nil {
 			if errors.Is(err, errHandled) {

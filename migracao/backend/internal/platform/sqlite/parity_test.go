@@ -1,25 +1,33 @@
 package sqlite_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/config"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/files"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/notify"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/sqlite"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/tenancy"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/records"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/scheduler"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/triggers"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/views"
 )
 
@@ -82,7 +90,22 @@ func adapters(t *testing.T, test func(*testing.T, runner, runner)) {
 				if err := identity.EnsureSchemaTx(ctx, tx); err != nil {
 					return err
 				}
-				return views.EnsureSchemaTx(ctx, tx)
+				if err := views.EnsureSchemaTx(ctx, tx); err != nil {
+					return err
+				}
+				if err := config.EnsureSchemaTx(ctx, tx); err != nil {
+					return err
+				}
+				if err := files.EnsureSchemaTx(ctx, tx); err != nil {
+					return err
+				}
+				if err := notify.EnsureSchemaTx(ctx, tx); err != nil {
+					return err
+				}
+				if err := triggers.EnsureSchemaTx(ctx, tx); err != nil {
+					return err
+				}
+				return scheduler.EnsureSchemaTx(ctx, tx)
 			}); err != nil {
 				t.Fatal(err)
 			}
@@ -922,6 +945,293 @@ func TestParityViewsEditPlan(t *testing.T) {
 		if !errors.Is(err, records.ErrVersionConflict) {
 			t.Fatalf("SubmitEditViewTx com version obsoleta: got %v, want ErrVersionConflict", err)
 		}
+	})
+}
+
+// TestParityTriggers prova o núcleo de GO-055 nos dois dialetos: um
+// trigger Insert nativo disparado por HooksForTx dentro da MESMA escrita
+// de registro (CreateRecordTx), e um trigger de evento nomeado disparado
+// por EmitEventTx — mesmas garantias já provadas só contra Postgres em
+// internal/triggers, agora também contra SQLite.
+func TestParityTriggers(t *testing.T) {
+	adapters(t, func(t *testing.T, run, other runner) {
+		var tableID int
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			table, err := metadata.CreateTable(ctx, tx, identity.RoleAdmin, "posts", metadata.TableOptions{})
+			if err != nil {
+				return err
+			}
+			tableID = table.ID
+			_, err = metadata.AddField(ctx, tx, identity.RoleAdmin, tableID, metadata.FieldDef{Name: "title", Type: metadata.FieldText, Required: true})
+			return err
+		})
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			_, err := triggers.CreateTriggerTx(ctx, tx, triggers.Trigger{TableID: tableID, When: triggers.WhenInsert, Action: "mark"})
+			return err
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			_, err := triggers.CreateTriggerTx(ctx, tx, triggers.Trigger{When: "MyEvent", Action: "mark"})
+			return err
+		})
+
+		var fired []string
+		d := &triggers.Dispatcher{Actions: map[string]triggers.ActionFuncTx{
+			"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+				fired = append(fired, fmt.Sprint(row["title"]))
+				return nil
+			},
+		}}
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			hooks := d.HooksForTx("parity", identity.RoleAdmin, nil)
+			_, err := records.CreateRecordTx(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "via insert"}, hooks)
+			return err
+		})
+		if len(fired) != 1 || fired[0] != "via insert" {
+			t.Fatalf("HooksForTx/AfterInsert não disparou: %v", fired)
+		}
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			n, err := d.EmitEventTx(ctx, tx, "parity", identity.RoleAdmin, "MyEvent", nil, map[string]any{"title": "via evento"})
+			if err != nil {
+				return err
+			}
+			if n != 1 {
+				t.Fatalf("EmitEventTx: fired=%d, esperado 1", n)
+			}
+			return nil
+		})
+		if len(fired) != 2 || fired[1] != "via evento" {
+			t.Fatalf("EmitEventTx não disparou o trigger de evento nomeado: %v", fired)
+		}
+
+		// AfterCommit nunca dispara sincronamente — só enfileira em
+		// _sc_outbox, mesma garantia de TestAfterCommit_EnqueuesOutboxEvent_
+		// NeverRunsSynchronously (Postgres-only, internal/triggers). Ação
+		// com NOME PRÓPRIO ("mark_deferred"), nunca reaproveitando "mark" —
+		// o trigger Insert síncrono já registrado acima continua disparando
+		// para toda escrita nesta tabela; misturar os dois na mesma ação
+		// tornaria impossível distinguir "a ação síncrona rodou de novo" de
+		// "a ação adiada rodou fora de hora".
+		deferredFired := false
+		d.Actions["mark_deferred"] = func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+			deferredFired = true
+			return nil
+		}
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			_, err := triggers.CreateTriggerTx(ctx, tx, triggers.Trigger{TableID: tableID, When: triggers.WhenInsert, Action: "mark_deferred", AfterCommit: true})
+			return err
+		})
+		syncedBefore := len(fired)
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			hooks := d.HooksForTx("parity", identity.RoleAdmin, nil)
+			_, err := records.CreateRecordTx(ctx, tx, identity.RoleAdmin, "posts", map[string]any{"title": "adiado"}, hooks)
+			return err
+		})
+		if deferredFired {
+			t.Fatal("ação AfterCommit disparou sincronamente")
+		}
+		if len(fired) != syncedBefore+1 {
+			t.Fatalf("trigger síncrono pré-existente não disparou para o novo registro: %v", fired)
+		}
+	})
+}
+
+// TestParityScheduler prova RunDueTx e a savepoint portável (SAVEPOINT/
+// ROLLBACK TO/RELEASE via SQL cru, GO-055) nos dois dialetos: uma ação
+// que falha não aborta o lote nem impede o avanço de next_run_at das
+// demais — mesma garantia já provada só contra Postgres em
+// internal/scheduler.
+func TestParityScheduler(t *testing.T) {
+	adapters(t, func(t *testing.T, run, other runner) {
+		var okID, failID int
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			st, err := scheduler.CreateScheduledTriggerTx(ctx, tx, "ok-trigger", "increment", "* * * * *", "")
+			if err != nil {
+				return err
+			}
+			okID = st.ID
+			st, err = scheduler.CreateScheduledTriggerTx(ctx, tx, "fail-trigger", "boom", "* * * * *", "")
+			failID = st.ID
+			return err
+		})
+
+		called := 0
+		d := &scheduler.Dispatcher{Actions: map[string]scheduler.ActionFuncTx{
+			"increment": func(ctx context.Context, tx database.Tx) error { called++; return nil },
+			"boom":      func(ctx context.Context, tx database.Tx) error { return errors.New("falha proposital") },
+		}}
+
+		far := time.Now().Add(time.Hour)
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			ran, failed, err := d.RunDueTx(ctx, tx, far)
+			if err != nil {
+				return err
+			}
+			if ran != 1 || failed != 1 {
+				t.Fatalf("RunDueTx: ran=%d failed=%d, esperado ran=1 failed=1", ran, failed)
+			}
+			return nil
+		})
+		if called != 1 {
+			t.Fatalf("ação increment chamada %d vezes, esperado 1", called)
+		}
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			all, err := scheduler.ListAllTx(ctx, tx)
+			if err != nil {
+				return err
+			}
+			byID := map[int]scheduler.ScheduledTrigger{}
+			for _, st := range all {
+				byID[st.ID] = st
+			}
+			if byID[okID].LastError != "" {
+				t.Fatalf("trigger ok com last_error: %q", byID[okID].LastError)
+			}
+			if byID[failID].LastError == "" {
+				t.Fatal("trigger com falha sem last_error registrado")
+			}
+			if !byID[okID].NextRunAt.After(far) || !byID[failID].NextRunAt.After(far) {
+				t.Fatalf("next_run_at não avançou para os dois: ok=%v fail=%v", byID[okID].NextRunAt, byID[failID].NextRunAt)
+			}
+			return nil
+		})
+	})
+}
+
+// minimalFakeSMTP aceita uma única conexão e captura o corpo DATA —
+// SendEmail (ao contrário de SendWebhook) não faz checagem de SSRF, então
+// um listener TCP puro em loopback já basta, sem precisar de um resolver
+// falso (compare com internal/notify/webhook_test.go, que precisa de um
+// para SendWebhook).
+func minimalFakeSMTP(t *testing.T) (host string, port int, body *strings.Builder, mu *sync.Mutex) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	body = &strings.Builder{}
+	mu = &sync.Mutex{}
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		r := bufio.NewReader(conn)
+		fmt.Fprint(conn, "220 fake.smtp ESMTP\r\n")
+		inData := false
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			trimmed := strings.TrimRight(line, "\r\n")
+			if inData {
+				if trimmed == "." {
+					inData = false
+					fmt.Fprint(conn, "250 OK\r\n")
+					continue
+				}
+				mu.Lock()
+				body.WriteString(line)
+				mu.Unlock()
+				continue
+			}
+			upper := strings.ToUpper(trimmed)
+			switch {
+			case strings.HasPrefix(upper, "EHLO"), strings.HasPrefix(upper, "HELO"):
+				fmt.Fprint(conn, "250 fake.smtp\r\n")
+			case strings.HasPrefix(upper, "MAIL FROM"), strings.HasPrefix(upper, "RCPT TO"):
+				fmt.Fprint(conn, "250 OK\r\n")
+			case upper == "DATA":
+				inData = true
+				fmt.Fprint(conn, "354 End data with <CR><LF>.<CR><LF>\r\n")
+			case upper == "QUIT":
+				fmt.Fprint(conn, "221 bye\r\n")
+				return
+			default:
+				fmt.Fprint(conn, "250 OK\r\n")
+			}
+		}
+	}()
+	addr := ln.Addr().(*net.TCPAddr)
+	return "127.0.0.1", addr.Port, body, mu
+}
+
+// TestParityNotify prova o enfileiramento e a entrega de e-mail via
+// outbox (EnqueueEmailTx/HandlerTx/outbox.ProcessPendingTx) e as
+// notificações in-app somente-leitura (MarkReadTx/ListForUserTx) nos
+// dois dialetos — Create (que publica em internal/realtime, ainda
+// pgx.Tx-only) fica deliberadamente fora, ver GO-055.md.
+func TestParityNotify(t *testing.T) {
+	adapters(t, func(t *testing.T, run, other runner) {
+		host, port, body, mu := minimalFakeSMTP(t)
+
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			return notify.EnqueueEmailTx(ctx, tx, "parity-email-1", notify.EmailMessage{
+				To: []string{"dest@example.com"}, Subject: "assunto", Body: "texto", HTMLBody: "<b>html</b>",
+			})
+		})
+		// Repetição deliberada da MESMA chave — nunca duplica o evento.
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			return notify.EnqueueEmailTx(ctx, tx, "parity-email-1", notify.EmailMessage{
+				To: []string{"dest@example.com"}, Subject: "assunto", Body: "texto", HTMLBody: "<b>html</b>",
+			})
+		})
+
+		handler := notify.HandlerTx(notify.SMTPConfig{Host: host, Port: port, From: "remetente@example.com"}, nil, nil)
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			processed, failed, err := outbox.ProcessPendingTx(ctx, tx, 10, 5, handler)
+			if err != nil {
+				return err
+			}
+			if processed != 1 || failed != 0 {
+				t.Fatalf("ProcessPendingTx: processed=%d failed=%d, esperado 1/0 (idempotência)", processed, failed)
+			}
+			return nil
+		})
+
+		mu.Lock()
+		delivered := body.String()
+		mu.Unlock()
+		if !strings.Contains(delivered, "<b>html</b>") || !strings.Contains(delivered, "multipart/alternative") {
+			t.Fatalf("HTMLBody não entregue via outbox: %q", delivered)
+		}
+
+		var notificationID int
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			return tx.QueryRow(ctx,
+				`INSERT INTO _sc_notifications (user_id, title, body, link) VALUES ($1, $2, $3, $4) RETURNING id`,
+				1, "titulo", "corpo", "",
+			).Scan(&notificationID)
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			list, err := notify.ListForUserTx(ctx, tx, 1, true, 10)
+			if err != nil {
+				return err
+			}
+			if len(list) != 1 || list[0].ID != notificationID {
+				t.Fatalf("ListForUserTx (não lidas): %+v", list)
+			}
+			return nil
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			return notify.MarkReadTx(ctx, tx, notificationID)
+		})
+		mustRun(t, run, func(ctx context.Context, tx database.Tx) error {
+			list, err := notify.ListForUserTx(ctx, tx, 1, true, 10)
+			if err != nil {
+				return err
+			}
+			if len(list) != 0 {
+				t.Fatalf("ListForUserTx após MarkReadTx ainda lista como não lida: %+v", list)
+			}
+			return nil
+		})
 	})
 }
 

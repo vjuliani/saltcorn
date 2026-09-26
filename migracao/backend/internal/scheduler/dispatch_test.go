@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 func TestCreateScheduledTrigger_ComputesNextRunAt(t *testing.T) {
@@ -45,8 +46,8 @@ func TestRunDue_ExecutesDueTrigger_AdvancesSchedule(t *testing.T) {
 	}
 
 	called := 0
-	d := &Dispatcher{Actions: map[string]ActionFunc{
-		"increment": func(ctx context.Context, tx pgx.Tx) error {
+	d := &Dispatcher{Actions: map[string]ActionFuncTx{
+		"increment": func(ctx context.Context, tx database.Tx) error {
 			called++
 			return nil
 		},
@@ -97,8 +98,8 @@ func TestRunDue_NotYetDue_Untouched(t *testing.T) {
 	}
 
 	called := 0
-	d := &Dispatcher{Actions: map[string]ActionFunc{
-		"increment": func(ctx context.Context, tx pgx.Tx) error { called++; return nil },
+	d := &Dispatcher{Actions: map[string]ActionFuncTx{
+		"increment": func(ctx context.Context, tx database.Tx) error { called++; return nil },
 	}}
 
 	// Simula "agora" ANTES de NextRunAt — nada deveria disparar.
@@ -139,9 +140,9 @@ func TestRunDue_ActionFailure_RecordsErrorDoesNotAbortBatch(t *testing.T) {
 
 	errBoom := errors.New("efeito sempre falha")
 	okCalled := 0
-	d := &Dispatcher{Actions: map[string]ActionFunc{
-		"boom":      func(ctx context.Context, tx pgx.Tx) error { return errBoom },
-		"increment": func(ctx context.Context, tx pgx.Tx) error { okCalled++; return nil },
+	d := &Dispatcher{Actions: map[string]ActionFuncTx{
+		"boom":      func(ctx context.Context, tx database.Tx) error { return errBoom },
+		"increment": func(ctx context.Context, tx database.Tx) error { okCalled++; return nil },
 	}}
 
 	simulatedNow := failing.NextRunAt.Add(time.Second)
@@ -206,7 +207,7 @@ func TestRunDue_UnknownAction_RecordsErrorAdvancesSchedule(t *testing.T) {
 		t.Fatalf("CreateScheduledTrigger: %v", err)
 	}
 
-	d := &Dispatcher{Actions: map[string]ActionFunc{}}
+	d := &Dispatcher{Actions: map[string]ActionFuncTx{}}
 	simulatedNow := st.NextRunAt.Add(time.Second)
 	var ran, failed int
 	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
@@ -229,6 +230,73 @@ func TestRunDue_UnknownAction_RecordsErrorAdvancesSchedule(t *testing.T) {
 		}
 		if len(due) != 0 {
 			t.Errorf("DueTriggers = %d, esperado 0 (agenda deveria ter avançado apesar do erro)", len(due))
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("verificação: %v", err)
+	}
+}
+
+// TestRunDue_ActionFailure_RollsBackPartialWrite prova a garantia real de
+// uma savepoint por trigger (RunDueTx): uma ação que escreve no banco e
+// DEPOIS falha nunca deixa esse efeito parcial visível — o mesmo espírito
+// de internal/platform/outbox.ProcessPendingTx (uma tentativa que falha
+// desfaz só o PRÓPRIO efeito). Sem este teste, remover o ROLLBACK TO
+// SAVEPOINT de runInSavepoint passaria despercebido por toda a suíte
+// existente (nenhum outro teste escreve de dentro da própria ação).
+func TestRunDue_ActionFailure_RollsBackPartialWrite(t *testing.T) {
+	db, tenant := schedulerFixture(t)
+	ctx := context.Background()
+
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `CREATE TABLE side_effect (id serial primary key)`); err != nil {
+			return err
+		}
+		_, err := CreateScheduledTrigger(ctx, tx, "escreve-e-falha", "write_then_fail", "* * * * *", "")
+		return err
+	}); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	errBoom := errors.New("falha proposital depois de escrever")
+	d := &Dispatcher{Actions: map[string]ActionFuncTx{
+		"write_then_fail": func(ctx context.Context, tx database.Tx) error {
+			if err := tx.Exec(ctx, `INSERT INTO side_effect DEFAULT VALUES`); err != nil {
+				return err
+			}
+			return errBoom
+		},
+	}}
+
+	var st ScheduledTrigger
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		all, err := ListAll(ctx, tx)
+		st = all[0]
+		return err
+	}); err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		ran, failed, err := d.RunDue(ctx, tx, st.NextRunAt.Add(time.Second))
+		if err != nil {
+			return err
+		}
+		if ran != 0 || failed != 1 {
+			t.Fatalf("ran=%d failed=%d, esperado ran=0 failed=1", ran, failed)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("RunDue: %v", err)
+	}
+
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		var count int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM side_effect`).Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			t.Fatalf("side_effect tem %d linha(s), esperado 0 — a escrita parcial deveria ter sido desfeita pela savepoint", count)
 		}
 		return nil
 	}); err != nil {

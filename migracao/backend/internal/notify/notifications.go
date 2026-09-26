@@ -6,6 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/realtime"
 )
 
@@ -34,6 +35,15 @@ type Notification struct {
 // se commitar, o evento de tempo real fica persistido esperando o BFF
 // buscar (realtime.ListSinceForActor), nunca dependente de um socket já
 // estar conectado no momento exato da publicação.
+//
+// GO-055: permanece pgx.Tx-only, deliberadamente não convertida —
+// internal/realtime (Publish) é, ele mesmo, inteiramente pgx.Tx-only e
+// não fazia parte do escopo nomeado desta task; converter Create exigiria
+// converter realtime também, uma dependência transitiva nova descoberta
+// só no preflight desta task. Nenhuma rota hoje conecta esta função a um
+// tenant SQLite (create/atualizar/apagar registro contra SQLite não
+// dispara nenhuma notificação in-app), então a lacuna é honesta e sem
+// impacto de produto observável nesta entrega — ver GO-055.md.
 func Create(ctx context.Context, tx pgx.Tx, n Notification, notifyEmail bool, emailTo string) (Notification, error) {
 	err := tx.QueryRow(ctx,
 		`INSERT INTO _sc_notifications (user_id, title, body, link) VALUES ($1, $2, $3, $4) RETURNING id`,
@@ -63,15 +73,14 @@ func Create(ctx context.Context, tx pgx.Tx, n Notification, notifyEmail bool, em
 	return n, nil
 }
 
-// MarkRead marca a notificação id como lida — idempotente (marcar uma já
-// lida de novo não é erro).
-func MarkRead(ctx context.Context, tx pgx.Tx, id int) error {
-	_, err := tx.Exec(ctx, `UPDATE _sc_notifications SET read = true WHERE id = $1`, id)
-	return err
+// MarkReadTx marca a notificação id como lida — idempotente (marcar uma
+// já lida de novo não é erro).
+func MarkReadTx(ctx context.Context, tx database.Tx, id int) error {
+	return tx.Exec(ctx, `UPDATE _sc_notifications SET read = true WHERE id = $1`, id)
 }
 
-// ListForUser lê as notificações de userID, mais recentes primeiro.
-func ListForUser(ctx context.Context, tx pgx.Tx, userID int, unreadOnly bool, limit int) ([]Notification, error) {
+// ListForUserTx lê as notificações de userID, mais recentes primeiro.
+func ListForUserTx(ctx context.Context, tx database.Tx, userID int, unreadOnly bool, limit int) ([]Notification, error) {
 	sql := `SELECT id, user_id, title, COALESCE(body, ''), COALESCE(link, ''), read FROM _sc_notifications WHERE user_id = $1`
 	args := []any{userID}
 	if unreadOnly {

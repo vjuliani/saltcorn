@@ -20,9 +20,11 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 const createConfigTableSQL = `
@@ -31,36 +33,40 @@ CREATE TABLE IF NOT EXISTS _sc_config (
 	value jsonb NOT NULL
 )`
 
-// EnsureSchema cria o catálogo de configuração, idempotente — chamar
-// dentro de db.WithTenant, uma vez por tenant.
-func EnsureSchema(ctx context.Context, tx pgx.Tx) error {
-	_, err := tx.Exec(ctx, createConfigTableSQL)
-	return err
+// EnsureSchemaTx cria o catálogo de configuração, idempotente — chamar
+// dentro de db.WithTenant, uma vez por tenant. `jsonb` é reescrito para
+// `text` no SQLite (GO-055, mesmo padrão de dialect-rewrite de
+// internal/platform/outbox/GO-030) — SQLite não tem tipo jsonb nativo.
+func EnsureSchemaTx(ctx context.Context, tx database.Tx) error {
+	ddl := createConfigTableSQL
+	if tx.Dialect() == database.DialectSQLite {
+		ddl = strings.NewReplacer("jsonb", "text").Replace(ddl)
+	}
+	return tx.Exec(ctx, ddl)
 }
 
-// Set grava (ou substitui) o valor de key — idempotente, mesma chave
+// SetTx grava (ou substitui) o valor de key — idempotente, mesma chave
 // grava por cima do valor anterior sem erro (reinstalação de um pack não
 // deveria falhar só porque a chave já existe de uma instalação anterior).
-func Set(ctx context.Context, tx pgx.Tx, key string, value any) error {
+func SetTx(ctx context.Context, tx database.Tx, key string, value any) error {
 	valueJSON, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("config: codificar valor de %q: %w", key, err)
 	}
-	_, err = tx.Exec(ctx,
+	return tx.Exec(ctx,
 		`INSERT INTO _sc_config (key, value) VALUES ($1, $2)
 		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
 		key, valueJSON,
 	)
-	return err
 }
 
-// Get lê o valor de key — ok=false se a chave não existir (nunca um erro:
-// ausência de configuração é um estado normal, não excepcional).
-func Get(ctx context.Context, tx pgx.Tx, key string) (value any, ok bool, err error) {
+// GetTx lê o valor de key — ok=false se a chave não existir (nunca um
+// erro: ausência de configuração é um estado normal, não excepcional).
+func GetTx(ctx context.Context, tx database.Tx, key string) (value any, ok bool, err error) {
 	var valueJSON []byte
 	err = tx.QueryRow(ctx, `SELECT value FROM _sc_config WHERE key = $1`, key).Scan(&valueJSON)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, database.ErrNoRows) {
 			return nil, false, nil
 		}
 		return nil, false, err
@@ -71,17 +77,16 @@ func Get(ctx context.Context, tx pgx.Tx, key string) (value any, ok bool, err er
 	return value, true, nil
 }
 
-// Delete remove key — idempotente (remover uma chave inexistente não é
+// DeleteTx remove key — idempotente (remover uma chave inexistente não é
 // erro).
-func Delete(ctx context.Context, tx pgx.Tx, key string) error {
-	_, err := tx.Exec(ctx, `DELETE FROM _sc_config WHERE key = $1`, key)
-	return err
+func DeleteTx(ctx context.Context, tx database.Tx, key string) error {
+	return tx.Exec(ctx, `DELETE FROM _sc_config WHERE key = $1`, key)
 }
 
-// ListAll lê todas as entradas de configuração do tenant, como um mapa —
-// usado por internal/pack (GO-027) para exportar/importar o campo
+// ListAllTx lê todas as entradas de configuração do tenant, como um mapa
+// — usado por internal/pack (GO-027) para exportar/importar o campo
 // `Pack.Config` inteiro de uma vez.
-func ListAll(ctx context.Context, tx pgx.Tx) (map[string]any, error) {
+func ListAllTx(ctx context.Context, tx database.Tx) (map[string]any, error) {
 	rows, err := tx.Query(ctx, `SELECT key, value FROM _sc_config ORDER BY key`)
 	if err != nil {
 		return nil, err

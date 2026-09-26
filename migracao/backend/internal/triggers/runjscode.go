@@ -33,8 +33,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/expression"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/metadata"
@@ -48,12 +46,12 @@ import (
 // legado (base-plugin/actions.ts), por continuidade de expectativa.
 const ActionRunJSCode = "run_js_code"
 
-// RunJSCodeFunc é como ActionFunc, mas recebe também tenant (checar
+// RunJSCodeFuncTx é como ActionFuncTx, mas recebe também tenant (checar
 // cutover.Guard antes de tocar no host de plugins) e actorRole (GO-052 —
 // o papel de quem originou o disparo deste trigger, nunca elevado,
 // propagado sem alteração até o callback de escrita `db.write`), nenhum
 // dos dois usado pelas ações nativas de actions.go.
-type RunJSCodeFunc func(ctx context.Context, tx pgx.Tx, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error
+type RunJSCodeFuncTx func(ctx context.Context, tx database.Tx, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error
 
 // runJSCodeResultType é o ExpectedType passado a Evaluator.Eval — API
 // exige um tipo (Request.ExpectedType é "OBRIGATÓRIO", expression.go),
@@ -76,8 +74,8 @@ const runJSCodeResultType = metadata.FieldBoolean
 // NOME da capacidade e os args de cada chamada (table/values), nunca uma
 // credencial ou conexão de banco (ADR-0005: "nunca uma credencial de
 // banco crua chega ao host").
-func NewRunJSCode(evaluator *expression.Evaluator) RunJSCodeFunc {
-	return func(ctx context.Context, tx pgx.Tx, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
+func NewRunJSCode(evaluator *expression.Evaluator) RunJSCodeFuncTx {
+	return func(ctx context.Context, tx database.Tx, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 		code, _ := config["code"].(string)
 		if code == "" {
 			return fmt.Errorf("triggers: run_js_code sem \"code\" em configuration")
@@ -88,7 +86,7 @@ func NewRunJSCode(evaluator *expression.Evaluator) RunJSCodeFunc {
 				return nil, fmt.Errorf("triggers: db.write sem \"table\"")
 			}
 			values, _ := args["values"].(map[string]any)
-			return records.CreateRecordTx(ctx, database.AsTx(tx), actorRole, tableName, values, nil)
+			return records.CreateRecordTx(ctx, tx, actorRole, tableName, values, nil)
 		}
 		_, err := evaluator.Eval(ctx, tenant, expression.Request{
 			Code:         code,
