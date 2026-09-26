@@ -143,7 +143,7 @@ func TestMigrationPauseReconcileRecovery(t *testing.T) {
 			}
 		}
 		// Prepare schema-1 fixture BEFORE opening the rollback window.
-		_, e := tx.Exec(ctx, `DROP TABLE _sc_plugin_versions; DELETE FROM _sc_migrations WHERE version=2; ALTER TABLE books ADD COLUMN legacy_annotation text DEFAULT 'compatibility probe'`)
+		_, e := tx.Exec(ctx, `DROP TABLE _sc_plugin_versions; DROP TABLE _sc_metadata; DELETE FROM _sc_migrations WHERE version IN (2,3); ALTER TABLE books ADD COLUMN legacy_annotation text DEFAULT 'compatibility probe'`)
 		return e
 	}))
 	if Check(ctx, root, c) == nil {

@@ -1333,3 +1333,122 @@ id`/`database.ErrNoRows`) por um `Exec` simples sem verificação (o teste
 de not-found falha nos dois dialetos). Todas as três restauradas com
 sucesso confirmado. Detalhes completos em
 `docs/migracao-go/execucoes/GO-041.md`.
+
+## Catálogo administrativo de instalação: metadata, plugins, backup completo, e-mail HTML (GO-046)
+
+`internal/installation` (GO-032) ganha quatro extensões independentes,
+todas dialect-neutras (`database.Tx`, testadas SQLite+Postgres) exceto a
+última (e-mail, escopo de tenant de aplicação, não de instalação).
+
+- **`_sc_metadata`** (`metadata.go`, novo) — equivalente reduzido de
+  `models/metadata.ts` do legado: um armazém genérico de EVENTOS (nunca
+  um key/value substituível — cada gravação é uma linha nova, mais
+  próximo de um EventLog). Schema version 3. Dois usos reais: `Migrate`
+  grava um evento `core_version` a cada `migrate`/`setup`; `SyncPlugins`
+  grava um evento `plugin_upgrade` por plugin instalado/atualizado/
+  removido (auditoria real, ver abaixo). **Não confundir** com
+  `_sc_metadata_version` (contador de invalidação de cache do catálogo de
+  tabelas/campos, dentro do pacote `internal/metadata` — nome parecido,
+  conceito e pacote totalmente diferentes).
+- **Governança de plugins** (`plugins.go`, novo) — estende o catálogo
+  nome/versão que `SyncPlugins` (GO-032) já mantinha em
+  `_sc_plugin_versions` com: validação semver (`parseSemver`/
+  `compareSemver`, recusa uma versão malformada antes de gravar),
+  compatibilidade de engine (`engineCompatible` — subconjunto de faixas
+  comuns: exata, `^`, `~`, `>=`, `>`, `<=`, `<`, combináveis por espaço
+  como E lógico — comparado contra `PluginEngineVersion`, uma constante
+  que ESTE backend Go declara) e trilha de auditoria de upgrade real via
+  `_sc_metadata`/`plugin_upgrade` (instalar/atualizar/remover cada um
+  gera exatamente um evento; um sync repetido sem mudança não duplica).
+  **Duas divergências deliberadas, documentadas:** descoberta via
+  registro npm remoto fica fora de escopo (nenhum plugin de terceiro real
+  neste checkout para validar contra um registro, mesmo achado repetido
+  desde GO-001/003/004/029; compatibilidade de engine é 100% LOCAL, lendo
+  `engines.saltcorn` do `package.json` já presente); checagem de "views
+  dependentes antes de remover um plugin" é deliberadamente VAZIA — todo
+  viewtemplate (List/Show/Edit/Feed) é nativo do backend Go, nenhum
+  plugin de terceiro jamais registrou um viewtemplate
+  (`internal/pluginhost` só executa expressão/ação em processo isolado),
+  então essa checagem nunca encontraria uma dependência real hoje.
+- **Backup agendado, retenção GFS e criptografia** (`retention.go`,
+  `crypto.go`, `schedule.go`, todos novos) — o backup de instalação
+  completa em si (`Backup`/`Restore`, `pg_dump` do banco inteiro +
+  `files`/`plugins`/`sqlite`) já existia desde GO-032 e **já superava** a
+  lista literal de entidades do legado (Plugin/Role/Page/PageGroup/
+  MetaData/File/Crash/Table/View/Field) — um `pg_dump` completo é um
+  SUPERCONJUNTO de qualquer lista curada, nunca esquece uma tabela nova;
+  `Page`/`PageGroup`/`Crash` seguem sem equivalente Go (gaps já
+  conhecidos de tasks anteriores) e `Role` não é uma entidade de DADOS no
+  backend Go (é um `RoleID` de conjunto FECHADO, GO-008 — não haveria
+  linha para copiar mesmo se quiséssemos). O que faltava:
+  - `RetentionPolicy`/`ApplyRetention` — retenção GFS pura (diário/
+    semanal/mensal/anual configuráveis independentemente), com uma REDE
+    DE SEGURANÇA explícita: o backup mais recente de TODOS é sempre
+    preservado, mesmo com a política inteira zerada — nenhuma
+    configuração restritiva ou mal ajustada pode apagar o único ponto de
+    recuperação disponível.
+  - `archiveDir`/`unarchiveDir` (tar+gzip, biblioteca padrão) +
+    `encryptFile`/`decryptFile` (AES-256-GCM autenticado — qualquer
+    adulteração do ciphertext é detectada na descriptografia, nunca
+    aceita silenciosamente — com chave derivada de senha por `scrypt`,
+    parâmetros "interativos" recomendados; mais forte que a senha de zip
+    PKZIP tradicional do legado, um esquema amplamente quebrado) →
+    `BackupEncrypted`/`RestoreEncrypted`, que produzem/consomem um ÚNICO
+    arquivo cifrado em vez de um diretório em texto claro.
+  - `RunScheduledBackups` — um laço (ticker) dentro do MESMO processo
+    administrativo de longa duração (`cli backup-schedule`, novo
+    subcomando; nunca um cron externo nem `internal/scheduler`, que é
+    por-TENANT/trigger de aplicação, um conceito por completo diferente
+    de backup de INSTALAÇÃO). Primeiro backup roda imediatamente, sem
+    esperar um `Interval` inteiro. `--passphrase-file` novo em
+    `backup`/`restore`/`backup-schedule` (nunca aceita a senha como flag
+    direta — apareceria em `ps`/histórico de shell).
+  - **Divergência deliberada, documentada:** destinos remotos (S3/SFTP)
+    ficam fora de escopo — sem credenciais nem infraestrutura de teste
+    neste checkout para validar contra um provedor de armazenamento real;
+    simular sucesso sem essa prova seria fingir uma capacidade nunca
+    realmente exercitada.
+  - **Achado real corrigido, não hipotetizado** — encontrado por
+    flakiness genuína da suíte completa sob carga (não em isolamento):
+    `RunScheduledBackups` propagava `"context canceled"` como um ERRO
+    FATAL sempre que o cancelamento do contexto (desligamento real do
+    processo, `SIGTERM` em produção) acontecia com um backup EM CURSO — a
+    chamada de I/O de banco dentro de `Backup()` respeita `ctx` e
+    retornava esse erro assim que cancelado. Corrigido verificando
+    `ctx.Err() != nil` antes de propagar o erro de cada rodada agendada,
+    tratando esse caso como desligamento GRACIOSO (retorno `nil`), nunca
+    uma falha real (disco cheio, Postgres fora do ar, que teria
+    acontecido de qualquer forma, cancelamento ou não).
+- **E-mail HTML a partir de View** (`internal/notify/email.go` +
+  `internal/views/email.go`, novo) — `EmailMessage.HTMLBody` (vazio
+  mantém o comportamento original texto-puro; preenchido gera um corpo
+  `multipart/alternative` com AMBAS as partes, texto e HTML, nunca
+  substitui uma pela outra) e `views.RenderShowPlanEmailHTML` (uma View
+  Show compilada → uma tabela HTML rótulo/valor autocontida, estilizada
+  inline — clientes de e-mail reais ignoram `<style>` externo/em `<head>`
+  com frequência). Provado de PONTA A PONTA, não só a renderização
+  isolada: `CompileShowPlanTx` (Postgres real) → `RenderShowPlanEmailHTML`
+  → `notify.SendEmail` até um servidor SMTP fake real, valor de dado real
+  (`"Dune"`) confirmado no corpo efetivamente entregue. **Divergência
+  deliberada, documentada:** nenhum motor MJML (o legado usa MJML como
+  linguagem intermediária, compilada por um pacote npm dedicado, sem
+  equivalente Go) — HTML final é gerado diretamente, cobrindo
+  literalmente o Aceite ("ao menos um modo de e-mail HTML a partir de
+  View funciona"), não uma reimplementação da linguagem MJML.
+  Deliberadamente NÃO estendida: a ação de trigger `send_email`
+  (`internal/triggers`) permanece só texto — `internal/triggers` segue
+  `pgx.Tx`-only e fora do escopo desta task (mesma fronteira que
+  GO-041/GO-055 já delimitaram); o mecanismo de e-mail HTML vive em
+  `internal/notify`+`internal/views`, composável por qualquer chamador
+  futuro sem exigir essa conversão.
+
+**Verificação de regressão deliberada** (uma por mecanismo de segurança/
+integridade realmente construído, mais o achado real acima): remover a
+rede de segurança "sempre mantém o backup mais recente" de
+`ApplyRetention` (o teste dedicado falha de verdade, o único ponto de
+recuperação seria apagado); descartar o resultado de `engineCompatible`
+em `validatePluginVersions` (um plugin com engine incompatível seria
+registrado silenciosamente); ignorar o erro de autenticação do AES-GCM em
+`decryptFile` (senha errada e ciphertext adulterado deixam de ser
+detectados). Todas restauradas com sucesso confirmado. Detalhes completos
+em `docs/migracao-go/execucoes/GO-046.md`.

@@ -18,8 +18,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const Release = "0.1.0-go032"
-const SchemaVersion = 2
+const Release = "0.1.0-go046"
+const SchemaVersion = 3
 
 var tenantPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
 

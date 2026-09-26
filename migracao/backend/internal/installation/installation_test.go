@@ -79,7 +79,10 @@ func TestInstallationRecoveryParity(t *testing.T) {
 				if err = tx.Exec(ctx, `DROP TABLE _sc_plugin_versions`); err != nil {
 					return err
 				}
-				return tx.Exec(ctx, `DELETE FROM _sc_migrations WHERE version=2`)
+				if err = tx.Exec(ctx, `DROP TABLE _sc_metadata`); err != nil {
+					return err
+				}
+				return tx.Exec(ctx, `DELETE FROM _sc_migrations WHERE version IN (2,3)`)
 			}))
 			_, err := ConfigValue(ctx, root, c, "site_name", `"preserved"`, true)
 			must(t, err)
@@ -178,7 +181,7 @@ func TestMigrationRollbackAndFutureVersion(t *testing.T) {
 	ctx := context.Background()
 	root, c := newConfig(t, "sqlite")
 	must(t, transaction(ctx, root, c, func(tx database.Tx, _ pgx.Tx) error {
-		return tx.Exec(ctx, `DELETE FROM _sc_migrations WHERE version=2`)
+		return tx.Exec(ctx, `DELETE FROM _sc_migrations WHERE version=3`)
 	}))
 	if Migrate(ctx, root, &c, "", "") == nil {
 		t.Fatal("migration should fail on conflicting table")
@@ -188,7 +191,7 @@ func TestMigrationRollbackAndFutureVersion(t *testing.T) {
 		if err := tx.QueryRow(ctx, `SELECT max(version) FROM _sc_migrations`).Scan(&v); err != nil {
 			return err
 		}
-		if v != 1 {
+		if v != 2 {
 			t.Fatal("partial journal commit")
 		}
 		return tx.Exec(ctx, `INSERT INTO _sc_migrations VALUES(99,'future')`)

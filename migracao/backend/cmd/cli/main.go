@@ -24,7 +24,7 @@ func main() {
 
 	var err error
 	switch os.Args[1] {
-	case "setup", "migrate", "backup", "restore", "get-cfg", "set-cfg", "plugins", "check", "serve", "login":
+	case "setup", "migrate", "backup", "restore", "backup-schedule", "get-cfg", "set-cfg", "plugins", "check", "serve", "login":
 		err = installationCommand(os.Args[1], os.Args[2:])
 	case "version":
 		fmt.Println(version)
@@ -44,7 +44,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "uso: cli <setup|migrate|backup|restore|get-cfg|set-cfg|plugins|check|serve|login|version|healthcheck|e2e-seed>")
+	fmt.Fprintln(os.Stderr, "uso: cli <setup|migrate|backup|restore|backup-schedule|get-cfg|set-cfg|plugins|check|serve|login|version|healthcheck|e2e-seed>")
 }
 
 // healthcheck reutiliza internal/platform/config (o mesmo pacote de

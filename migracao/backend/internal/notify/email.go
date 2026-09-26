@@ -3,7 +3,9 @@ package notify
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/smtp"
@@ -34,13 +36,21 @@ type SMTPConfig struct {
 	InsecureSkipVerify bool
 }
 
-// EmailMessage é um e-mail de texto simples — sem HTML/MJML (o legado
-// suporta corpo HTML/MJML na ação send_email; fora do subconjunto
-// prioritário desta tarefa).
+// EmailMessage é um e-mail de texto simples ou HTML (GO-046, CAP-083).
+// HTMLBody vazio mantém o comportamento original (texto puro); HTMLBody
+// preenchido gera um corpo multipart/alternative com AMBAS as partes —
+// texto (Body, se vazio um fallback simples derivado do assunto) e HTML
+// (HTMLBody) — mesmo formato que qualquer cliente de e-mail real espera
+// para escolher a melhor representação disponível. Nenhum motor MJML
+// (o legado usa MJML como linguagem intermediária compilada para HTML via
+// o pacote `mjml`, sem equivalente Go): HTMLBody já é HTML final, pronto
+// para enviar — quem monta esse HTML (ex.: internal/views, GO-046) decide
+// o próprio layout responsivo.
 type EmailMessage struct {
-	To      []string
-	Subject string
-	Body    string
+	To       []string
+	Subject  string
+	Body     string
+	HTMLBody string
 }
 
 // SendEmail conecta, faz STARTTLS se o servidor anunciar suporte, autentica
@@ -104,7 +114,29 @@ func buildMessage(from string, msg EmailMessage) []byte {
 	fmt.Fprintf(&b, "From: %s\r\n", from)
 	fmt.Fprintf(&b, "To: %s\r\n", strings.Join(msg.To, ", "))
 	fmt.Fprintf(&b, "Subject: %s\r\n", msg.Subject)
-	b.WriteString("MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n")
-	b.WriteString(msg.Body)
+	if msg.HTMLBody == "" {
+		b.WriteString("MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n")
+		b.WriteString(msg.Body)
+		return b.Bytes()
+	}
+
+	textPart := msg.Body
+	if textPart == "" {
+		textPart = "Este e-mail requer um cliente compatível com HTML para ser exibido corretamente."
+	}
+	boundary := "saltcorn-go-" + hex.EncodeToString(randomBoundary())
+	b.WriteString("MIME-Version: 1.0\r\n")
+	fmt.Fprintf(&b, "Content-Type: multipart/alternative; boundary=%q\r\n\r\n", boundary)
+	fmt.Fprintf(&b, "--%s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s\r\n\r\n", boundary, textPart)
+	fmt.Fprintf(&b, "--%s\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s\r\n\r\n", boundary, msg.HTMLBody)
+	fmt.Fprintf(&b, "--%s--\r\n", boundary)
 	return b.Bytes()
+}
+
+func randomBoundary() []byte {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return b
 }

@@ -18,6 +18,22 @@ import (
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/installation"
 )
 
+// readPassphraseFile lê a senha de criptografia de backup de um arquivo
+// privado — nunca aceita a senha diretamente como flag (apareceria em
+// `ps`/histórico de shell), mesmo padrão já usado por --password-file
+// (setup). path vazio devolve nil, nil — sem senha configurada significa
+// backup em texto claro, nunca um erro.
+func readPassphraseFile(path string) ([]byte, error) {
+	if path == "" {
+		return nil, nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(strings.TrimSuffix(string(b), "\n")), nil
+}
+
 func installationCommand(command string, args []string) error {
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
 	dir := fs.String("dir", "", "diretório privado da instância (obrigatório)")
@@ -32,6 +48,12 @@ func installationCommand(command string, args []string) error {
 	value := fs.String("value", "", "valor JSON (set-cfg)")
 	httpAddr := fs.String("http", "127.0.0.1:3100", "bind local do BFF (setup)")
 	backendAddr := fs.String("backend-http", "127.0.0.1:8090", "bind local do Go (setup)")
+	passphraseFile := fs.String("passphrase-file", "", "arquivo privado com a senha de criptografia do backup (backup/restore/backup-schedule)")
+	intervalHours := fs.Float64("interval-hours", 24, "intervalo entre backups agendados, em horas (backup-schedule)")
+	keepDaily := fs.Int("keep-daily", 7, "backups diários a manter (backup-schedule)")
+	keepWeekly := fs.Int("keep-weekly", 4, "backups semanais a manter (backup-schedule)")
+	keepMonthly := fs.Int("keep-monthly", 12, "backups mensais a manter (backup-schedule)")
+	keepYearly := fs.Int("keep-yearly", 2, "backups anuais a manter (backup-schedule)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -67,9 +89,17 @@ func installationCommand(command string, args []string) error {
 		return err
 	}
 	defer lock.Close()
+	passphrase, err := readPassphraseFile(*passphraseFile)
+	if err != nil {
+		return err
+	}
 	if command == "restore" {
 		if *source == "" {
 			return errors.New("--backup obrigatório")
+		}
+		if len(passphrase) > 0 {
+			_, err = installation.RestoreEncrypted(ctx, root, *source, passphrase, os.Getenv("SALTCORN_GO_DATABASE_URL"))
+			return err
 		}
 		_, err = installation.Restore(ctx, root, *source, os.Getenv("SALTCORN_GO_DATABASE_URL"))
 		return err
@@ -159,7 +189,24 @@ func installationCommand(command string, args []string) error {
 		if *output == "" {
 			return errors.New("--output obrigatório")
 		}
+		if len(passphrase) > 0 {
+			return installation.BackupEncrypted(ctx, root, c, *output, passphrase)
+		}
 		return installation.Backup(ctx, root, c, *output)
+	case "backup-schedule":
+		if *output == "" {
+			return errors.New("--output obrigatório (diretório que recebe os backups agendados)")
+		}
+		if *intervalHours <= 0 {
+			return errors.New("--interval-hours deve ser positivo")
+		}
+		sched := installation.ScheduleConfig{
+			Interval:   time.Duration(*intervalHours * float64(time.Hour)),
+			DestDir:    *output,
+			Retention:  installation.RetentionPolicy{KeepDaily: *keepDaily, KeepWeekly: *keepWeekly, KeepMonthly: *keepMonthly, KeepYearly: *keepYearly},
+			Passphrase: passphrase,
+		}
+		return installation.RunScheduledBackups(ctx, root, c, sched)
 	case "check":
 		return installation.Check(ctx, root, c)
 	case "get-cfg", "set-cfg":

@@ -156,6 +156,54 @@ func TestSendEmail_ProviderFailure_ReturnsExplicitError(t *testing.T) {
 	}
 }
 
+// TestSendEmail_HTMLBody_SendsMultipartAlternative prova o caso de uso
+// real de CAP-083: um EmailMessage com HTMLBody preenchido produz um
+// corpo multipart/alternative com AMBAS as partes (texto e HTML) — nunca
+// substitui uma pela outra, para que um cliente de e-mail sem suporte a
+// HTML ainda exiba algo legível.
+func TestSendEmail_HTMLBody_SendsMultipartAlternative(t *testing.T) {
+	srv := &fakeSMTPServer{}
+	host, port := startFakeSMTPServer(t, srv)
+
+	err := SendEmail(context.Background(), SMTPConfig{Host: host, Port: port, From: "remetente@example.com"},
+		EmailMessage{To: []string{"destino@example.com"}, Subject: "Relatório", Body: "versão texto", HTMLBody: "<h1>versão HTML</h1>"})
+	if err != nil {
+		t.Fatalf("SendEmail: %v", err)
+	}
+
+	_, _, body := srv.snapshot()
+	if !strings.Contains(body, "multipart/alternative") {
+		t.Fatalf("esperado Content-Type multipart/alternative, corpo: %q", body)
+	}
+	if !strings.Contains(body, "versão texto") {
+		t.Fatal("parte de texto ausente")
+	}
+	if !strings.Contains(body, "<h1>versão HTML</h1>") {
+		t.Fatal("parte HTML ausente")
+	}
+	if !strings.Contains(body, "text/plain") || !strings.Contains(body, "text/html") {
+		t.Fatal("esperado as duas partes MIME (text/plain e text/html)")
+	}
+}
+
+// TestSendEmail_HTMLBody_EmptyBodyGetsTextFallback prova que um HTMLBody
+// sem Body explícito ainda produz uma parte de texto não vazia — nunca um
+// corpo multipart com metade vazia.
+func TestSendEmail_HTMLBody_EmptyBodyGetsTextFallback(t *testing.T) {
+	srv := &fakeSMTPServer{}
+	host, port := startFakeSMTPServer(t, srv)
+
+	err := SendEmail(context.Background(), SMTPConfig{Host: host, Port: port, From: "remetente@example.com"},
+		EmailMessage{To: []string{"destino@example.com"}, Subject: "só HTML", HTMLBody: "<p>oi</p>"})
+	if err != nil {
+		t.Fatalf("SendEmail: %v", err)
+	}
+	_, _, body := srv.snapshot()
+	if !strings.Contains(body, "cliente compatível com HTML") {
+		t.Fatal("esperado fallback de texto não vazio quando Body está vazio")
+	}
+}
+
 func TestSendEmail_ConnectionRefused_ReturnsExplicitError(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
