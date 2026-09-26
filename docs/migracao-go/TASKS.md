@@ -918,7 +918,7 @@ Execute a task GO-045 — Portar versionamento de linha (table history) e sistem
 
 ### GO-046 — Portar catálogo administrativo de instalação (metadata, plugins, backup completo)
 
-- [~] **Status:** IN_REVIEW — PR [#56](https://github.com/vjuliani/saltcorn/pull/56) aberto; decisões de escopo explícitas registradas em [execucoes/GO-046.md](execucoes/GO-046.md) (npm registry, checagem de views dependentes, destinos S3/SFTP e motor MJML fora de escopo, com justificativa)
+- [x] **Status:** DONE — integrada via PR [#56](https://github.com/vjuliani/saltcorn/pull/56) (merge `3e835bbbe99d`); histórico em [execucoes/GO-046.md](execucoes/GO-046.md) (npm registry, checagem de views dependentes, destinos S3/SFTP e motor MJML fora de escopo, com justificativa)
 - **Fase:** F5 · **Prioridade:** P1 · **Tamanho:** L
 - **Responsável sugerido:** Backend
 - **Depende de:** GO-026, GO-027, GO-032
