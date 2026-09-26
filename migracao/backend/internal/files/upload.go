@@ -4,9 +4,8 @@ import (
 	"context"
 	"io"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // newStorageKeyFunc indireciona NewStorageKey — permite que um teste force
@@ -37,7 +36,7 @@ var newStorageKeyFunc = NewStorageKey
 // tarefa, que se concentra em "upload interrompido" (Save falhando),
 // não em "transação externa abortada por outro motivo depois do
 // upload ter sucedido".
-func Upload(ctx context.Context, tx pgx.Tx, backend Backend, meta File, r io.Reader) (File, error) {
+func UploadTx(ctx context.Context, tx database.Tx, backend Backend, meta File, r io.Reader) (File, error) {
 	key := newStorageKeyFunc()
 	size, err := backend.Save(ctx, key, r)
 	if err != nil {
@@ -46,7 +45,7 @@ func Upload(ctx context.Context, tx pgx.Tx, backend Backend, meta File, r io.Rea
 	meta.StorageKey = key
 	meta.SizeBytes = size
 
-	created, err := CreateFile(ctx, tx, meta)
+	created, err := CreateFileTx(ctx, tx, meta)
 	if err != nil {
 		_ = backend.Delete(ctx, key)
 		return File{}, err
@@ -54,12 +53,12 @@ func Upload(ctx context.Context, tx pgx.Tx, backend Backend, meta File, r io.Rea
 	return created, nil
 }
 
-// Download resolve o catálogo, confere autorização (CanRead) ANTES de
+// DownloadTx resolve o catálogo, confere autorização (CanRead) ANTES de
 // tocar o backend físico, e só então abre os bytes — "usuário sem acesso
 // não baixa arquivo" (critério de aceite) é estrutural: ErrNotAuthorized
 // nunca chega a chamar Backend.Open.
-func Download(ctx context.Context, tx pgx.Tx, backend Backend, actorRole identity.RoleID, actorUserID *int, fileID int) (io.ReadCloser, File, error) {
-	f, err := GetFile(ctx, tx, fileID)
+func DownloadTx(ctx context.Context, tx database.Tx, backend Backend, actorRole identity.RoleID, actorUserID *int, fileID int) (io.ReadCloser, File, error) {
+	f, err := GetFileTx(ctx, tx, fileID)
 	if err != nil {
 		return nil, File{}, err
 	}

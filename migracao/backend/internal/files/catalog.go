@@ -4,9 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/jackc/pgx/v5"
-
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/identity"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // File é uma entrada do catálogo _sc_files — o equivalente reduzido do
@@ -25,11 +24,11 @@ type File struct {
 	StorageKey string
 }
 
-// CreateFile insere a entrada de catálogo — chamado DEPOIS de
+// CreateFileTx insere a entrada de catálogo — chamado DEPOIS de
 // Backend.Save ter sucesso (ver Upload em upload.go), nunca antes: nunca
 // existe uma linha de catálogo apontando para bytes que não foram
 // gravados com sucesso.
-func CreateFile(ctx context.Context, tx pgx.Tx, f File) (File, error) {
+func CreateFileTx(ctx context.Context, tx database.Tx, f File) (File, error) {
 	err := tx.QueryRow(ctx,
 		`INSERT INTO _sc_files (filename, mime_super, mime_sub, size_bytes, min_role_read, user_id, storage_key)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
@@ -41,8 +40,8 @@ func CreateFile(ctx context.Context, tx pgx.Tx, f File) (File, error) {
 	return f, nil
 }
 
-// GetFile lê uma entrada de catálogo por ID — ErrNotFound se não existir.
-func GetFile(ctx context.Context, tx pgx.Tx, id int) (File, error) {
+// GetFileTx lê uma entrada de catálogo por ID — ErrNotFound se não existir.
+func GetFileTx(ctx context.Context, tx database.Tx, id int) (File, error) {
 	var f File
 	var minRole int
 	err := tx.QueryRow(ctx,
@@ -50,7 +49,7 @@ func GetFile(ctx context.Context, tx pgx.Tx, id int) (File, error) {
 		id,
 	).Scan(&f.ID, &f.Filename, &f.MimeSuper, &f.MimeSub, &f.SizeBytes, &minRole, &f.UserID, &f.StorageKey)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return File{}, ErrNotFound
 		}
 		return File{}, err

@@ -25,8 +25,9 @@ package triggers
 
 import (
 	"context"
+	"strings"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // table_id é NULLABLE desde GO-052: um trigger de EVENTO NOMEADO (ex.:
@@ -66,21 +67,35 @@ CREATE INDEX IF NOT EXISTS idx_sc_triggers_table_when ON _sc_triggers (table_id,
 const createTriggersEventIndexSQL = `
 CREATE INDEX IF NOT EXISTS idx_sc_triggers_event ON _sc_triggers (when_trigger) WHERE table_id IS NULL`
 
-// EnsureSchema cria o catálogo de triggers, idempotente — chamar dentro de
-// db.WithTenant, uma vez por tenant (mesmo padrão de internal/metadata,
-// internal/platform/outbox).
-func EnsureSchema(ctx context.Context, tx pgx.Tx) error {
-	if _, err := tx.Exec(ctx, createTriggersTableSQL); err != nil {
+// EnsureSchemaTx cria o catálogo de triggers, idempotente — chamar dentro
+// de db.WithTenant, uma vez por tenant (mesmo padrão de internal/metadata,
+// internal/platform/outbox). Dialect-rewrite (GO-055) igual ao já usado
+// por internal/platform/outbox desde GO-030.
+func EnsureSchemaTx(ctx context.Context, tx database.Tx) error {
+	ddl := createTriggersTableSQL
+	if tx.Dialect() == database.DialectSQLite {
+		ddl = strings.NewReplacer(
+			"serial PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT",
+			"'{}'::jsonb", "'{}'",
+			"jsonb", "text",
+			"timestamptz", "timestamp",
+			"now()", "CURRENT_TIMESTAMP",
+		).Replace(ddl)
+	}
+	if err := tx.Exec(ctx, ddl); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, dropTableIDNotNullSQL); err != nil {
+	// dropTableIDNotNullSQL migra um schema Postgres provisionado ANTES de
+	// GO-052 — ALTER COLUMN ... DROP NOT NULL não existe no SQLite, e é
+	// desnecessário lá: todo tenant SQLite nasce depois de GO-052/GO-055,
+	// já com table_id nullable na DDL acima, nunca precisando de migração.
+	if tx.Dialect() == database.DialectPostgres {
+		if err := tx.Exec(ctx, dropTableIDNotNullSQL); err != nil {
+			return err
+		}
+	}
+	if err := tx.Exec(ctx, createTriggersLookupIndexSQL); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, createTriggersLookupIndexSQL); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, createTriggersEventIndexSQL); err != nil {
-		return err
-	}
-	return nil
+	return tx.Exec(ctx, createTriggersEventIndexSQL)
 }

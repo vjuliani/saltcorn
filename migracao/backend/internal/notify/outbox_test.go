@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -93,6 +94,44 @@ func TestHandler_DeliversEmailEvent_ViaProcessPending(t *testing.T) {
 	}
 	if body == "" {
 		t.Fatal("corpo do e-mail entregue está vazio")
+	}
+}
+
+// TestHandler_DeliversEmailEvent_PreservesHTMLBody prova um achado real
+// (GO-055): antes desta task, o payload enfileirado por EnqueueEmail
+// nunca incluía HTMLBody (adicionado em GO-046) — uma view renderizada
+// como e-mail HTML e enfileirada pelo caminho durável (o ÚNICO caminho
+// real em produção, já que cmd/server/cmd/worker nunca chamam
+// notify.SendEmail diretamente) chegaria ao destinatário como texto
+// puro, silenciosamente perdendo o HTML. Corrigido junto da conversão
+// para database.Tx.
+func TestHandler_DeliversEmailEvent_PreservesHTMLBody(t *testing.T) {
+	db, tenant := notifyFixture(t)
+	ctx := context.Background()
+
+	smtpServer := &fakeSMTPServer{}
+	host, port := startFakeSMTPServer(t, smtpServer)
+
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		return EnqueueEmail(ctx, tx, "deliver:html", EmailMessage{To: []string{"dest@example.com"}, Subject: "relatorio", Body: "versao texto", HTMLBody: "<h1>versao HTML</h1>"})
+	}); err != nil {
+		t.Fatalf("EnqueueEmail: %v", err)
+	}
+
+	handler := Handler(SMTPConfig{Host: host, Port: port, From: "remetente@example.com"}, nil, nil)
+	if err := db.WithTenant(ctx, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, _, err := outbox.ProcessPending(ctx, tx, 10, 5, handler)
+		return err
+	}); err != nil {
+		t.Fatalf("ProcessPending: %v", err)
+	}
+
+	_, _, body := smtpServer.snapshot()
+	if !strings.Contains(body, "<h1>versao HTML</h1>") {
+		t.Fatalf("HTMLBody perdido na entrega via outbox, corpo: %q", body)
+	}
+	if !strings.Contains(body, "multipart/alternative") {
+		t.Fatalf("esperado multipart/alternative, corpo: %q", body)
 	}
 }
 

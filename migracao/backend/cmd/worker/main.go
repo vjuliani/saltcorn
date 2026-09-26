@@ -118,25 +118,30 @@ func main() {
 	defer stop()
 	baseCtx := telemetry.WithLogger(ctx, logger)
 
-	// sqliteDB (GO-041) — construído/validado quando configurado, pela
-	// mesma razão de cmd/server: um operador que aponte cmd/worker para
-	// um diretório de tenants SQLite inválido deve descobrir isso na
-	// subida, não silenciosamente. Escopo NARROW e diferente de
-	// cmd/server: NENHUM job deste processo (outbox, triggers agendados,
-	// limpeza de arquivo) roda contra um tenant SQLite nesta entrega —
-	// internal/triggers/internal/scheduler/internal/notify/internal/files
-	// continuam 100% pgx.Tx (GO-055 registrada para completar o adapter
-	// também aqui). Isto é aceitação explícita de uma lacuna, não uma
-	// tentativa disfarçada: o worker sobe, loga o modo, e simplesmente
-	// não enfileira nenhum trabalho de tenant contra este backend.
-	if cfg.SQLiteDir != "" && cfg.DatabaseURL == "" {
-		sqliteDB, err := sqlite.Open(cfg.SQLiteDir)
+	// sqliteDB (GO-041, jobs reais desde GO-055) — construído/validado
+	// quando configurado, pela mesma razão de cmd/server: um operador que
+	// aponte cmd/worker para um diretório de tenants SQLite inválido deve
+	// descobrir isso na subida, não silenciosamente. Escopo NARROW e
+	// diferente de cmd/server: só outbox e triggers agendados rodam contra
+	// um tenant SQLite (internal/files/limpeza de órfãos segue Postgres-
+	// only — nenhuma rota SQLite de cmd/server faz upload/download ainda,
+	// então não há nada real para limpar). SEM cutover.Acquire/
+	// lease.Acquire para tenants SQLite — mesma decisão de GO-041 para
+	// cutover.RequireOwnership em cmd/server: o conceito de corte
+	// gradual Node→Go e de arrendamento multi-processo não têm análogo
+	// num deploy "modo desktop" desde o primeiro dia; a serialização real
+	// vem do próprio arquivo (BEGIN IMMEDIATE, escritor único,
+	// internal/platform/sqlite).
+	sqliteMode := cfg.SQLiteDir != "" && cfg.DatabaseURL == ""
+	var sqliteDB *sqlite.DB
+	if sqliteMode {
+		sqliteDB, err = sqlite.Open(cfg.SQLiteDir)
 		if err != nil {
 			logger.Error("abrir diretório de tenants SQLite", "error", err.Error())
 			os.Exit(1)
 		}
 		defer sqliteDB.Close()
-		logger.Warn("adapter SQLite ativo (modo desktop) — nenhum job deste worker roda contra um tenant SQLite nesta entrega (outbox/triggers agendados/limpeza de arquivo continuam exclusivamente Postgres, GO-055 registrada)")
+		logger.Info("adapter SQLite ativo (modo desktop) — jobs de outbox e triggers agendados rodam contra tenants SQLite; limpeza de arquivo continua exclusivamente Postgres", "dir", cfg.SQLiteDir)
 	} else if cfg.SQLiteDir != "" {
 		logger.Warn("SALTCORN_GO_SQLITE_DIR e SALTCORN_GO_DATABASE_URL configuradas juntas — Postgres tem precedência, SQLite ignorado nesta instância")
 	}
@@ -178,8 +183,8 @@ func main() {
 	// migracao/packages/pluginhost (demonstração do MECANISMO, não um
 	// catálogo de produção: nenhum trigger agendado real existe neste
 	// checkout ainda).
-	schedulerDispatcher := &scheduler.Dispatcher{Actions: map[string]scheduler.ActionFunc{
-		"log": func(ctx context.Context, tx pgx.Tx) error {
+	schedulerDispatcher := &scheduler.Dispatcher{Actions: map[string]scheduler.ActionFuncTx{
+		"log": func(ctx context.Context, tx database.Tx) error {
 			telemetry.LoggerFor(ctx).Info("trigger agendado executado (demonstração, sem catálogo real ainda)")
 			return nil
 		},
@@ -226,6 +231,14 @@ func main() {
 			"event_type", ev.Type, "attempts", ev.Attempts)
 		return nil
 	}))
+	// notifyHandlerTx (GO-055) é o equivalente database.Tx de notifyHandler
+	// — MESMO smtpCfg/httpClient/triggerDispatcher, usado pelo ciclo
+	// SQLite em vez de uma segunda configuração/catálogo por dialeto.
+	notifyHandlerTx := notify.HandlerTx(smtpCfg, httpClient, triggerOutboxHandlerTx(triggerDispatcher, func(ctx context.Context, tx database.Tx, ev outbox.OutboxEvent) error {
+		telemetry.LoggerFor(ctx).Info("evento de outbox processado (demonstração, sem consumidor real)",
+			"event_type", ev.Type, "attempts", ev.Attempts)
+		return nil
+	}))
 
 	// filesBackend (GO-026) só existe se um diretório de armazenamento
 	// foi configurado — sem isso, runFileCleanupJob é um no-op (mesmo
@@ -248,7 +261,11 @@ runLoop:
 				// Shutdown já em andamento: não inicia mais um ciclo.
 				continue
 			}
-			runCycle(baseCtx, cfg.WorkerTenants, db, guard, jobMetrics, workerInstanceID, schedulerDispatcher, notifyHandler, filesBackend)
+			if sqliteMode {
+				runCycleSQLite(baseCtx, cfg.WorkerTenants, sqliteDB, jobMetrics, schedulerDispatcher, notifyHandlerTx)
+			} else {
+				runCycle(baseCtx, cfg.WorkerTenants, db, guard, jobMetrics, workerInstanceID, schedulerDispatcher, notifyHandler, filesBackend)
+			}
 			end()
 		}
 	}
@@ -278,6 +295,19 @@ func runCycle(ctx context.Context, tenants []string, db *database.DB, guard *cut
 		runOutboxJob(ctx, t, db, guard, metrics, notifyHandler)
 		runScheduledTriggersJob(ctx, t, db, guard, metrics, workerID, dispatcher)
 		runFileCleanupJob(ctx, t, db, guard, metrics, filesBackend)
+	}
+}
+
+// runCycleSQLite (GO-055) é o equivalente de runCycle para tenants em
+// arquivo SQLite — sem placeholder (só existe para provar propagação de
+// tenant contra Postgres) e sem limpeza de arquivo (nenhuma rota SQLite
+// de cmd/server faz upload/download ainda). Sem tenants configurados,
+// não há nada para fazer — ao contrário do caminho Postgres, um ciclo
+// SQLite sem tenant não tem nenhum trabalho de demonstração equivalente.
+func runCycleSQLite(ctx context.Context, tenants []string, db *sqlite.DB, metrics *telemetry.JobMetrics, dispatcher *scheduler.Dispatcher, notifyHandler outbox.TxHandler) {
+	for _, t := range tenants {
+		runOutboxJobSQLite(ctx, t, db, metrics, notifyHandler)
+		runScheduledTriggersJobSQLite(ctx, t, db, metrics, dispatcher)
 	}
 }
 
@@ -319,6 +349,32 @@ func triggerOutboxHandler(dispatcher *triggers.Dispatcher, fallback outbox.Handl
 		tenant, _ := tenancy.TenantFromContext(ctx)
 		trig := triggers.Trigger{ID: int(triggerID), Action: action, Configuration: configuration}
 		return dispatcher.RunOne(ctx, tx, tenant, actorRole, metadata.Table{Name: tableName}, trig, record)
+	}
+}
+
+// triggerOutboxHandlerTx é o equivalente database.Tx de
+// triggerOutboxHandler (GO-055) — mesma lógica, usando
+// Dispatcher.RunOneTx em vez de RunOne.
+func triggerOutboxHandlerTx(dispatcher *triggers.Dispatcher, fallback outbox.TxHandler) outbox.TxHandler {
+	return func(ctx context.Context, tx database.Tx, ev outbox.OutboxEvent) error {
+		if !strings.HasPrefix(ev.Type, "trigger:") {
+			if fallback != nil {
+				return fallback(ctx, tx, ev)
+			}
+			return nil
+		}
+		action, _ := ev.Payload["action"].(string)
+		tableName, _ := ev.Payload["table"].(string)
+		record, _ := ev.Payload["record"].(map[string]any)
+		configuration, _ := ev.Payload["configuration"].(map[string]any)
+		triggerID, _ := ev.Payload["trigger_id"].(float64)
+		actorRole := identity.RolePublic
+		if v, ok := ev.Payload["actor_role"].(float64); ok {
+			actorRole = identity.RoleID(int(v))
+		}
+		tenant, _ := tenancy.TenantFromContext(ctx)
+		trig := triggers.Trigger{ID: int(triggerID), Action: action, Configuration: configuration}
+		return dispatcher.RunOneTx(ctx, tx, tenant, actorRole, metadata.Table{Name: tableName}, trig, record)
 	}
 }
 
@@ -435,6 +491,38 @@ func runOutboxJob(ctx context.Context, tenant string, db *database.DB, guard *cu
 	metrics.Observe(elapsed, "ok")
 }
 
+// runOutboxJobSQLite é o equivalente de runOutboxJob para um tenant em
+// arquivo SQLite (GO-055) — sem cutover.Acquire: nenhuma guarda de
+// ownership Node↔Go existe para um deploy "modo desktop" desde o
+// primeiro dia (mesma decisão de GO-041 para as rotas HTTP SQLite de
+// cmd/server).
+func runOutboxJobSQLite(ctx context.Context, tenant string, db *sqlite.DB, metrics *telemetry.JobMetrics, handler outbox.TxHandler) {
+	if db == nil || tenant == "" {
+		return
+	}
+
+	jobCtx := telemetry.WithTraceID(ctx, telemetry.NewTraceID())
+	jobCtx = telemetry.WithSpanID(jobCtx, telemetry.NewSpanID())
+	jobCtx = tenancy.WithTenant(jobCtx, tenancy.Tenant(tenant))
+	logger := telemetry.LoggerFor(jobCtx)
+	start := time.Now()
+
+	var processed, failed int
+	err := db.WithTenant(jobCtx, tenancy.Tenant(tenant), func(ctx context.Context, tx database.Tx) error {
+		var err error
+		processed, failed, err = outbox.ProcessPendingTx(ctx, tx, outboxBatchLimit, outboxMaxAttempts, handler)
+		return err
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		logger.Warn("job de outbox (SQLite) falhou", "result", "error")
+		metrics.Observe(elapsed, "error")
+		return
+	}
+	logger.Debug("job de outbox (SQLite) concluído", "result", "ok", "processed", processed, "failed", failed)
+	metrics.Observe(elapsed, "ok")
+}
+
 // runScheduledTriggersJob dispara os triggers agendados (GO-025) cujo
 // horário já passou, para tenant. Dois portões, nesta ordem:
 //
@@ -507,6 +595,41 @@ func runScheduledTriggersJob(ctx context.Context, tenant string, db *database.DB
 		return
 	}
 	logger.Debug("job de scheduler concluído", "result", "ok", "ran", ran, "failed", failed)
+	metrics.Observe(elapsed, "ok")
+}
+
+// runScheduledTriggersJobSQLite é o equivalente de runScheduledTriggersJob
+// para um tenant em arquivo SQLite (GO-055) — sem cutover.Acquire (mesmo
+// motivo de runOutboxJobSQLite) e sem lease.Acquire: o arrendamento
+// multi-processo de internal/platform/lease é, ele mesmo, pgx.Tx-only e
+// resolve um problema (múltiplas INSTÂNCIAS do processo worker disputando
+// o MESMO tenant Postgres) sem análogo real num deploy "modo desktop" —
+// a serialização de escrita já vem do próprio arquivo SQLite (BEGIN
+// IMMEDIATE, um único escritor, internal/platform/sqlite).
+func runScheduledTriggersJobSQLite(ctx context.Context, tenant string, db *sqlite.DB, metrics *telemetry.JobMetrics, dispatcher *scheduler.Dispatcher) {
+	if db == nil || tenant == "" {
+		return
+	}
+
+	jobCtx := telemetry.WithTraceID(ctx, telemetry.NewTraceID())
+	jobCtx = telemetry.WithSpanID(jobCtx, telemetry.NewSpanID())
+	jobCtx = tenancy.WithTenant(jobCtx, tenancy.Tenant(tenant))
+	logger := telemetry.LoggerFor(jobCtx)
+	start := time.Now()
+
+	var ran, failed int
+	err := db.WithTenant(jobCtx, tenancy.Tenant(tenant), func(ctx context.Context, tx database.Tx) error {
+		var err error
+		ran, failed, err = dispatcher.RunDueTx(ctx, tx, time.Now())
+		return err
+	})
+	elapsed := time.Since(start)
+	if err != nil {
+		logger.Warn("job de scheduler (SQLite) falhou", "result", "error")
+		metrics.Observe(elapsed, "error")
+		return
+	}
+	logger.Debug("job de scheduler (SQLite) concluído", "result", "ok", "ran", ran, "failed", failed)
 	metrics.Observe(elapsed, "ok")
 }
 

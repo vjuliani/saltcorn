@@ -269,20 +269,21 @@ func main() {
 				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
 					cutover.RequireOwnership(guard, recordsCapability, deleteRecordHandler(tracker, db, dispatcher)))))
 		} else {
-			// GO-041: mesmos paths, contra o adapter SQLite — SEM
-			// disparo de trigger (hooks=nil, ver cmd/server/sqlite.go).
+			// GO-041/GO-055: mesmos paths, contra o adapter SQLite — COM
+			// disparo de trigger real (dispatcher.HooksForTx, GO-055),
+			// mesmo Dispatcher que o caminho Postgres usa.
 			mux.Handle("GET /v1/tenants/{tenant}/tables/{table}/records",
 				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
 					sqliteListRecordsHandler(tracker, sqliteDB))))
 			mux.Handle("POST /v1/tenants/{tenant}/tables/{table}/records",
 				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
-					sqliteCreateRecordHandler(tracker, sqliteDB))))
+					sqliteCreateRecordHandler(tracker, sqliteDB, dispatcher))))
 			mux.Handle("PATCH /v1/tenants/{tenant}/tables/{table}/records/{id}",
 				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
-					sqliteUpdateRecordHandler(tracker, sqliteDB))))
+					sqliteUpdateRecordHandler(tracker, sqliteDB, dispatcher))))
 			mux.Handle("DELETE /v1/tenants/{tenant}/tables/{table}/records/{id}",
 				tenancy.Middleware(verifier, telemetry.Middleware(recordsRoute, httpMetrics,
-					sqliteDeleteRecordHandler(tracker, sqliteDB))))
+					sqliteDeleteRecordHandler(tracker, sqliteDB, dispatcher))))
 		}
 		mux.Handle("POST /v1/tenants/{tenant}/sync/{table}/exchange",
 			tenancy.Middleware(verifier, telemetry.Middleware("tenant_sync", httpMetrics,

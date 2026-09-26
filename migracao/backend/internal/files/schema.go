@@ -15,8 +15,9 @@ package files
 
 import (
 	"context"
+	"strings"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 const createFilesTableSQL = `
@@ -32,10 +33,18 @@ CREATE TABLE IF NOT EXISTS _sc_files (
 	created_at timestamptz NOT NULL DEFAULT now()
 )`
 
-// EnsureSchema cria o catálogo de arquivos, idempotente — chamar dentro de
-// db.WithTenant, uma vez por tenant (mesmo padrão de internal/triggers,
-// internal/scheduler).
-func EnsureSchema(ctx context.Context, tx pgx.Tx) error {
-	_, err := tx.Exec(ctx, createFilesTableSQL)
-	return err
+// EnsureSchemaTx cria o catálogo de arquivos, idempotente — chamar dentro
+// de db.WithTenant, uma vez por tenant (mesmo padrão de
+// internal/triggers, internal/scheduler). Dialect-rewrite (GO-055) igual
+// ao já usado por internal/platform/outbox desde GO-030.
+func EnsureSchemaTx(ctx context.Context, tx database.Tx) error {
+	ddl := createFilesTableSQL
+	if tx.Dialect() == database.DialectSQLite {
+		ddl = strings.NewReplacer(
+			"serial PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT",
+			"timestamptz", "timestamp",
+			"now()", "CURRENT_TIMESTAMP",
+		).Replace(ddl)
+	}
+	return tx.Exec(ctx, ddl)
 }

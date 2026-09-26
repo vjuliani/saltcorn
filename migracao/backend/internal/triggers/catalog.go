@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 )
 
 // WhenTrigger é o evento que dispara um Trigger — os quatro eventos
@@ -106,7 +106,7 @@ type Trigger struct {
 // divergência silenciosa dentro de EmitEvent (que sempre despacha
 // evento nomeado de forma síncrona, ignorando AfterCommit se ele
 // escapasse desta checagem).
-func CreateTrigger(ctx context.Context, tx pgx.Tx, t Trigger) (Trigger, error) {
+func CreateTriggerTx(ctx context.Context, tx database.Tx, t Trigger) (Trigger, error) {
 	if !t.When.valid(t.TableID) {
 		return Trigger{}, ErrInvalidWhenTrigger
 	}
@@ -142,8 +142,8 @@ func CreateTrigger(ctx context.Context, tx pgx.Tx, t Trigger) (Trigger, error) {
 
 // TriggersFor lê, em ordem de criação, os triggers registrados para
 // tableID+when — a consulta que Dispatcher faz a cada escrita.
-func TriggersFor(ctx context.Context, tx pgx.Tx, tableID int, when WhenTrigger) ([]Trigger, error) {
-	return queryTriggers(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers WHERE table_id = $1 AND when_trigger = $2 ORDER BY id`, tableID, string(when))
+func TriggersForTx(ctx context.Context, tx database.Tx, tableID int, when WhenTrigger) ([]Trigger, error) {
+	return queryTriggersTx(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers WHERE table_id = $1 AND when_trigger = $2 ORDER BY id`, tableID, string(when))
 }
 
 // TriggersForEvent (GO-052) lê, em ordem de criação, os triggers de
@@ -152,19 +152,19 @@ func TriggersFor(ctx context.Context, tx pgx.Tx, tableID int, when WhenTrigger) 
 // `POST .../events/{eventname}`. Nunca encontra um trigger ligado a
 // tabela (table_id IS NULL exclui exatamente os 4 whens de registro),
 // mesma separação que CreateTrigger já impõe na escrita.
-func TriggersForEvent(ctx context.Context, tx pgx.Tx, eventName string) ([]Trigger, error) {
-	return queryTriggers(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers WHERE table_id IS NULL AND when_trigger = $1 ORDER BY id`, eventName)
+func TriggersForEventTx(ctx context.Context, tx database.Tx, eventName string) ([]Trigger, error) {
+	return queryTriggersTx(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers WHERE table_id IS NULL AND when_trigger = $1 ORDER BY id`, eventName)
 }
 
 // ListAll lê TODOS os triggers do tenant, em ordem de criação — usado por
 // internal/pack (GO-027) para exportar a aplicação inteira; nenhum outro
 // chamador precisava de uma visão não filtrada por tabela+evento até
 // aqui.
-func ListAll(ctx context.Context, tx pgx.Tx) ([]Trigger, error) {
-	return queryTriggers(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers ORDER BY id`)
+func ListAllTx(ctx context.Context, tx database.Tx) ([]Trigger, error) {
+	return queryTriggersTx(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers ORDER BY id`)
 }
 
-func queryTriggers(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]Trigger, error) {
+func queryTriggersTx(ctx context.Context, tx database.Tx, sql string, args ...any) ([]Trigger, error) {
 	rows, err := tx.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err

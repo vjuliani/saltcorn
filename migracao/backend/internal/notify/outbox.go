@@ -4,56 +4,55 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/jackc/pgx/v5"
-
+	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/database"
 	"github.com/vjuliani/saltcorn/migracao/backend/internal/platform/outbox"
 )
 
 // Tipos de evento gravados em _sc_outbox (GO-014) — despachados por
-// Handler, consumidos por outbox.ProcessPending (cmd/worker, mesmo job
-// de processamento de outbox já existente desde GO-014).
+// HandlerTx, consumidos por outbox.ProcessPendingTx (cmd/worker, mesmo
+// job de processamento de outbox já existente desde GO-014).
 const (
 	EventTypeEmail   = "notify.email"
 	EventTypeWebhook = "notify.webhook"
 )
 
-// EnqueueEmail grava um evento de e-mail na MESMA transação tx, via
-// outbox.Do — key é a chave de idempotência: a MESMA key com o MESMO
-// conteúdo nunca enfileira duas vezes (outbox.Do já garante isso,
+// EnqueueEmailTx grava um evento de e-mail na MESMA transação tx, via
+// outbox.DoTx — key é a chave de idempotência: a MESMA key com o MESMO
+// conteúdo nunca enfileira duas vezes (outbox.DoTx já garante isso,
 // reaproveitado, não reinventado); a MESMA key com conteúdo DIFERENTE
 // falha com outbox.ErrKeyConflict — "duplicatas externas têm política
 // explícita" (critério de aceite) é este contrato.
-func EnqueueEmail(ctx context.Context, tx pgx.Tx, key string, msg EmailMessage) error {
-	payload := map[string]any{"to": msg.To, "subject": msg.Subject, "body": msg.Body}
-	_, _, err := outbox.Do(ctx, tx, key, payload, func(ctx context.Context, tx pgx.Tx) (any, []outbox.Event, error) {
+func EnqueueEmailTx(ctx context.Context, tx database.Tx, key string, msg EmailMessage) error {
+	payload := map[string]any{"to": msg.To, "subject": msg.Subject, "body": msg.Body, "html_body": msg.HTMLBody}
+	_, _, err := outbox.DoTx(ctx, tx, key, payload, func(ctx context.Context, tx database.Tx) (any, []outbox.Event, error) {
 		return nil, []outbox.Event{{Type: EventTypeEmail, Payload: payload}}, nil
 	})
 	return err
 }
 
-// EnqueueWebhook grava um evento de webhook na MESMA transação tx — mesmo
-// contrato de idempotência de EnqueueEmail.
-func EnqueueWebhook(ctx context.Context, tx pgx.Tx, key string, req WebhookRequest) error {
+// EnqueueWebhookTx grava um evento de webhook na MESMA transação tx —
+// mesmo contrato de idempotência de EnqueueEmailTx.
+func EnqueueWebhookTx(ctx context.Context, tx database.Tx, key string, req WebhookRequest) error {
 	headers := make(map[string]any, len(req.Headers))
 	for k, v := range req.Headers {
 		headers[k] = v
 	}
 	payload := map[string]any{"method": req.Method, "url": req.URL, "headers": headers, "body": string(req.Body)}
-	_, _, err := outbox.Do(ctx, tx, key, payload, func(ctx context.Context, tx pgx.Tx) (any, []outbox.Event, error) {
+	_, _, err := outbox.DoTx(ctx, tx, key, payload, func(ctx context.Context, tx database.Tx) (any, []outbox.Event, error) {
 		return nil, []outbox.Event{{Type: EventTypeWebhook, Payload: payload}}, nil
 	})
 	return err
 }
 
-// Handler despacha um outbox.OutboxEvent para o remetente correto
-// (e-mail ou webhook) — usado com outbox.ProcessPending (GO-014, já
+// HandlerTx despacha um outbox.OutboxEvent para o remetente correto
+// (e-mail ou webhook) — usado com outbox.ProcessPendingTx (GO-014, já
 // testado: retry com corte de tentativas, savepoint por evento). Um
 // tipo de evento que não seja "notify.email"/"notify.webhook" é
 // delegado a fallback (nunca descartado silenciosamente) — nil fallback
 // não faz nada, mesmo comportamento de "sem consumidor real" já
 // documentado para outros tipos desde GO-014/024/025.
-func Handler(smtpCfg SMTPConfig, httpClient *http.Client, fallback outbox.Handler) outbox.Handler {
-	return func(ctx context.Context, tx pgx.Tx, ev outbox.OutboxEvent) error {
+func HandlerTx(smtpCfg SMTPConfig, httpClient *http.Client, fallback outbox.TxHandler) outbox.TxHandler {
+	return func(ctx context.Context, tx database.Tx, ev outbox.OutboxEvent) error {
 		switch ev.Type {
 		case EventTypeEmail:
 			return handleEmailEvent(ctx, smtpCfg, ev)
@@ -78,7 +77,8 @@ func handleEmailEvent(ctx context.Context, cfg SMTPConfig, ev outbox.OutboxEvent
 	}
 	subject, _ := ev.Payload["subject"].(string)
 	body, _ := ev.Payload["body"].(string)
-	return SendEmail(ctx, cfg, EmailMessage{To: to, Subject: subject, Body: body})
+	htmlBody, _ := ev.Payload["html_body"].(string)
+	return SendEmail(ctx, cfg, EmailMessage{To: to, Subject: subject, Body: body, HTMLBody: htmlBody})
 }
 
 func handleWebhookEvent(ctx context.Context, client *http.Client, ev outbox.OutboxEvent) error {
