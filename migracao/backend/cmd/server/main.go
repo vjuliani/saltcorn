@@ -163,6 +163,11 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	// GO-053: manifesto PWA — deliberadamente PÚBLICO (sem
+	// tenancy.Middleware/verificação de identidade), mesmo espírito de
+	// healthz/readyz: um manifesto é buscado pelo navegador antes de
+	// qualquer login existir. Ver comentário de cmd/server/pwa.go.
+	mux.Handle("GET /v1/tenants/{tenant}/manifest", manifestHandler(tracker, db))
 	mux.HandleFunc("/healthz", checker.LivenessHandler())
 	mux.HandleFunc("/readyz", checker.ReadinessHandler())
 	mux.Handle("/metrics", registry.Handler())
@@ -445,6 +450,14 @@ func main() {
 		mux.Handle("POST /v1/tenants/{tenant}/events/{eventname}",
 			tenancy.Middleware(verifier, telemetry.Middleware(eventsRoute, httpMetrics,
 				cutover.RequireOwnership(guard, eventsCapability, emitEventHandler(tracker, db, dispatcher)))))
+
+		// GO-053: Web Share Target — mesma capacidade/rota de evento
+		// nomeado (events), já que o mecanismo de despacho é IDÊNTICO
+		// (Dispatcher.EmitEvent); só a fronteira HTTP e o corpo da
+		// requisição mudam (ver cmd/server/pwa.go).
+		mux.Handle("POST /v1/tenants/{tenant}/share-handler",
+			tenancy.Middleware(verifier, telemetry.Middleware(eventsRoute, httpMetrics,
+				cutover.RequireOwnership(guard, eventsCapability, shareHandlerHandler(tracker, db, dispatcher)))))
 
 		// GO-044: administração de usuários — a superfície de
 		// auth/admin.ts do legado (ver docs/migracao-go/execucoes/GO-044.md

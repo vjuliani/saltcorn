@@ -42,3 +42,29 @@ test("self-hosted: ticket exige origem, tenant, audience, prazo e admin atuais; 
     assert.equal((await fetch(origin+"/readyz")).status,503);
   } finally {server.closeAllConnections();server.close();go.closeAllConnections();go.close();await rm(root,{recursive:true,force:true});}
 });
+
+// GO-053: /manifest.json é servido no modo self-hosted usando o tenant
+// FIXO da instalação (options.tenant) — nunca uma sessão, nunca
+// identidade delegada (o Go real também não exige nenhuma para esta
+// rota, ver cmd/server/pwa.go).
+test("self-hosted: GET /manifest.json relaia o manifesto do tenant fixo, sem exigir sessão", async () => {
+  const root=await mkdtemp(path.join(tmpdir(),"go053-bff-"));
+  const manifest={name:"Guitars Shop",start_url:"/",display:"browser"};
+  const go=createServer((req,res)=>{
+    res.setHeader("Content-Type","application/json");
+    if (req.url==="/v1/tenants/app/manifest") { res.end(JSON.stringify(manifest)); return; }
+    res.end(JSON.stringify({status:"ready"}));
+  });
+  await new Promise<void>(r=>go.listen(0,"127.0.0.1",r));
+  const goPort=(go.address() as {port:number}).port;
+  const config=loadConfig({SALTCORN_BFF_SERVICE_IDENTITY_SECRET:secret,SALTCORN_BFF_GO_INTERNAL_API_URL:`http://127.0.0.1:${goPort}`});
+  const deps={config,sessionStore:new InMemorySessionStore(),goClient:new GoClient({baseUrl:config.goInternalApiUrl,timeoutMs:1000})};
+  const handler=selfHostedListener(deps,createRequestListener(buildRouter(deps),deps),{root,tenant:"app",installationId:"instance"});
+  const server=createServer((req,res)=>void handler(req,res));await new Promise<void>(r=>server.listen(0,"127.0.0.1",r));
+  const origin=`http://127.0.0.1:${(server.address() as {port:number}).port}`;
+  try {
+    const res=await fetch(origin+"/manifest.json");
+    assert.equal(res.status,200);
+    assert.deepEqual(await res.json(),manifest);
+  } finally {server.closeAllConnections();server.close();go.closeAllConnections();go.close();await rm(root,{recursive:true,force:true});}
+});

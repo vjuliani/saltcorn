@@ -263,6 +263,37 @@ type Mutation struct {
 // MutationKind defines model for Mutation.Kind.
 type MutationKind string
 
+// PWAManifest defines model for PWAManifest.
+type PWAManifest struct {
+	BackgroundColor *string            `json:"background_color,omitempty"`
+	Display         string             `json:"display"`
+	Icons           *[]PWAManifestIcon `json:"icons,omitempty"`
+	Name            string             `json:"name"`
+	ShareTarget     *PWAShareTarget    `json:"share_target,omitempty"`
+	StartUrl        string             `json:"start_url"`
+	ThemeColor      *string            `json:"theme_color,omitempty"`
+}
+
+// PWAManifestIcon defines model for PWAManifestIcon.
+type PWAManifestIcon struct {
+	Purpose *string `json:"purpose,omitempty"`
+	Sizes   string  `json:"sizes"`
+	Src     string  `json:"src"`
+	Type    *string `json:"type,omitempty"`
+}
+
+// PWAShareTarget defines model for PWAShareTarget.
+type PWAShareTarget struct {
+	Action  string `json:"action"`
+	Enctype string `json:"enctype"`
+	Method  string `json:"method"`
+	Params  struct {
+		Text  string `json:"text"`
+		Title string `json:"title"`
+		Url   string `json:"url"`
+	} `json:"params"`
+}
+
 // Page defines model for Page.
 type Page struct {
 	Items []interface{} `json:"items"`
@@ -331,6 +362,13 @@ type Scope struct {
 	Actor  string `json:"actor"`
 	Table  string `json:"table"`
 	Tenant string `json:"tenant"`
+}
+
+// ShareHandlerInput defines model for ShareHandlerInput.
+type ShareHandlerInput struct {
+	Text  *string `json:"text,omitempty"`
+	Title *string `json:"title,omitempty"`
+	Url   *string `json:"url,omitempty"`
 }
 
 // Tenant Identificador de tenant. O BFF resolve o tenant por mapeamento confiável (host/subdomínio) e o inclui explicitamente na URL das chamadas ao backend Go — nunca é aceito de um header arbitrário do cliente final. Isso não basta sozinho: o backend Go valida independentemente que o claim `tenant` da identidade delegada (ver ServiceIdentity em internal-api.yaml) bate com este valor da URL, rejeitando com 403 (tenant_mismatch) quando não bater — defesa em profundidade, não confiança cega na URL.
@@ -689,6 +727,9 @@ type EmitEventJSONRequestBody EmitEventJSONBody
 // UploadFileMultipartRequestBody defines body for UploadFile for multipart/form-data ContentType.
 type UploadFileMultipartRequestBody UploadFileMultipartBody
 
+// ShareHandlerFormdataRequestBody defines body for ShareHandler for application/x-www-form-urlencoded ContentType.
+type ShareHandlerFormdataRequestBody = ShareHandlerInput
+
 // ExchangeOperatorTicketJSONRequestBody defines body for ExchangeOperatorTicket for application/json ContentType.
 type ExchangeOperatorTicketJSONRequestBody ExchangeOperatorTicketJSONBody
 
@@ -1046,6 +1087,24 @@ type ClientInterface interface {
 	// Corresponds with GET /api/bff/files/{id} (the `DownloadFile` operationId).
 	DownloadFile(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ShareHandlerWithBody Recebe conteúdo compartilhado via Web Share Target (GO-053)
+	//
+	// O BFF calcula a Idempotency-Key (mesmo padrão de emitEvent) — nunca exigida do chamador, porque o POST nativo do Web Share Target do navegador não permite anexar cabeçalhos customizados. DELIBERADAMENTE sem CsrfToken pelo mesmo motivo (o navegador controla este POST via a API Web Share Target, não uma página desta aplicação com acesso ao cookie CSRF).
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/bff/notifications/share-handler (the `ShareHandler` operationId).
+	ShareHandlerWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ShareHandlerWithFormdataBody Recebe conteúdo compartilhado via Web Share Target (GO-053)
+	//
+	// O BFF calcula a Idempotency-Key (mesmo padrão de emitEvent) — nunca exigida do chamador, porque o POST nativo do Web Share Target do navegador não permite anexar cabeçalhos customizados. DELIBERADAMENTE sem CsrfToken pelo mesmo motivo (o navegador controla este POST via a API Web Share Target, não uma página desta aplicação com acesso ao cookie CSRF).
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type.
+	//
+	// Corresponds with POST /api/bff/notifications/share-handler (the `ShareHandler` operationId).
+	ShareHandlerWithFormdataBody(ctx context.Context, body ShareHandlerFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ExchangeOperatorTicketWithBody Abre sessão administrativa com ticket emitido pela CLI local
 	//
 	// Opcional, habilitado somente no pacote self-hosted. Ticket HS256 com audience saltcorn-cli-login, issuer da instalação e prazo máximo de 60 segundos; uso único por processo. Revalida administrador no Go. Exige Content-Type JSON e Origin com o mesmo host da requisição. Não substitui autenticação de usuários finais nem aceita ServiceIdentity.
@@ -1306,6 +1365,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with PATCH /api/bff/workflows/{id}/steps/{stepId} (the `UpdateWorkflowStep` operationId).
 	UpdateWorkflowStep(ctx context.Context, id Id, stepId Id, body UpdateWorkflowStepJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetManifest Manifesto PWA dinâmico do tenant self-hosted (GO-053)
+	//
+	// Servido só em modo self-hosted (`selfHostedListener`, tenant fixo da instalação) — não existe, na topologia atual do BFF, um mecanismo de resolução de tenant a partir de uma requisição verdadeiramente anônima fora desse modo (toda rota autenticada resolve tenant a partir da SESSÃO, nunca do host/subdomínio), então servir isto no modo hospedado/multi-tenant genérico fica fora de escopo desta task — ver docs/migracao-go/execucoes/GO-053.md. Deliberadamente SEM segurança: um manifesto PWA é buscado pelo navegador antes de qualquer login existir.
+	//
+	// Corresponds with GET /manifest.json (the `GetManifest` operationId).
+	GetManifest(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // SetActorLanguageWithBody Define a preferência de idioma do ator autenticado (GO-047)
@@ -1419,6 +1485,44 @@ func (c *Client) UploadFileWithBody(ctx context.Context, contentType string, bod
 // Corresponds with GET /api/bff/files/{id} (the `DownloadFile` operationId).
 func (c *Client) DownloadFile(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDownloadFileRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ShareHandlerWithBody Recebe conteúdo compartilhado via Web Share Target (GO-053)
+//
+// O BFF calcula a Idempotency-Key (mesmo padrão de emitEvent) — nunca exigida do chamador, porque o POST nativo do Web Share Target do navegador não permite anexar cabeçalhos customizados. DELIBERADAMENTE sem CsrfToken pelo mesmo motivo (o navegador controla este POST via a API Web Share Target, não uma página desta aplicação com acesso ao cookie CSRF).
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/bff/notifications/share-handler (the `ShareHandler` operationId).
+func (c *Client) ShareHandlerWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewShareHandlerRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ShareHandlerWithFormdataBody Recebe conteúdo compartilhado via Web Share Target (GO-053)
+//
+// O BFF calcula a Idempotency-Key (mesmo padrão de emitEvent) — nunca exigida do chamador, porque o POST nativo do Web Share Target do navegador não permite anexar cabeçalhos customizados. DELIBERADAMENTE sem CsrfToken pelo mesmo motivo (o navegador controla este POST via a API Web Share Target, não uma página desta aplicação com acesso ao cookie CSRF).
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type.
+//
+// Corresponds with POST /api/bff/notifications/share-handler (the `ShareHandler` operationId).
+func (c *Client) ShareHandlerWithFormdataBody(ctx context.Context, body ShareHandlerFormdataRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewShareHandlerRequestWithFormdataBody(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2040,6 +2144,23 @@ func (c *Client) UpdateWorkflowStep(ctx context.Context, id Id, stepId Id, body 
 	return c.Client.Do(req)
 }
 
+// GetManifest Manifesto PWA dinâmico do tenant self-hosted (GO-053)
+//
+// Servido só em modo self-hosted (`selfHostedListener`, tenant fixo da instalação) — não existe, na topologia atual do BFF, um mecanismo de resolução de tenant a partir de uma requisição verdadeiramente anônima fora desse modo (toda rota autenticada resolve tenant a partir da SESSÃO, nunca do host/subdomínio), então servir isto no modo hospedado/multi-tenant genérico fica fora de escopo desta task — ver docs/migracao-go/execucoes/GO-053.md. Deliberadamente SEM segurança: um manifesto PWA é buscado pelo navegador antes de qualquer login existir.
+//
+// Corresponds with GET /manifest.json (the `GetManifest` operationId).
+func (c *Client) GetManifest(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetManifestRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // NewSetActorLanguageRequest calls the generic SetActorLanguage builder with application/json body
 func NewSetActorLanguageRequest(server string, body SetActorLanguageJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2213,6 +2334,46 @@ func NewDownloadFileRequest(server string, id Id) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewShareHandlerRequestWithFormdataBody calls the generic ShareHandler builder with application/x-www-form-urlencoded body
+func NewShareHandlerRequestWithFormdataBody(server string, body ShareHandlerFormdataRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	bodyStr, err := runtime.MarshalForm(body, nil)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = strings.NewReader(bodyStr.Encode())
+	return NewShareHandlerRequestWithBody(server, "application/x-www-form-urlencoded", bodyReader)
+}
+
+// NewShareHandlerRequestWithBody constructs an http.Request for the ShareHandler method, with any body, and a specified content type
+func NewShareHandlerRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/bff/notifications/share-handler")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -3266,6 +3427,33 @@ func NewUpdateWorkflowStepRequestWithBody(server string, id Id, stepId Id, conte
 	return req, nil
 }
 
+// NewGetManifestRequest constructs an http.Request for the GetManifest method
+func NewGetManifestRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/manifest.json")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -3364,6 +3552,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /api/bff/files/{id} (the `DownloadFile` operationId).
 	DownloadFileWithResponse(ctx context.Context, id Id, reqEditors ...RequestEditorFn) (*DownloadFileResponse, error)
+
+	// ShareHandlerWithBodyWithResponse Recebe conteúdo compartilhado via Web Share Target (GO-053)
+	//
+	// O BFF calcula a Idempotency-Key (mesmo padrão de emitEvent) — nunca exigida do chamador, porque o POST nativo do Web Share Target do navegador não permite anexar cabeçalhos customizados. DELIBERADAMENTE sem CsrfToken pelo mesmo motivo (o navegador controla este POST via a API Web Share Target, não uma página desta aplicação com acesso ao cookie CSRF).
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/notifications/share-handler (the `ShareHandler` operationId).
+	ShareHandlerWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ShareHandlerResponse, error)
+
+	// ShareHandlerWithFormdataBodyWithResponse Recebe conteúdo compartilhado via Web Share Target (GO-053)
+	//
+	// O BFF calcula a Idempotency-Key (mesmo padrão de emitEvent) — nunca exigida do chamador, porque o POST nativo do Web Share Target do navegador não permite anexar cabeçalhos customizados. DELIBERADAMENTE sem CsrfToken pelo mesmo motivo (o navegador controla este POST via a API Web Share Target, não uma página desta aplicação com acesso ao cookie CSRF).
+	//
+	// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/bff/notifications/share-handler (the `ShareHandler` operationId).
+	ShareHandlerWithFormdataBodyWithResponse(ctx context.Context, body ShareHandlerFormdataRequestBody, reqEditors ...RequestEditorFn) (*ShareHandlerResponse, error)
 
 	// ExchangeOperatorTicketWithBodyWithResponse Abre sessão administrativa com ticket emitido pela CLI local
 	//
@@ -3643,6 +3849,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PATCH /api/bff/workflows/{id}/steps/{stepId} (the `UpdateWorkflowStep` operationId).
 	UpdateWorkflowStepWithResponse(ctx context.Context, id Id, stepId Id, body UpdateWorkflowStepJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateWorkflowStepResponse, error)
+
+	// GetManifestWithResponse Manifesto PWA dinâmico do tenant self-hosted (GO-053)
+	//
+	// Servido só em modo self-hosted (`selfHostedListener`, tenant fixo da instalação) — não existe, na topologia atual do BFF, um mecanismo de resolução de tenant a partir de uma requisição verdadeiramente anônima fora desse modo (toda rota autenticada resolve tenant a partir da SESSÃO, nunca do host/subdomínio), então servir isto no modo hospedado/multi-tenant genérico fica fora de escopo desta task — ver docs/migracao-go/execucoes/GO-053.md. Deliberadamente SEM segurança: um manifesto PWA é buscado pelo navegador antes de qualquer login existir.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /manifest.json (the `GetManifest` operationId).
+	GetManifestWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetManifestResponse, error)
 }
 
 type SetActorLanguageResponse struct {
@@ -3944,6 +4159,68 @@ func (r DownloadFileResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r DownloadFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ShareHandlerResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EmitEventResult
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *SessionRequired
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ShareHandlerResponse) GetJSON200() *EmitEventResult {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ShareHandlerResponse) GetJSON401() *SessionRequired {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ShareHandlerResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r ShareHandlerResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r ShareHandlerResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ShareHandlerResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ShareHandlerResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ShareHandlerResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5444,6 +5721,54 @@ func (r UpdateWorkflowStepResponse) ContentType() string {
 	return ""
 }
 
+type GetManifestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *PWAManifest
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *DomainUnavailable
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetManifestResponse) GetJSON200() *PWAManifest {
+	return r.JSON200
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r GetManifestResponse) GetJSON502() *DomainUnavailable {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r GetManifestResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetManifestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetManifestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetManifestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // SetActorLanguageWithBodyWithResponse Define a preferência de idioma do ator autenticado (GO-047)
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -5539,6 +5864,36 @@ func (c *ClientWithResponses) DownloadFileWithResponse(ctx context.Context, id I
 		return nil, err
 	}
 	return ParseDownloadFileResponse(rsp)
+}
+
+// ShareHandlerWithBodyWithResponse Recebe conteúdo compartilhado via Web Share Target (GO-053)
+//
+// O BFF calcula a Idempotency-Key (mesmo padrão de emitEvent) — nunca exigida do chamador, porque o POST nativo do Web Share Target do navegador não permite anexar cabeçalhos customizados. DELIBERADAMENTE sem CsrfToken pelo mesmo motivo (o navegador controla este POST via a API Web Share Target, não uma página desta aplicação com acesso ao cookie CSRF).
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/notifications/share-handler (the `ShareHandler` operationId).
+func (c *ClientWithResponses) ShareHandlerWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ShareHandlerResponse, error) {
+	rsp, err := c.ShareHandlerWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseShareHandlerResponse(rsp)
+}
+
+// ShareHandlerWithFormdataBodyWithResponse Recebe conteúdo compartilhado via Web Share Target (GO-053)
+//
+// O BFF calcula a Idempotency-Key (mesmo padrão de emitEvent) — nunca exigida do chamador, porque o POST nativo do Web Share Target do navegador não permite anexar cabeçalhos customizados. DELIBERADAMENTE sem CsrfToken pelo mesmo motivo (o navegador controla este POST via a API Web Share Target, não uma página desta aplicação com acesso ao cookie CSRF).
+//
+// Takes a body of the `application/x-www-form-urlencoded` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/bff/notifications/share-handler (the `ShareHandler` operationId).
+func (c *ClientWithResponses) ShareHandlerWithFormdataBodyWithResponse(ctx context.Context, body ShareHandlerFormdataRequestBody, reqEditors ...RequestEditorFn) (*ShareHandlerResponse, error) {
+	rsp, err := c.ShareHandlerWithFormdataBody(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseShareHandlerResponse(rsp)
 }
 
 // ExchangeOperatorTicketWithBodyWithResponse Abre sessão administrativa com ticket emitido pela CLI local
@@ -6030,6 +6385,21 @@ func (c *ClientWithResponses) UpdateWorkflowStepWithResponse(ctx context.Context
 	return ParseUpdateWorkflowStepResponse(rsp)
 }
 
+// GetManifestWithResponse Manifesto PWA dinâmico do tenant self-hosted (GO-053)
+//
+// Servido só em modo self-hosted (`selfHostedListener`, tenant fixo da instalação) — não existe, na topologia atual do BFF, um mecanismo de resolução de tenant a partir de uma requisição verdadeiramente anônima fora desse modo (toda rota autenticada resolve tenant a partir da SESSÃO, nunca do host/subdomínio), então servir isto no modo hospedado/multi-tenant genérico fica fora de escopo desta task — ver docs/migracao-go/execucoes/GO-053.md. Deliberadamente SEM segurança: um manifesto PWA é buscado pelo navegador antes de qualquer login existir.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /manifest.json (the `GetManifest` operationId).
+func (c *ClientWithResponses) GetManifestWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetManifestResponse, error) {
+	rsp, err := c.GetManifest(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetManifestResponse(rsp)
+}
+
 // ParseSetActorLanguageResponse parses an HTTP response from a SetActorLanguageWithResponse call
 func ParseSetActorLanguageResponse(rsp *http.Response) (*SetActorLanguageResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6226,6 +6596,53 @@ func ParseDownloadFileResponse(rsp *http.Response) (*DownloadFileResponse, error
 	}
 
 	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest SessionRequired
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseShareHandlerResponse parses an HTTP response from a ShareHandlerWithResponse call
+func ParseShareHandlerResponse(rsp *http.Response) (*ShareHandlerResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ShareHandlerResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EmitEventResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest SessionRequired
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -7419,6 +7836,39 @@ func ParseUpdateWorkflowStepResponse(rsp *http.Response) (*UpdateWorkflowStepRes
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest DomainUnavailable
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetManifestResponse parses an HTTP response from a GetManifestWithResponse call
+func ParseGetManifestResponse(rsp *http.Response) (*GetManifestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetManifestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PWAManifest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
 		var dest DomainUnavailable

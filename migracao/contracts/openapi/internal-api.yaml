@@ -1998,6 +1998,104 @@ paths:
         "409":
           $ref: "./common.yaml#/components/responses/IdempotencyConflict"
 
+  /v1/tenants/{tenant}/manifest:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+    get:
+      operationId: getManifest
+      summary: "Query: manifesto PWA dinâmico do tenant"
+      description: >
+        GO-053 — o mecanismo Go por trás de `GET /manifest.json` do legado
+        (routes/notifications.ts). Deliberadamente SEM identidade
+        delegada (nenhuma segurança `ServiceIdentity` nesta operação) —
+        um manifesto PWA é, por definição do próprio padrão web, buscado
+        pelo navegador antes de qualquer login existir; nenhuma
+        informação sensível é exposta (nome do site, ícones, cores).
+        `share_target` só aparece quando existe ao menos um trigger com
+        `when_trigger = "ReceiveMobileShareData"` (ver `emitEvent`) —
+        aponta para o endpoint de share-handler do BFF, nunca para este
+        backend diretamente.
+      security: []
+      responses:
+        "200":
+          description: manifesto PWA válido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PWAManifest"
+        "502":
+          description: banco não configurado ou indisponível nesta instância
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+
+  /v1/tenants/{tenant}/share-handler:
+    parameters:
+      - name: tenant
+        in: path
+        required: true
+        schema:
+          $ref: "./common.yaml#/components/schemas/Tenant"
+    post:
+      operationId: shareHandler
+      summary: "Command: recebe conteúdo compartilhado via Web Share Target, disparando ReceiveMobileShareData"
+      description: >
+        GO-053 — o mecanismo Go por trás de `POST /notifications/share-
+        handler` do legado. Reaproveita DIRETAMENTE o mesmo mecanismo de
+        `emitEvent` (mesma capacidade de ownership, mesmo
+        `Dispatcher.EmitEvent`) — só a fronteira HTTP muda: o nome do
+        evento ("ReceiveMobileShareData") é fixo, nunca um parâmetro do
+        chamador, e exige um ator autenticado (não-público), replicando a
+        checagem do legado antes de emitir. 404 se nenhum trigger
+        `ReceiveMobileShareData` estiver registrado ("compartilhamento
+        não habilitado"), mesma mensagem do legado.
+      parameters:
+        - $ref: "./common.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShareHandlerInput"
+      responses:
+        "200":
+          description: conteúdo compartilhado despachado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmitEventResult"
+        "400":
+          description: corpo inválido, ou Idempotency-Key ausente
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "401":
+          description: ator público (não autenticado) tentou compartilhar
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "404":
+          description: nenhum trigger ReceiveMobileShareData registrado neste tenant
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "409":
+          $ref: "./common.yaml#/components/responses/IdempotencyConflict"
+        "502":
+          description: banco não configurado ou indisponível nesta instância
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+
 components:
   securitySchemes:
     ServiceIdentity:
@@ -2332,6 +2430,77 @@ components:
         fired:
           type: integer
           description: Quantos triggers corresponderam a eventname e dispararam (0 nunca é erro — só significa que nenhum trigger está registrado para este nome ainda).
+
+    ShareHandlerInput:
+      type: object
+      properties:
+        title:
+          type: string
+        text:
+          type: string
+        url:
+          type: string
+      description: >
+        Campos do Web Share Target (título/texto/URL compartilhados) —
+        `enctype=application/x-www-form-urlencoded`, válido pela própria
+        especificação para compartilhamento só de texto. Compartilhamento
+        de ARQUIVO (multipart) fica deliberadamente fora de escopo de
+        GO-053 — ver docs/migracao-go/execucoes/GO-053.md.
+
+    PWAManifestIcon:
+      type: object
+      required: [src, sizes]
+      properties:
+        src:
+          type: string
+        sizes:
+          type: string
+        type:
+          type: string
+        purpose:
+          type: string
+
+    PWAShareTarget:
+      type: object
+      required: [action, method, enctype, params]
+      properties:
+        action:
+          type: string
+        method:
+          type: string
+        enctype:
+          type: string
+        params:
+          type: object
+          required: [title, text, url]
+          properties:
+            title:
+              type: string
+            text:
+              type: string
+            url:
+              type: string
+
+    PWAManifest:
+      type: object
+      required: [name, start_url, display]
+      properties:
+        name:
+          type: string
+        start_url:
+          type: string
+        display:
+          type: string
+        icons:
+          type: array
+          items:
+            $ref: "#/components/schemas/PWAManifestIcon"
+        theme_color:
+          type: string
+        background_color:
+          type: string
+        share_target:
+          $ref: "#/components/schemas/PWAShareTarget"
 
     WorkflowRun:
       type: object

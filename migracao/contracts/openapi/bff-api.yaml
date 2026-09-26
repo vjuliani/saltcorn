@@ -1099,6 +1099,69 @@ paths:
         "502":
           $ref: "#/components/responses/DomainUnavailable"
 
+  /manifest.json:
+    get:
+      operationId: getManifest
+      summary: Manifesto PWA dinâmico do tenant self-hosted (GO-053)
+      description: >
+        Servido só em modo self-hosted (`selfHostedListener`, tenant fixo
+        da instalação) — não existe, na topologia atual do BFF, um
+        mecanismo de resolução de tenant a partir de uma requisição
+        verdadeiramente anônima fora desse modo (toda rota autenticada
+        resolve tenant a partir da SESSÃO, nunca do host/subdomínio),
+        então servir isto no modo hospedado/multi-tenant genérico fica
+        fora de escopo desta task — ver
+        docs/migracao-go/execucoes/GO-053.md. Deliberadamente SEM
+        segurança: um manifesto PWA é buscado pelo navegador antes de
+        qualquer login existir.
+      security: []
+      responses:
+        "200":
+          description: manifesto PWA válido
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PWAManifest"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
+  /api/bff/notifications/share-handler:
+    post:
+      operationId: shareHandler
+      summary: Recebe conteúdo compartilhado via Web Share Target (GO-053)
+      description: >
+        O BFF calcula a Idempotency-Key (mesmo padrão de emitEvent) —
+        nunca exigida do chamador, porque o POST nativo do Web Share
+        Target do navegador não permite anexar cabeçalhos customizados.
+        DELIBERADAMENTE sem CsrfToken pelo mesmo motivo (o navegador
+        controla este POST via a API Web Share Target, não uma página
+        desta aplicação com acesso ao cookie CSRF).
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: false
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/ShareHandlerInput"
+      responses:
+        "200":
+          description: conteúdo compartilhado despachado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmitEventResult"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          description: nenhum trigger ReceiveMobileShareData registrado neste tenant
+          content:
+            application/json:
+              schema:
+                $ref: "./common.yaml#/components/schemas/Error"
+        "502":
+          $ref: "#/components/responses/DomainUnavailable"
+
   /api/bff/files/{id}:
     parameters:
       - name: id
@@ -1361,6 +1424,71 @@ components:
       properties:
         fired:
           type: integer
+
+    ShareHandlerInput:
+      type: object
+      properties:
+        title:
+          type: string
+        text:
+          type: string
+        url:
+          type: string
+
+    PWAManifestIcon:
+      type: object
+      required: [src, sizes]
+      properties:
+        src:
+          type: string
+        sizes:
+          type: string
+        type:
+          type: string
+        purpose:
+          type: string
+
+    PWAShareTarget:
+      type: object
+      required: [action, method, enctype, params]
+      properties:
+        action:
+          type: string
+        method:
+          type: string
+        enctype:
+          type: string
+        params:
+          type: object
+          required: [title, text, url]
+          properties:
+            title:
+              type: string
+            text:
+              type: string
+            url:
+              type: string
+
+    PWAManifest:
+      type: object
+      required: [name, start_url, display]
+      properties:
+        name:
+          type: string
+        start_url:
+          type: string
+        display:
+          type: string
+        icons:
+          type: array
+          items:
+            $ref: "#/components/schemas/PWAManifestIcon"
+        theme_color:
+          type: string
+        background_color:
+          type: string
+        share_target:
+          $ref: "#/components/schemas/PWAShareTarget"
 
     ViewRenderColumn:
       type: object

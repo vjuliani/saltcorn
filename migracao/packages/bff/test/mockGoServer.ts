@@ -105,6 +105,12 @@ export class MockGoServer {
   // própria em internal/triggers).
   private readonly eventKeys = new Map<string, IdempotentEntry>();
 
+  // GO-053: réplica mínima de manifestHandler/shareHandlerHandler —
+  // shareHandlerEnabled simula "existe um trigger ReceiveMobileShareData
+  // registrado" (mesma checagem que Go faz antes de despachar).
+  shareHandlerEnabled = true;
+  private readonly shareHandlerKeys = new Map<string, IdempotentEntry>();
+
   constructor(private readonly opts: MockGoServerOptions) {
     this.server = createServer((req, res) => {
       void this.handle(req, res);
@@ -739,6 +745,46 @@ export class MockGoServer {
       }
       const resultBody = { fired: 1 };
       this.eventKeys.set(idempotencyKey, { payloadHash, body: resultBody });
+      sendJSON(res, 200, resultBody);
+      return;
+    }
+
+    // GO-053: manifesto PWA — sempre público (o mock nunca checa
+    // identidade aqui, mesma regra do Go real).
+    if (req.method === "GET" && url.pathname.endsWith("/manifest")) {
+      const manifest: Record<string, unknown> = { name: "Guitars Shop", start_url: "/", display: "browser" };
+      if (this.shareHandlerEnabled) {
+        manifest.share_target = { action: "/api/bff/notifications/share-handler", method: "POST", enctype: "application/x-www-form-urlencoded", params: { title: "title", text: "text", url: "url" } };
+      }
+      sendJSON(res, 200, manifest);
+      return;
+    }
+
+    // GO-053: share-handler — mesmo mecanismo de idempotência do evento
+    // nomeado, réplica mínima.
+    if (req.method === "POST" && url.pathname.endsWith("/share-handler")) {
+      if (!this.shareHandlerEnabled) {
+        sendJSON(res, 404, { error: { code: "sharing_not_enabled", message: "compartilhamento não habilitado neste tenant" } });
+        return;
+      }
+      const idempotencyKey = req.headers["idempotency-key"];
+      if (!idempotencyKey || Array.isArray(idempotencyKey)) {
+        sendJSON(res, 400, { error: { code: "idempotency_key_required", message: "cabeçalho Idempotency-Key é obrigatório" } });
+        return;
+      }
+      const body = (await readBody(req)) as Record<string, unknown>;
+      const payloadHash = hashPayload(body);
+      const existing = this.shareHandlerKeys.get(idempotencyKey);
+      if (existing) {
+        if (existing.payloadHash !== payloadHash) {
+          sendJSON(res, 409, { error: { code: "idempotency_key_conflict", message: "Idempotency-Key já foi usada com um payload diferente" } });
+          return;
+        }
+        sendJSON(res, 200, existing.body);
+        return;
+      }
+      const resultBody = { fired: 1 };
+      this.shareHandlerKeys.set(idempotencyKey, { payloadHash, body: resultBody });
       sendJSON(res, 200, resultBody);
       return;
     }

@@ -393,6 +393,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/manifest.json": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Manifesto PWA dinâmico do tenant self-hosted (GO-053)
+         * @description Servido só em modo self-hosted (`selfHostedListener`, tenant fixo da instalação) — não existe, na topologia atual do BFF, um mecanismo de resolução de tenant a partir de uma requisição verdadeiramente anônima fora desse modo (toda rota autenticada resolve tenant a partir da SESSÃO, nunca do host/subdomínio), então servir isto no modo hospedado/multi-tenant genérico fica fora de escopo desta task — ver docs/migracao-go/execucoes/GO-053.md. Deliberadamente SEM segurança: um manifesto PWA é buscado pelo navegador antes de qualquer login existir.
+         */
+        get: operations["getManifest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/bff/notifications/share-handler": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Recebe conteúdo compartilhado via Web Share Target (GO-053)
+         * @description O BFF calcula a Idempotency-Key (mesmo padrão de emitEvent) — nunca exigida do chamador, porque o POST nativo do Web Share Target do navegador não permite anexar cabeçalhos customizados. DELIBERADAMENTE sem CsrfToken pelo mesmo motivo (o navegador controla este POST via a API Web Share Target, não uma página desta aplicação com acesso ao cookie CSRF).
+         */
+        post: operations["shareHandler"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/bff/files/{id}": {
         parameters: {
             query?: never;
@@ -501,6 +541,36 @@ export interface components {
         };
         EmitEventResult: {
             fired: number;
+        };
+        ShareHandlerInput: {
+            title?: string;
+            text?: string;
+            url?: string;
+        };
+        PWAManifestIcon: {
+            src: string;
+            sizes: string;
+            type?: string;
+            purpose?: string;
+        };
+        PWAShareTarget: {
+            action: string;
+            method: string;
+            enctype: string;
+            params: {
+                title: string;
+                text: string;
+                url: string;
+            };
+        };
+        PWAManifest: {
+            name: string;
+            start_url: string;
+            display: string;
+            icons?: components["schemas"]["PWAManifestIcon"][];
+            theme_color?: string;
+            background_color?: string;
+            share_target?: components["schemas"]["PWAShareTarget"];
         };
         /** @description Três variantes discriminadas por `kind`: "field" (campo direto), "join_field" (campo trazido por join — `field_name` é a chave composta "<campo_local>__<campo_remoto>", a MESMA chave usada em `rows`), "action" (ação de coluna — só `action_name`, sem `field_name`). */
         ViewRenderColumn: {
@@ -1809,6 +1879,62 @@ export interface operations {
             401: components["responses"]["SessionRequired"];
             /** @description CSRF inválido, ou este ator não tem permissão para emitir este nome de evento */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    getManifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description manifesto PWA válido */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PWAManifest"];
+                };
+            };
+            502: components["responses"]["DomainUnavailable"];
+        };
+    };
+    shareHandler: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/x-www-form-urlencoded": components["schemas"]["ShareHandlerInput"];
+            };
+        };
+        responses: {
+            /** @description conteúdo compartilhado despachado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmitEventResult"];
+                };
+            };
+            401: components["responses"]["SessionRequired"];
+            /** @description nenhum trigger ReceiveMobileShareData registrado neste tenant */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

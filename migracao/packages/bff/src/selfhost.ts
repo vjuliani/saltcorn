@@ -25,6 +25,14 @@ export function selfHostedListener(deps: AppDeps, fallback: (req: IncomingMessag
         const response = await fetch(`${deps.config.goInternalApiUrl}/readyz`, { signal: AbortSignal.timeout(2000) });
         sendJSON(res, response.ok ? 200 : 503, { status: response.ok ? "ready" : "unavailable" }); return;
       }
+      if (pathname === "/manifest.json" && req.method === "GET") {
+        // GO-053 — só existe um tenant conhecido SEM sessão no modo
+        // self-hosted (options.tenant, fixo da instalação); fora desse
+        // modo não há resolução de tenant anônima nesta topologia (ver
+        // nota de escopo em bff-api.yaml).
+        const manifest = await deps.goClient.getManifest(options.tenant);
+        sendJSON(res, 200, manifest); return;
+      }
       if (pathname === "/api/bff/operator-session" && req.method === "POST") {
         // JSON-only + Origin check prevents login CSRF. Browser tickets live in
         // fragments, never query strings, Referer headers or access logs.

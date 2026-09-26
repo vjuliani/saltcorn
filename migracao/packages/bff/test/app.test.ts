@@ -978,3 +978,87 @@ test("POST /api/bff/events/:eventname duas vezes com o mesmo corpo não dispara 
     await mockGo.close();
   }
 });
+
+// GO-053: Web Share Target — share-handler recebe um POST nativo
+// `application/x-www-form-urlencoded` do navegador, SEM cabeçalho CSRF
+// (nenhuma página desta aplicação controla essa requisição) — a fronteira
+// que este teste prova é exatamente essa: sessão exigida, CSRF NUNCA
+// exigido, Idempotency-Key sempre calculada aqui.
+test("POST /api/bff/notifications/share-handler despacha o conteúdo compartilhado sem exigir CSRF", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "42", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/notifications/share-handler`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ title: "olhem isso", url: "https://example.com" }).toString(),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { fired: number };
+    assert.equal(body.fired, 1);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/notifications/share-handler sem sessão retorna 401", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, baseUrl } = await startBff(goUrl);
+  try {
+    const res = await fetch(`${baseUrl}/api/bff/notifications/share-handler`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ title: "sem sessao" }).toString(),
+    });
+    assert.equal(res.status, 401);
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/notifications/share-handler propaga o 404 do Go quando não há trigger registrado", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  mockGo.shareHandlerEnabled = false;
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "42", "acme");
+    const res = await fetch(`${baseUrl}/api/bff/notifications/share-handler`, {
+      method: "POST",
+      headers: { Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ title: "sem trigger" }).toString(),
+    });
+    assert.equal(res.status, 404);
+    const body = (await res.json()) as { error: { code: string } };
+    assert.equal(body.error.code, "sharing_not_enabled");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});
+
+test("POST /api/bff/notifications/share-handler duas vezes com o mesmo corpo não dispara duas vezes (idempotência do BFF)", async () => {
+  const mockGo = new MockGoServer({ secret: SECRET });
+  const goUrl = await mockGo.listen();
+  const { server, sessionStore, baseUrl } = await startBff(goUrl);
+  try {
+    const { cookie } = await withSession(sessionStore, "42", "acme");
+    const headers = { Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" };
+    const body = new URLSearchParams({ title: "olhem isso", url: "https://example.com" }).toString();
+    const first = await fetch(`${baseUrl}/api/bff/notifications/share-handler`, { method: "POST", headers, body });
+    const second = await fetch(`${baseUrl}/api/bff/notifications/share-handler`, { method: "POST", headers, body });
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    const firstBody = (await first.json()) as { fired: number };
+    const secondBody = (await second.json()) as { fired: number };
+    assert.deepEqual(firstBody, secondBody, "a segunda chamada com o mesmo corpo deveria devolver o MESMO resultado, nunca disparar de novo");
+  } finally {
+    server.close();
+    await mockGo.close();
+  }
+});

@@ -62,6 +62,10 @@ type RunWorkflowResponse =
   InternalPaths["/v1/tenants/{tenant}/workflows/{id}/run"]["post"]["responses"]["200"]["content"]["application/json"];
 type EmitEventResponse =
   InternalPaths["/v1/tenants/{tenant}/events/{eventname}"]["post"]["responses"]["200"]["content"]["application/json"];
+type ManifestResponse =
+  InternalPaths["/v1/tenants/{tenant}/manifest"]["get"]["responses"]["200"]["content"]["application/json"];
+type ShareHandlerResponse =
+  InternalPaths["/v1/tenants/{tenant}/share-handler"]["post"]["responses"]["200"]["content"]["application/json"];
 
 export interface GoClientOptions {
   readonly baseUrl: string;
@@ -451,6 +455,45 @@ export class GoClient {
   ): Promise<EmitEventResponse> {
     const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/events/${encodeURIComponent(eventName)}`);
     return this.request<EmitEventResponse>(url, {
+      method: "POST",
+      serviceIdentityToken,
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: input,
+    });
+  }
+
+  // getManifest (GO-053) — DELIBERADAMENTE sem serviceIdentityToken: o
+  // endpoint Go correspondente não exige identidade delegada (um
+  // manifesto PWA é buscado pelo navegador antes de qualquer login
+  // existir, ver internal-api.yaml). Por isso não reaproveita
+  // this.request (que sempre envia Authorization) — um fetch direto,
+  // mesmo tratamento de indisponibilidade (5xx/timeout → erro
+  // controlado).
+  async getManifest(tenant: string): Promise<ManifestResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/manifest`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.opts.timeoutMs);
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) {
+        await res.body?.cancel();
+        throw domainUnavailableError();
+      }
+      return (await res.json()) as ManifestResponse;
+    } catch (err) {
+      if (err instanceof BffError) throw err;
+      throw domainUnavailableError();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  // shareHandler (GO-053) — mesmo mecanismo de emitEvent, nome de evento
+  // fixo no lado Go; a Idempotency-Key é sempre calculada pelo BFF (ver
+  // nota de escopo em app.ts sobre o POST nativo do Web Share Target).
+  async shareHandler(serviceIdentityToken: string, idempotencyKey: string, tenant: string, input: { title?: string; text?: string; url?: string }): Promise<ShareHandlerResponse> {
+    const url = new URL(`${this.opts.baseUrl}/v1/tenants/${encodeURIComponent(tenant)}/share-handler`);
+    return this.request<ShareHandlerResponse>(url, {
       method: "POST",
       serviceIdentityToken,
       headers: { "Idempotency-Key": idempotencyKey },
