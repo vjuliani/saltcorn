@@ -1615,3 +1615,102 @@ falham genuinamente com 403, confirmando que um POST nativo do Web
 Share Target seria rejeitado indevidamente se a isenção fosse removida.
 Todas as três restauradas com sucesso confirmado. Detalhes completos em
 `docs/migracao-go/execucoes/GO-053.md`.
+
+## Catálogo estendido de ações nativas de trigger (GO-054)
+
+Achado de nicho de GO-050 (§6.5 item 9a, 15 ações do legado
+`base-plugin/actions.ts`). Achado real de preflight: a assinatura de
+`ActionFuncTx` (`ctx, tx, table, row, config`) não dava a NENHUMA ação
+um jeito de despachar outra ação/trigger recursivamente, nem de
+escrever pela via autorizada de `internal/records` (que exige
+`actorRole`) — o mesmo problema que `RunJSCodeFuncTx` (GO-040) já havia
+resolvido para si mesma. Solução: **`ActionFuncTx` alargada** de
+`(ctx, tx, table, row, config)` para
+`(ctx, tx, d *Dispatcher, tenant, actorRole, table, row, config)` —
+mesmo precedente de GO-040, generalizado porque várias ações (não uma)
+precisavam do mesmo acesso. `sendEmailAction`/`webhookAction` (GO-029)
+migradas mecanicamente para a nova assinatura, sem mudança de
+comportamento; ~13 literais de `ActionFuncTx` em 6 arquivos de teste
+atualizados pelo mesmo motivo mecânico.
+
+**5 das 15 ações portadas** (as únicas com efeito real do lado do
+servidor e um caminho viável dentro do framework, mesmo alargado):
+
+- **`sleep`**: só o ramo `sleep_where=="Server"` — o ramo
+  padrão/cliente do legado devolve um `eval_js` executado no
+  navegador, sem NENHUM efeito de servidor, vira no-op aqui. Teto de
+  segurança novo, `maxSleepSeconds=30`: a ação roda DENTRO da mesma
+  transação que disparou o trigger, então um `configuration.seconds`
+  grande mantém uma conexão/transação Postgres aberta pelo tempo todo —
+  um risco real de esgotamento do pool que o legado não tem do mesmo
+  jeito. Confirmado por regressão deliberada: sem o teto, um
+  `seconds=3600` genuinamente trava a transação (stack trace confirmou
+  a transação real ainda aberta ao timeout do teste).
+- **`duplicate_row`**: copia a linha (exclui `id` E `_version` — ver
+  achado real abaixo), escreve via `records.CreateRecordTx` com os
+  MESMOS hooks do Dispatcher, então a duplicata dispara seus próprios
+  triggers de inserção, igual a `table.insertRow(...)` no legado.
+- **`emit_event`**: cascata real via `Dispatcher.EmitEventTx` (GO-052)
+  — nenhum segundo mecanismo de despacho. `configuration.payload`
+  (expressão JS do legado que recalcula o payload) não é avaliado,
+  sempre reemite a própria `row` — `internal/expression.Evaluator` só
+  avalia para um `ExpectedType` escalar hoje.
+- **`set_user_language`**: só a metade gravável
+  (`identity.SetUserLanguageTx`, GO-047) — o resto do legado
+  (`req.login` para renovar o cookie de sessão Express) não tem
+  equivalente num backend stateless/JWT. `configuration.user_id` é
+  EXPLÍCITO (nunca implícito a partir de "usuário da sessão atual") —
+  o Dispatcher só propaga `actorRole` (um NÍVEL de papel), nunca uma
+  identidade de usuário específica, mesma limitação de
+  `RunJSCodeFuncTx`.
+- **`loop_rows`**: consulta via `records.RowsTx`
+  (`configuration.where` traduzido para igualdade pura via
+  `equalityWhere` — nunca a expressão JS arbitrária do legado),
+  despacha `configuration.trigger_id` (via novo `GetTriggerByIDTx`)
+  para cada linha através de `d.RunOneTx` — a MESMA primitiva de
+  despacho de `runBeforeTx`/`runAfterTx`/`EmitEventTx`.
+  `configuration.interval` (pausa entre iterações do legado) NÃO
+  suportado — o mesmo risco de segurar uma transação documentado em
+  `sleep` se multiplicaria por N linhas do laço.
+
+**10 ações deliberadamente excluídas**, cada uma com evidência
+específica (ver `docs/migracao-go/execucoes/GO-054.md`):
+`toast`/`copy_to_clipboard`/`reload_embedded_view`/`progress_bar`/
+`duplicate_row_prefill_edit` não têm NENHUM efeito do lado do servidor
+no legado (só diretivas de navegador que `ActionFuncTx` — só devolve
+`error` — não tem como carregar); `refresh_user_session`/
+`step_control_flow` não têm conceito equivalente no Go (sessão
+stateless; nenhum trigger multi-step existe para controlar);
+`recalculate_stored_fields` não tem NENHUM conceito de campo
+calculado/armazenado em `internal/metadata`; `download_file_to_browser`
+embutiria o arquivo em base64 no resultado da ação, formato que
+`ActionFuncTx` não produz; `notify_user` está bloqueada em
+`internal/notify.Create` (`pgx.Tx`-only, GO-055) — anotada como
+extensão natural de GO-056 quando essa conversão existir.
+
+**2 achados reais corrigidos durante a implementação:**
+
+1. `duplicateRowAction` original só excluía `"id"` do mapa copiado, mas
+   `records.RowsTx`/`CreateRecordTx` sempre incluem uma coluna
+   sintética `"_version"` (controle de concorrência otimista) no mapa
+   de linha — `records.validateFieldValues` rejeita `_version` como
+   campo definível diretamente. Confirmado falhando genuinamente no
+   PRIMEIRO teste real escrito, antes da correção (excluir também
+   `_version`).
+2. Recursão infinita real ao testar `duplicate_row` como o PRÓPRIO
+   trigger `AfterInsert` da tabela-alvo: a linha duplicada dispara o
+   MESMO trigger de novo, ad infinitum — confirmado travando um
+   processo `go test` real (transação Postgres aberta >60s, stack trace
+   confirmou a recursão). Mesmo comportamento do legado (`table.
+   insertRow` chamaria os MESMOS hooks) — documentado no comentário de
+   `duplicateRowAction`, não corrigido (não é uma divergência, é um
+   risco real inerente à ação, que quem a registra deve evitar).
+
+**Verificação de regressão deliberada**: remoção do teto de `sleep`
+(seconds=3600 genuinamente trava a transação, confirmado via
+`go test -timeout 5s`); reversão da exclusão de `_version` em
+`duplicate_row` (mesmo erro do achado real 1); `equalityWhere` sempre
+`nil` em `loop_rows` (uma linha `published=false` que deveria ficar de
+fora do laço passa a ser processada). Todas as três restauradas com
+sucesso confirmado. Detalhes completos em
+`docs/migracao-go/execucoes/GO-054.md`.

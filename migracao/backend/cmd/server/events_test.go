@@ -44,7 +44,7 @@ func buildEventsHandler(t *testing.T, verifier *tenancy.Verifier, guard *cutover
 // reais).
 func dispatcherWithMarkAction(fired *[]string) *triggers.Dispatcher {
 	return &triggers.Dispatcher{Actions: map[string]triggers.ActionFuncTx{
-		"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, cfg map[string]any) error {
+		"mark": func(ctx context.Context, tx database.Tx, d *triggers.Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, cfg map[string]any) error {
 			name, _ := cfg["name"].(string)
 			*fired = append(*fired, name)
 			return nil

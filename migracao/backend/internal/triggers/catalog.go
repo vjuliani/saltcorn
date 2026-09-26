@@ -164,6 +164,21 @@ func ListAllTx(ctx context.Context, tx database.Tx) ([]Trigger, error) {
 	return queryTriggersTx(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers ORDER BY id`)
 }
 
+// GetTriggerByIDTx (GO-054) busca um único trigger por id — usado pela
+// ação nativa loop_rows para resolver o trigger configurado a rodar sobre
+// cada linha do laço (configuration.trigger_id), o mesmo papel que
+// `Trigger.findOne({id})` cumpre no legado.
+func GetTriggerByIDTx(ctx context.Context, tx database.Tx, id int) (Trigger, error) {
+	trigs, err := queryTriggersTx(ctx, tx, `SELECT id, table_id, when_trigger, action, only_if, after_commit, configuration FROM _sc_triggers WHERE id = $1`, id)
+	if err != nil {
+		return Trigger{}, err
+	}
+	if len(trigs) == 0 {
+		return Trigger{}, ErrTriggerNotFound
+	}
+	return trigs[0], nil
+}
+
 func queryTriggersTx(ctx context.Context, tx database.Tx, sql string, args ...any) ([]Trigger, error) {
 	rows, err := tx.Query(ctx, sql, args...)
 	if err != nil {

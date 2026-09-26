@@ -368,7 +368,7 @@ func TestSQLite_CreateRecordHandler_DispatchesRealTrigger(t *testing.T) {
 
 	var fired []string
 	dispatcher := &triggers.Dispatcher{Actions: map[string]triggers.ActionFuncTx{
-		"mark": func(ctx context.Context, tx database.Tx, table metadata.Table, row map[string]any, config map[string]any) error {
+		"mark": func(ctx context.Context, tx database.Tx, d *triggers.Dispatcher, tenant tenancy.Tenant, actorRole identity.RoleID, table metadata.Table, row map[string]any, config map[string]any) error {
 			fired = append(fired, fmt.Sprint(row["title"]))
 			return nil
 		},
