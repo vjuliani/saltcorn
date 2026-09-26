@@ -179,6 +179,17 @@ func Migrate(ctx context.Context, root string, c *Config, email, password string
 				return err
 			}
 		}
+		if version < 3 {
+			if err = EnsureMetadataSchema(ctx, tx); err != nil {
+				return err
+			}
+			if err = tx.Exec(ctx, `INSERT INTO _sc_migrations VALUES (3,'instance-metadata')`); err != nil {
+				return err
+			}
+		}
+		if _, err = WriteMetadata(ctx, tx, "core_version", "core_version", nil, map[string]any{"release": Release, "schema": SchemaVersion}); err != nil {
+			return err
+		}
 		return nil
 	})
 }

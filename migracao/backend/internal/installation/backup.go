@@ -170,7 +170,14 @@ func SyncPlugins(ctx context.Context, root string, c Config) error {
 	if _, err = hashes(filepath.Join(root, "plugins")); err != nil {
 		return err
 	}
+	if err := validatePluginVersions(root, inv); err != nil {
+		return err
+	}
 	return transaction(ctx, root, c, func(tx database.Tx, _ pgx.Tx) error {
+		previous, err := currentPluginVersions(ctx, tx)
+		if err != nil {
+			return err
+		}
 		if err := tx.Exec(ctx, `DELETE FROM _sc_plugin_versions`); err != nil {
 			return err
 		}
@@ -184,7 +191,7 @@ func SyncPlugins(ctx context.Context, root string, c Config) error {
 				return err
 			}
 		}
-		return nil
+		return pluginUpgradeAudit(ctx, tx, previous, inv)
 	})
 }
 func Backup(ctx context.Context, root string, c Config, dest string) error {
