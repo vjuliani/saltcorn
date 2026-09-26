@@ -399,6 +399,25 @@ export function buildRouter(deps: AppDeps): Router {
     sendJSON(res, 200, result);
   });
 
+  // shareHandler (GO-053) — recebe conteúdo compartilhado via a API Web
+  // Share Target do navegador (POST nativo, `application/x-www-form-
+  // urlencoded`, disparado pelo próprio SO/navegador a partir do
+  // manifesto — nunca uma página desta aplicação). DELIBERADAMENTE sem
+  // requireCsrf: esse POST nativo não tem como anexar o cabeçalho
+  // X-CSRF-Token (nenhuma página/JS controla a requisição). A
+  // Idempotency-Key é sempre calculada aqui, nunca exigida do chamador,
+  // mesmo motivo.
+  router.post("/api/bff/notifications/share-handler", async (req, res) => {
+    const { data } = await requireSession(req, sessionStore);
+    const raw = await readRawBody(req);
+    const params = new URLSearchParams(raw.toString("utf8"));
+    const body = { title: params.get("title") ?? undefined, text: params.get("text") ?? undefined, url: params.get("url") ?? undefined };
+    const token = mintServiceIdentity(config.serviceIdentitySecret, { sub: data.userId, tenant: data.tenant }, config.serviceIdentityTtlSeconds);
+    const idempotencyKey = computeIdempotencyKey(data.userId, data.tenant, "share-handler", body);
+    const result = await goClient.shareHandler(token, idempotencyKey, data.tenant, body);
+    sendJSON(res, 200, result);
+  });
+
   // Administração de usuário (GO-044) — a UI de `auth/admin.ts` do
   // legado. Autorização "é admin?" fica quase toda do lado Go
   // (identity.requireAdmin, 403 se não for) — o BFF só propaga; a única

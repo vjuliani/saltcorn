@@ -1070,7 +1070,7 @@ Execute a task GO-052 — Portar mecanismo de evento nomeado (emitEvent) e capac
 
 ### GO-053 — Portar Web Share Target (PWA) reaproveitando o mecanismo de evento nomeado
 
-- [ ] **Status:** TODO
+- [ ] **Status:** IN_REVIEW
 - **Fase:** F5 · **Prioridade:** P2 · **Tamanho:** S
 - **Responsável sugerido:** Backend + BFF
 - **Depende de:** GO-047, GO-052

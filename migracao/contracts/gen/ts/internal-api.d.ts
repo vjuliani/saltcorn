@@ -745,6 +745,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tenants/{tenant}/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Query: manifesto PWA dinâmico do tenant
+         * @description GO-053 — o mecanismo Go por trás de `GET /manifest.json` do legado (routes/notifications.ts). Deliberadamente SEM identidade delegada (nenhuma segurança `ServiceIdentity` nesta operação) — um manifesto PWA é, por definição do próprio padrão web, buscado pelo navegador antes de qualquer login existir; nenhuma informação sensível é exposta (nome do site, ícones, cores). `share_target` só aparece quando existe ao menos um trigger com `when_trigger = "ReceiveMobileShareData"` (ver `emitEvent`) — aponta para o endpoint de share-handler do BFF, nunca para este backend diretamente.
+         */
+        get: operations["getManifest"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tenants/{tenant}/share-handler": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Command: recebe conteúdo compartilhado via Web Share Target, disparando ReceiveMobileShareData
+         * @description GO-053 — o mecanismo Go por trás de `POST /notifications/share- handler` do legado. Reaproveita DIRETAMENTE o mesmo mecanismo de `emitEvent` (mesma capacidade de ownership, mesmo `Dispatcher.EmitEvent`) — só a fronteira HTTP muda: o nome do evento ("ReceiveMobileShareData") é fixo, nunca um parâmetro do chamador, e exige um ator autenticado (não-público), replicando a checagem do legado antes de emitir. 404 se nenhum trigger `ReceiveMobileShareData` estiver registrado ("compartilhamento não habilitado"), mesma mensagem do legado.
+         */
+        post: operations["shareHandler"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -912,6 +956,37 @@ export interface components {
         EmitEventResult: {
             /** @description Quantos triggers corresponderam a eventname e dispararam (0 nunca é erro — só significa que nenhum trigger está registrado para este nome ainda). */
             fired: number;
+        };
+        /** @description Campos do Web Share Target (título/texto/URL compartilhados) — `enctype=application/x-www-form-urlencoded`, válido pela própria especificação para compartilhamento só de texto. Compartilhamento de ARQUIVO (multipart) fica deliberadamente fora de escopo de GO-053 — ver docs/migracao-go/execucoes/GO-053.md. */
+        ShareHandlerInput: {
+            title?: string;
+            text?: string;
+            url?: string;
+        };
+        PWAManifestIcon: {
+            src: string;
+            sizes: string;
+            type?: string;
+            purpose?: string;
+        };
+        PWAShareTarget: {
+            action: string;
+            method: string;
+            enctype: string;
+            params: {
+                title: string;
+                text: string;
+                url: string;
+            };
+        };
+        PWAManifest: {
+            name: string;
+            start_url: string;
+            display: string;
+            icons?: components["schemas"]["PWAManifestIcon"][];
+            theme_color?: string;
+            background_color?: string;
+            share_target?: components["schemas"]["PWAShareTarget"];
         };
         WorkflowRun: {
             id: components["schemas"]["Id"];
@@ -3208,6 +3283,103 @@ export interface operations {
             409: components["responses"]["IdempotencyConflict"];
             /** @description Capacidade temporariamente esgotada (service_unavailable); Retry-After em segundos */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getManifest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description manifesto PWA válido */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PWAManifest"];
+                };
+            };
+            /** @description banco não configurado ou indisponível nesta instância */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    shareHandler: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict). */
+                "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                tenant: components["schemas"]["Tenant"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ShareHandlerInput"];
+            };
+        };
+        responses: {
+            /** @description conteúdo compartilhado despachado */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmitEventResult"];
+                };
+            };
+            /** @description corpo inválido, ou Idempotency-Key ausente */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description ator público (não autenticado) tentou compartilhar */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description nenhum trigger ReceiveMobileShareData registrado neste tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            409: components["responses"]["IdempotencyConflict"];
+            /** @description banco não configurado ou indisponível nesta instância */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1544,3 +1544,74 @@ em `DueTriggersTx` (o teste de parity contra SQLite falha de verdade com
 um erro de sintaxe SQL genuíno). Todas restauradas com sucesso
 confirmado. Detalhes completos em
 `docs/migracao-go/execucoes/GO-055.md`.
+
+## Web Share Target (PWA): manifesto dinâmico e recebimento de conteúdo compartilhado (GO-053)
+
+Achado de nicho de GO-050 (§6.5 item 5) — o legado expunha
+`GET /manifest.json` (Web App Manifest, derivado de config) e
+`POST /share-handler` (Web Share Target, chamando
+`Trigger.emitEvent("ReceiveMobileShareData", ...)`). Ambos portados
+reaproveitando o `Dispatcher.EmitEvent` que GO-052 já havia portado —
+nenhum segundo mecanismo de despacho.
+
+- **`cmd/server/pwa.go`**: `manifestHandler` (sem autenticação — o
+  manifesto é público por natureza; ícones vêm de `pwa_icons` ou, na
+  ausência, de `site_logo_id`; cores de `pwa_set_colors`; bloco
+  `share_target` só aparece quando existe um trigger
+  `ReceiveMobileShareData` cadastrado no tenant) e
+  `shareHandlerHandler` (exige sessão não-pública, 404
+  `sharing_not_enabled` sem trigger, despacha via `outbox.Do` +
+  `Dispatcher.EmitEvent` — MESMO mecanismo de `cmd/server/events.go`).
+- **Achado no legado, sem equivalente necessário em Go**: `Trigger.
+  emitEvent("ReceiveMobileShareData", null, user, {row: body})` no
+  legado usa um truque de spread de objeto (`action.run({..., row:
+  payload, ...payload})` — como `payload` tem a própria chave `row`,
+  ela SOBRESCREVE a atribuição inicial, fazendo o `row` final ser
+  `body` diretamente, não `{row: body}` aninhado). `Dispatcher.
+  EmitEventTx` em Go já passa `payload` DIRETO como `row`, então o
+  handler Go passa `body` diretamente como payload — nunca envolvido
+  em `{row: body}}`.
+- **Restrição arquitetural genuína, descoberta no preflight**: o BFF
+  não tem NENHUM mecanismo de resolução de tenant anônima fora do modo
+  self-hosted (`requireSession` resolve tenant inteiramente da sessão
+  no modo geral; `selfHostedListener` usa um `options.tenant` FIXO,
+  conhecido no início do processo). Por isso `GET /manifest.json` só é
+  servido no modo self-hosted do BFF — expô-lo no modo hospedado geral
+  exigiria inventar um mecanismo de resolução de tenant fora do escopo
+  desta task.
+- **Divergências deliberadas** (documentadas em
+  `docs/migracao-go/execucoes/GO-053.md`): `share_target.enctype` =
+  `application/x-www-form-urlencoded` (só texto — título/texto/URL;
+  compartilhamento de ARQUIVO por este caminho HTTP específico fica
+  fora de escopo, o mecanismo de trigger com arquivo já foi provado em
+  GO-052 por outro caminho); `install_progressive_web_app` (ação
+  client-side) fora de escopo PERMANENTEMENTE — não existe mecanismo de
+  ação client-side em nenhuma camada de Go/BFF/frontend, e navegadores
+  modernos já oferecem prompt de instalação automaticamente a partir de
+  um manifesto válido (o próprio entregável desta task). Nenhuma task
+  de follow-up aberta para nenhuma das duas.
+- **BFF (`app.ts`)**: `POST /api/bff/notifications/share-handler` exige
+  sessão, decodifica `application/x-www-form-urlencoded`, calcula
+  `Idempotency-Key` via `computeIdempotencyKey` (mesmo mecanismo de
+  `emitEvent`), e DELIBERADAMENTE não chama `requireCsrf` — um POST
+  nativo do Web Share Target é disparado pelo próprio SO/navegador a
+  partir do manifesto, nunca por uma página desta aplicação, e por isso
+  nunca consegue anexar `X-CSRF-Token`.
+- **Limitação do harness de E2E, descoberta por leitura de código**: o
+  harness (`migracao/e2e/scripts/start-bff.mjs`) usa `buildRouter`
+  diretamente, nunca `selfHostedListener` — `GET /manifest.json`
+  (registrado só em `selfHostedListener`) é genuinamente inalcançável a
+  partir da suíte E2E padrão. Cobertura de `manifest.json` fica só nos
+  testes unitários de Go/BFF; o spec E2E (`share-handler.spec.ts`) cobre
+  somente `POST /share-handler`.
+
+**Verificação de regressão deliberada**: bypass do `outbox.Do` no
+`shareHandlerHandler` (idempotência) — o teste de retry com a mesma
+`Idempotency-Key` detecta o disparo duplo genuíno. Remoção da checagem
+`role == identity.RolePublic` — o teste de role pública detecta o 200
+indevido. Readição de `requireCsrf` na rota do BFF (o mecanismo mais
+sensível a segurança desta task) — 3 dos 4 testes de `share-handler`
+falham genuinamente com 403, confirmando que um POST nativo do Web
+Share Target seria rejeitado indevidamente se a isenção fosse removida.
+Todas as três restauradas com sucesso confirmado. Detalhes completos em
+`docs/migracao-go/execucoes/GO-053.md`.

@@ -339,6 +339,37 @@ type Mutation struct {
 // MutationKind defines model for Mutation.Kind.
 type MutationKind string
 
+// PWAManifest defines model for PWAManifest.
+type PWAManifest struct {
+	BackgroundColor *string            `json:"background_color,omitempty"`
+	Display         string             `json:"display"`
+	Icons           *[]PWAManifestIcon `json:"icons,omitempty"`
+	Name            string             `json:"name"`
+	ShareTarget     *PWAShareTarget    `json:"share_target,omitempty"`
+	StartUrl        string             `json:"start_url"`
+	ThemeColor      *string            `json:"theme_color,omitempty"`
+}
+
+// PWAManifestIcon defines model for PWAManifestIcon.
+type PWAManifestIcon struct {
+	Purpose *string `json:"purpose,omitempty"`
+	Sizes   string  `json:"sizes"`
+	Src     string  `json:"src"`
+	Type    *string `json:"type,omitempty"`
+}
+
+// PWAShareTarget defines model for PWAShareTarget.
+type PWAShareTarget struct {
+	Action  string `json:"action"`
+	Enctype string `json:"enctype"`
+	Method  string `json:"method"`
+	Params  struct {
+		Text  string `json:"text"`
+		Title string `json:"title"`
+		Url   string `json:"url"`
+	} `json:"params"`
+}
+
 // Page defines model for Page.
 type Page struct {
 	Items []interface{} `json:"items"`
@@ -454,6 +485,13 @@ type Scope struct {
 	Actor  string `json:"actor"`
 	Table  string `json:"table"`
 	Tenant string `json:"tenant"`
+}
+
+// ShareHandlerInput Campos do Web Share Target (título/texto/URL compartilhados) — `enctype=application/x-www-form-urlencoded`, válido pela própria especificação para compartilhamento só de texto. Compartilhamento de ARQUIVO (multipart) fica deliberadamente fora de escopo de GO-053 — ver docs/migracao-go/execucoes/GO-053.md.
+type ShareHandlerInput struct {
+	Text  *string `json:"text,omitempty"`
+	Title *string `json:"title,omitempty"`
+	Url   *string `json:"url,omitempty"`
 }
 
 // Table defines model for Table.
@@ -831,6 +869,12 @@ type ListRealtimeEventsParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ShareHandlerParams defines parameters for ShareHandler.
+type ShareHandlerParams struct {
+	// IdempotencyKey Chave de idempotência escopada por tenant/ator/operação (ADR-0001). Requisições repetidas com a mesma chave e o mesmo payload retornam o resultado da primeira execução; a mesma chave com payload diferente é rejeitada com 409 (ver response IdempotencyConflict).
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // UpdateTablePermissionsJSONBody defines parameters for UpdateTablePermissions.
 type UpdateTablePermissionsJSONBody struct {
 	MinRoleRead  int `json:"min_role_read"`
@@ -958,6 +1002,9 @@ type EmitEventJSONRequestBody = EmitEventInput
 
 // UploadFileMultipartRequestBody defines body for UploadFile for multipart/form-data ContentType.
 type UploadFileMultipartRequestBody UploadFileMultipartBody
+
+// ShareHandlerJSONRequestBody defines body for ShareHandler for application/json ContentType.
+type ShareHandlerJSONRequestBody = ShareHandlerInput
 
 // ExchangeOfflineSyncJSONRequestBody defines body for ExchangeOfflineSync for application/json ContentType.
 type ExchangeOfflineSyncJSONRequestBody = Request
@@ -1498,12 +1545,37 @@ type ClientInterface interface {
 	// Corresponds with POST /v1/tenants/{tenant}/impersonations/{id}/end (the `EndImpersonation` operationId).
 	EndImpersonation(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetManifest Query: manifesto PWA dinâmico do tenant
+	//
+	// GO-053 — o mecanismo Go por trás de `GET /manifest.json` do legado (routes/notifications.ts). Deliberadamente SEM identidade delegada (nenhuma segurança `ServiceIdentity` nesta operação) — um manifesto PWA é, por definição do próprio padrão web, buscado pelo navegador antes de qualquer login existir; nenhuma informação sensível é exposta (nome do site, ícones, cores). `share_target` só aparece quando existe ao menos um trigger com `when_trigger = "ReceiveMobileShareData"` (ver `emitEvent`) — aponta para o endpoint de share-handler do BFF, nunca para este backend diretamente.
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/manifest (the `GetManifest` operationId).
+	GetManifest(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListRealtimeEvents Query: eventos de tempo real pendentes de entrega ao ator autenticado
 	//
 	// Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
 	//
 	// Corresponds with GET /v1/tenants/{tenant}/realtime/events (the `ListRealtimeEvents` operationId).
 	ListRealtimeEvents(ctx context.Context, tenant Tenant, params *ListRealtimeEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ShareHandlerWithBody Command: recebe conteúdo compartilhado via Web Share Target, disparando ReceiveMobileShareData
+	//
+	// GO-053 — o mecanismo Go por trás de `POST /notifications/share- handler` do legado. Reaproveita DIRETAMENTE o mesmo mecanismo de `emitEvent` (mesma capacidade de ownership, mesmo `Dispatcher.EmitEvent`) — só a fronteira HTTP muda: o nome do evento ("ReceiveMobileShareData") é fixo, nunca um parâmetro do chamador, e exige um ator autenticado (não-público), replicando a checagem do legado antes de emitir. 404 se nenhum trigger `ReceiveMobileShareData` estiver registrado ("compartilhamento não habilitado"), mesma mensagem do legado.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/share-handler (the `ShareHandler` operationId).
+	ShareHandlerWithBody(ctx context.Context, tenant Tenant, params *ShareHandlerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ShareHandler Command: recebe conteúdo compartilhado via Web Share Target, disparando ReceiveMobileShareData
+	//
+	// GO-053 — o mecanismo Go por trás de `POST /notifications/share- handler` do legado. Reaproveita DIRETAMENTE o mesmo mecanismo de `emitEvent` (mesma capacidade de ownership, mesmo `Dispatcher.EmitEvent`) — só a fronteira HTTP muda: o nome do evento ("ReceiveMobileShareData") é fixo, nunca um parâmetro do chamador, e exige um ator autenticado (não-público), replicando a checagem do legado antes de emitir. 404 se nenhum trigger `ReceiveMobileShareData` estiver registrado ("compartilhamento não habilitado"), mesma mensagem do legado.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/share-handler (the `ShareHandler` operationId).
+	ShareHandler(ctx context.Context, tenant Tenant, params *ShareHandlerParams, body ShareHandlerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ExchangeOfflineSyncWithBody Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
 	//
@@ -2098,6 +2170,23 @@ func (c *Client) EndImpersonation(ctx context.Context, tenant Tenant, id Id, req
 	return c.Client.Do(req)
 }
 
+// GetManifest Query: manifesto PWA dinâmico do tenant
+//
+// GO-053 — o mecanismo Go por trás de `GET /manifest.json` do legado (routes/notifications.ts). Deliberadamente SEM identidade delegada (nenhuma segurança `ServiceIdentity` nesta operação) — um manifesto PWA é, por definição do próprio padrão web, buscado pelo navegador antes de qualquer login existir; nenhuma informação sensível é exposta (nome do site, ícones, cores). `share_target` só aparece quando existe ao menos um trigger com `when_trigger = "ReceiveMobileShareData"` (ver `emitEvent`) — aponta para o endpoint de share-handler do BFF, nunca para este backend diretamente.
+//
+// Corresponds with GET /v1/tenants/{tenant}/manifest (the `GetManifest` operationId).
+func (c *Client) GetManifest(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetManifestRequest(c.Server, tenant)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListRealtimeEvents Query: eventos de tempo real pendentes de entrega ao ator autenticado
 //
 // Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
@@ -2105,6 +2194,44 @@ func (c *Client) EndImpersonation(ctx context.Context, tenant Tenant, id Id, req
 // Corresponds with GET /v1/tenants/{tenant}/realtime/events (the `ListRealtimeEvents` operationId).
 func (c *Client) ListRealtimeEvents(ctx context.Context, tenant Tenant, params *ListRealtimeEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListRealtimeEventsRequest(c.Server, tenant, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ShareHandlerWithBody Command: recebe conteúdo compartilhado via Web Share Target, disparando ReceiveMobileShareData
+//
+// GO-053 — o mecanismo Go por trás de `POST /notifications/share- handler` do legado. Reaproveita DIRETAMENTE o mesmo mecanismo de `emitEvent` (mesma capacidade de ownership, mesmo `Dispatcher.EmitEvent`) — só a fronteira HTTP muda: o nome do evento ("ReceiveMobileShareData") é fixo, nunca um parâmetro do chamador, e exige um ator autenticado (não-público), replicando a checagem do legado antes de emitir. 404 se nenhum trigger `ReceiveMobileShareData` estiver registrado ("compartilhamento não habilitado"), mesma mensagem do legado.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/share-handler (the `ShareHandler` operationId).
+func (c *Client) ShareHandlerWithBody(ctx context.Context, tenant Tenant, params *ShareHandlerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewShareHandlerRequestWithBody(c.Server, tenant, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ShareHandler Command: recebe conteúdo compartilhado via Web Share Target, disparando ReceiveMobileShareData
+//
+// GO-053 — o mecanismo Go por trás de `POST /notifications/share- handler` do legado. Reaproveita DIRETAMENTE o mesmo mecanismo de `emitEvent` (mesma capacidade de ownership, mesmo `Dispatcher.EmitEvent`) — só a fronteira HTTP muda: o nome do evento ("ReceiveMobileShareData") é fixo, nunca um parâmetro do chamador, e exige um ator autenticado (não-público), replicando a checagem do legado antes de emitir. 404 se nenhum trigger `ReceiveMobileShareData` estiver registrado ("compartilhamento não habilitado"), mesma mensagem do legado.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /v1/tenants/{tenant}/share-handler (the `ShareHandler` operationId).
+func (c *Client) ShareHandler(ctx context.Context, tenant Tenant, params *ShareHandlerParams, body ShareHandlerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewShareHandlerRequest(c.Server, tenant, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3351,6 +3478,40 @@ func NewEndImpersonationRequest(server string, tenant Tenant, id Id) (*http.Requ
 	return req, nil
 }
 
+// NewGetManifestRequest constructs an http.Request for the GetManifest method
+func NewGetManifestRequest(server string, tenant Tenant) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/manifest", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListRealtimeEventsRequest constructs an http.Request for the ListRealtimeEvents method
 func NewListRealtimeEventsRequest(server string, tenant Tenant, params *ListRealtimeEventsParams) (*http.Request, error) {
 	var err error
@@ -3419,6 +3580,66 @@ func NewListRealtimeEventsRequest(server string, tenant Tenant, params *ListReal
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewShareHandlerRequest calls the generic ShareHandler builder with application/json body
+func NewShareHandlerRequest(server string, tenant Tenant, params *ShareHandlerParams, body ShareHandlerJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewShareHandlerRequestWithBody(server, tenant, params, "application/json", bodyReader)
+}
+
+// NewShareHandlerRequestWithBody constructs an http.Request for the ShareHandler method, with any body, and a specified content type
+func NewShareHandlerRequestWithBody(server string, tenant Tenant, params *ShareHandlerParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "tenant", tenant, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/v1/tenants/%s/share-handler", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("Idempotency-Key", headerParam0)
+
 	}
 
 	return req, nil
@@ -5435,6 +5656,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /v1/tenants/{tenant}/impersonations/{id}/end (the `EndImpersonation` operationId).
 	EndImpersonationWithResponse(ctx context.Context, tenant Tenant, id Id, reqEditors ...RequestEditorFn) (*EndImpersonationResponse, error)
 
+	// GetManifestWithResponse Query: manifesto PWA dinâmico do tenant
+	//
+	// GO-053 — o mecanismo Go por trás de `GET /manifest.json` do legado (routes/notifications.ts). Deliberadamente SEM identidade delegada (nenhuma segurança `ServiceIdentity` nesta operação) — um manifesto PWA é, por definição do próprio padrão web, buscado pelo navegador antes de qualquer login existir; nenhuma informação sensível é exposta (nome do site, ícones, cores). `share_target` só aparece quando existe ao menos um trigger com `when_trigger = "ReceiveMobileShareData"` (ver `emitEvent`) — aponta para o endpoint de share-handler do BFF, nunca para este backend diretamente.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /v1/tenants/{tenant}/manifest (the `GetManifest` operationId).
+	GetManifestWithResponse(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*GetManifestResponse, error)
+
 	// ListRealtimeEventsWithResponse Query: eventos de tempo real pendentes de entrega ao ator autenticado
 	//
 	// Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
@@ -5443,6 +5673,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /v1/tenants/{tenant}/realtime/events (the `ListRealtimeEvents` operationId).
 	ListRealtimeEventsWithResponse(ctx context.Context, tenant Tenant, params *ListRealtimeEventsParams, reqEditors ...RequestEditorFn) (*ListRealtimeEventsResponse, error)
+
+	// ShareHandlerWithBodyWithResponse Command: recebe conteúdo compartilhado via Web Share Target, disparando ReceiveMobileShareData
+	//
+	// GO-053 — o mecanismo Go por trás de `POST /notifications/share- handler` do legado. Reaproveita DIRETAMENTE o mesmo mecanismo de `emitEvent` (mesma capacidade de ownership, mesmo `Dispatcher.EmitEvent`) — só a fronteira HTTP muda: o nome do evento ("ReceiveMobileShareData") é fixo, nunca um parâmetro do chamador, e exige um ator autenticado (não-público), replicando a checagem do legado antes de emitir. 404 se nenhum trigger `ReceiveMobileShareData` estiver registrado ("compartilhamento não habilitado"), mesma mensagem do legado.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/share-handler (the `ShareHandler` operationId).
+	ShareHandlerWithBodyWithResponse(ctx context.Context, tenant Tenant, params *ShareHandlerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ShareHandlerResponse, error)
+
+	// ShareHandlerWithResponse Command: recebe conteúdo compartilhado via Web Share Target, disparando ReceiveMobileShareData
+	//
+	// GO-053 — o mecanismo Go por trás de `POST /notifications/share- handler` do legado. Reaproveita DIRETAMENTE o mesmo mecanismo de `emitEvent` (mesma capacidade de ownership, mesmo `Dispatcher.EmitEvent`) — só a fronteira HTTP muda: o nome do evento ("ReceiveMobileShareData") é fixo, nunca um parâmetro do chamador, e exige um ator autenticado (não-público), replicando a checagem do legado antes de emitir. 404 se nenhum trigger `ReceiveMobileShareData` estiver registrado ("compartilhamento não habilitado"), mesma mensagem do legado.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /v1/tenants/{tenant}/share-handler (the `ShareHandler` operationId).
+	ShareHandlerWithResponse(ctx context.Context, tenant Tenant, params *ShareHandlerParams, body ShareHandlerJSONRequestBody, reqEditors ...RequestEditorFn) (*ShareHandlerResponse, error)
 
 	// ExchangeOfflineSyncWithBodyWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
 	//
@@ -6340,6 +6588,54 @@ func (r EndImpersonationResponse) ContentType() string {
 	return ""
 }
 
+type GetManifestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *PWAManifest
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetManifestResponse) GetJSON200() *PWAManifest {
+	return r.JSON200
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r GetManifestResponse) GetJSON502() *Error {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r GetManifestResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetManifestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetManifestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetManifestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListRealtimeEventsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -6406,6 +6702,82 @@ func (r ListRealtimeEventsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListRealtimeEventsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ShareHandlerResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EmitEventResult
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *Error
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *Error
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *Error
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *IdempotencyConflict
+	// JSON502 the response for an HTTP 502 `application/json` response
+	JSON502 *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ShareHandlerResponse) GetJSON200() *EmitEventResult {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ShareHandlerResponse) GetJSON400() *Error {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ShareHandlerResponse) GetJSON401() *Error {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ShareHandlerResponse) GetJSON404() *Error {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ShareHandlerResponse) GetJSON409() *IdempotencyConflict {
+	return r.JSON409
+}
+
+// GetJSON502 returns the response for an HTTP 502 `application/json` response
+func (r ShareHandlerResponse) GetJSON502() *Error {
+	return r.JSON502
+}
+
+// GetBody returns the raw response body bytes
+func (r ShareHandlerResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ShareHandlerResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ShareHandlerResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ShareHandlerResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -8907,6 +9279,21 @@ func (c *ClientWithResponses) EndImpersonationWithResponse(ctx context.Context, 
 	return ParseEndImpersonationResponse(rsp)
 }
 
+// GetManifestWithResponse Query: manifesto PWA dinâmico do tenant
+//
+// GO-053 — o mecanismo Go por trás de `GET /manifest.json` do legado (routes/notifications.ts). Deliberadamente SEM identidade delegada (nenhuma segurança `ServiceIdentity` nesta operação) — um manifesto PWA é, por definição do próprio padrão web, buscado pelo navegador antes de qualquer login existir; nenhuma informação sensível é exposta (nome do site, ícones, cores). `share_target` só aparece quando existe ao menos um trigger com `when_trigger = "ReceiveMobileShareData"` (ver `emitEvent`) — aponta para o endpoint de share-handler do BFF, nunca para este backend diretamente.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /v1/tenants/{tenant}/manifest (the `GetManifest` operationId).
+func (c *ClientWithResponses) GetManifestWithResponse(ctx context.Context, tenant Tenant, reqEditors ...RequestEditorFn) (*GetManifestResponse, error) {
+	rsp, err := c.GetManifest(ctx, tenant, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetManifestResponse(rsp)
+}
+
 // ListRealtimeEventsWithResponse Query: eventos de tempo real pendentes de entrega ao ator autenticado
 //
 // Adicionado por GO-028 — o BFF Node.js (único lugar onde o protocolo Socket.IO de fato roda, ADR-0003/ADR-0007) faz polling curto desta rota, uma vez por socket conectado, para saber o que reemitir. O filtro por destinatário roda inteiramente aqui (`internal/realtime.ListSinceForActor`): a resposta já contém só os eventos que o `sub` do token deveria receber (broadcast do tenant + endereçados especificamente a ele), nunca eventos de outro usuário — o BFF não decide audience, só reemite o que recebe. `after` é o cursor de retomada opaco (o `next_after` de uma chamada anterior); omitido, lê desde o início da janela de retenção atual.
@@ -8920,6 +9307,36 @@ func (c *ClientWithResponses) ListRealtimeEventsWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseListRealtimeEventsResponse(rsp)
+}
+
+// ShareHandlerWithBodyWithResponse Command: recebe conteúdo compartilhado via Web Share Target, disparando ReceiveMobileShareData
+//
+// GO-053 — o mecanismo Go por trás de `POST /notifications/share- handler` do legado. Reaproveita DIRETAMENTE o mesmo mecanismo de `emitEvent` (mesma capacidade de ownership, mesmo `Dispatcher.EmitEvent`) — só a fronteira HTTP muda: o nome do evento ("ReceiveMobileShareData") é fixo, nunca um parâmetro do chamador, e exige um ator autenticado (não-público), replicando a checagem do legado antes de emitir. 404 se nenhum trigger `ReceiveMobileShareData` estiver registrado ("compartilhamento não habilitado"), mesma mensagem do legado.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/share-handler (the `ShareHandler` operationId).
+func (c *ClientWithResponses) ShareHandlerWithBodyWithResponse(ctx context.Context, tenant Tenant, params *ShareHandlerParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ShareHandlerResponse, error) {
+	rsp, err := c.ShareHandlerWithBody(ctx, tenant, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseShareHandlerResponse(rsp)
+}
+
+// ShareHandlerWithResponse Command: recebe conteúdo compartilhado via Web Share Target, disparando ReceiveMobileShareData
+//
+// GO-053 — o mecanismo Go por trás de `POST /notifications/share- handler` do legado. Reaproveita DIRETAMENTE o mesmo mecanismo de `emitEvent` (mesma capacidade de ownership, mesmo `Dispatcher.EmitEvent`) — só a fronteira HTTP muda: o nome do evento ("ReceiveMobileShareData") é fixo, nunca um parâmetro do chamador, e exige um ator autenticado (não-público), replicando a checagem do legado antes de emitir. 404 se nenhum trigger `ReceiveMobileShareData` estiver registrado ("compartilhamento não habilitado"), mesma mensagem do legado.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /v1/tenants/{tenant}/share-handler (the `ShareHandler` operationId).
+func (c *ClientWithResponses) ShareHandlerWithResponse(ctx context.Context, tenant Tenant, params *ShareHandlerParams, body ShareHandlerJSONRequestBody, reqEditors ...RequestEditorFn) (*ShareHandlerResponse, error) {
+	rsp, err := c.ShareHandler(ctx, tenant, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseShareHandlerResponse(rsp)
 }
 
 // ExchangeOfflineSyncWithBodyWithResponse Sincroniza alterações offline com conflitos explícitos e snapshot autorizado
@@ -9994,6 +10411,39 @@ func ParseEndImpersonationResponse(rsp *http.Response) (*EndImpersonationRespons
 	return response, nil
 }
 
+// ParseGetManifestResponse parses an HTTP response from a GetManifestWithResponse call
+func ParseGetManifestResponse(rsp *http.Response) (*GetManifestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetManifestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PWAManifest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListRealtimeEventsResponse parses an HTTP response from a ListRealtimeEventsWithResponse call
 func ParseListRealtimeEventsResponse(rsp *http.Response) (*ListRealtimeEventsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -10040,6 +10490,67 @@ func ParseListRealtimeEventsResponse(rsp *http.Response) (*ListRealtimeEventsRes
 			return nil, err
 		}
 		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseShareHandlerResponse parses an HTTP response from a ShareHandlerWithResponse call
+func ParseShareHandlerResponse(rsp *http.Response) (*ShareHandlerResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ShareHandlerResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EmitEventResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest IdempotencyConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 502:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON502 = &dest
 
 	}
 
